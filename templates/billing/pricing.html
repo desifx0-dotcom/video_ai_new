@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing - Video AI Studio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <style>
+        :root {
+            --primary: #4a6cf7;
+            --primary-dark: #3a5ce5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --light: #f9fafb;
+        }
+        
+        .pricing-hero {
+            background: linear-gradient(135deg, #4a6cf7 0%, #6a11cb 100%);
+            color: white;
+            padding: 80px 0;
+            margin-bottom: 60px;
+        }
+        
+        .pricing-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .pricing-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+        
+        .pricing-card.popular {
+            border: 2px solid var(--primary);
+            position: relative;
+        }
+        
+        .popular-badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            padding: 5px 20px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .pricing-header {
+            padding: 30px;
+            text-align: center;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .pricing-price {
+            font-size: 3.5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin: 20px 0;
+        }
+        
+        .pricing-price .period {
+            font-size: 1rem;
+            color: #6b7280;
+        }
+        
+        .pricing-features {
+            padding: 30px;
+        }
+        
+        .pricing-features ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .pricing-features li {
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+            display: flex;
+            align-items: center;
+        }
+        
+        .pricing-features li:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 0.8rem;
+        }
+        
+        .feature-icon.check {
+            background: #d1fae5;
+            color: var(--success);
+        }
+        
+        .feature-icon.x {
+            background: #fee2e2;
+            color: var(--danger);
+        }
+        
+        .feature-icon.info {
+            background: #dbeafe;
+            color: var(--primary);
+        }
+        
+        .pricing-footer {
+            padding: 30px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+        
+        .btn-pricing {
+            padding: 12px 30px;
+            font-weight: 600;
+            border-radius: 8px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-pricing-primary {
+            background: var(--primary);
+            color: white;
+            border: none;
+        }
+        
+        .btn-pricing-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 108, 247, 0.3);
+        }
+        
+        .btn-pricing-outline {
+            background: white;
+            color: var(--primary);
+            border: 2px solid var(--primary);
+        }
+        
+        .btn-pricing-outline:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .tier-comparison {
+            margin-top: 80px;
+        }
+        
+        .comparison-table {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .table-header {
+            background: var(--primary);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .feature-category {
+            background: #f9fafb;
+            font-weight: 600;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .feature-row {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+        }
+        
+        .feature-row:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-name {
+            flex: 1;
+            font-weight: 500;
+        }
+        
+        .feature-value {
+            width: 100px;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .feature-value.free { color: #6b7280; }
+        .feature-value.starter { color: var(--primary); }
+        .feature-value.pro { color: var(--warning); }
+        .feature-value.plus { color: var(--success); }
+        .feature-value.enterprise { color: var(--dark); }
+        
+        .savings-badge {
+            background: #10b981;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 5px;
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        
+        .toggle-label {
+            margin: 0 15px;
+            font-weight: 600;
+            color: #6b7280;
+            transition: color 0.3s ease;
+        }
+        
+        .toggle-label.active {
+            color: var(--primary);
+        }
+        
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: var(--primary);
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .faq-section {
+            margin-top: 80px;
+            padding: 60px 0;
+            background: #f9fafb;
+        }
+        
+        .faq-item {
+            margin-bottom: 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        }
+        
+        .faq-question {
+            padding: 20px;
+            background: white;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+        }
+        
+        .faq-answer {
+            padding: 0 20px;
+            background: white;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        
+        .faq-answer.show {
+            padding: 20px;
+            max-height: 500px;
+        }
+        
+        .testimonial-card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        
+        .testimonial-text {
+            font-style: italic;
+            margin-bottom: 20px;
+            color: #4b5563;
+        }
+        
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+        }
+        
+        .author-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            margin-right: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .pricing-price {
+                font-size: 2.5rem;
+            }
+            
+            .feature-value {
+                width: 80px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-video me-2 text-primary"></i>
+                <strong>Video AI Studio</strong>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('api.v1.routers.videos.upload') }}">Upload</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('api.v1.routers.billing.pricing') }}">Pricing</a>
+                    </li>
+                    {% if current_user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i> {{ current_user.email }}
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('api.v1.routers.videos.dashboard') }}">Dashboard</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('api.v1.routers.videos.history') }}">History</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('api.v1.routers.users.settings') }}">Settings</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('api.v1.routers.auth.logout') }}">Logout</a></li>
+                        </ul>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('api.v1.routers.auth.login') }}">Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="btn btn-primary" href="{{ url_for('api.v1.routers.auth.register') }}">Sign Up</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pricing-hero">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center">
+                    <h1 class="display-4 mb-4">Simple, Transparent Pricing</h1>
+                    <p class="lead mb-4">
+                        Choose the perfect plan for your video processing needs. 
+                        All plans include our core AI features with tier-based enhancements.
+                    </p>
+                    
+                    <!-- Billing Toggle -->
+                    <div class="toggle-container">
+                        <span class="toggle-label active" id="monthly-label">Monthly</span>
+                        <label class="switch">
+                            <input type="checkbox" id="billing-toggle">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label" id="yearly-label">Yearly <span class="savings-badge">Save 20%</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Cards -->
+    <section class="pricing-cards">
+        <div class="container">
+            <div class="row g-4">
+                <!-- Free Tier -->
+                <div class="col-lg-3 col-md-6">
+                    <div class="pricing-card h-100">
+                        <div class="pricing-header">
+                            <h3 class="h4 mb-3">Free</h3>
+                            <div class="pricing-price">
+                                $0<span class="period">/month</span>
+                            </div>
+                            <p class="text-muted">Try our basic AI features</p>
+                        </div>
+                        <div class="pricing-features">
+                            <ul>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>3 videos/month</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>3 minutes max length</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>720p output quality</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>1 AI thumbnail</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>3 video styles</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Free translation (100+ languages)</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>24-hour retention</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon x">
+                                        <i class="fas fa-times"></i>
+                                    </div>
+                                    <span class="text-muted">Priority processing</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon x">
+                                        <i class="fas fa-times"></i>
+                                    </div>
+                                    <span class="text-muted">Silent video analysis</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            {% if current_user.is_authenticated and current_user.tier == 'free' %}
+                            <button class="btn btn-pricing-outline" disabled>
+                                Current Plan
+                            </button>
+                            {% elif current_user.is_authenticated %}
+                            <button class="btn btn-pricing-outline" onclick="downgradeToFree()">
+                                Switch to Free
+                            </button>
+                            {% else %}
+                            <a href="{{ url_for('api.v1.routers.auth.register') }}" class="btn btn-pricing-outline">
+                                Get Started Free
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Starter Tier -->
+                <div class="col-lg-3 col-md-6">
+                    <div class="pricing-card h-100">
+                        <div class="pricing-header">
+                            <h3 class="h4 mb-3">Starter</h3>
+                            <div class="pricing-price monthly">
+                                $24<span class="period">/month</span>
+                            </div>
+                            <div class="pricing-price yearly d-none">
+                                $19.20<span class="period">/month</span>
+                                <div class="text-muted small">$230.40 billed yearly</div>
+                            </div>
+                            <p class="text-muted">For content creators</p>
+                        </div>
+                        <div class="pricing-features">
+                            <ul>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Process more videos</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>30 minutes max length</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>1080p output quality</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>3 AI thumbnails</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>All 20+ video styles</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Free translation (100+ languages)</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>7-day retention</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Priority processing</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Silent video analysis (2 frames)</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            {% if current_user.is_authenticated and current_user.tier == 'starter' %}
+                            <button class="btn btn-pricing-primary" disabled>
+                                Current Plan
+                            </button>
+                            {% elif current_user.is_authenticated %}
+                            <button class="btn btn-pricing-primary" onclick="upgradeToStarter()">
+                                Upgrade to Starter
+                            </button>
+                            {% else %}
+                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=starter" class="btn btn-pricing-primary">
+                                Start Free Trial
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pro Tier (Most Popular) -->
+                <div class="col-lg-3 col-md-6">
+                    <div class="pricing-card h-100 popular">
+                        <div class="popular-badge">MOST POPULAR</div>
+                        <div class="pricing-header">
+                            <h3 class="h4 mb-3">Pro</h3>
+                            <div class="pricing-price monthly">
+                                $79<span class="period">/month</span>
+                            </div>
+                            <div class="pricing-price yearly d-none">
+                                $63.20<span class="period">/month</span>
+                                <div class="text-muted small">$758.40 billed yearly</div>
+                            </div>
+                            <p class="text-muted">For professionals & agencies</p>
+                        </div>
+                        <div class="pricing-features">
+                            <ul>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>100 videos/month</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>60 minutes max length</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>4K output quality</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>5 AI thumbnails (SD-XL, 40 steps)</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>All premium styles</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Gemini 1.5 Pro + GPT-4 fallback</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>30-day retention</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Express processing queue</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Silent video analysis (3 frames)</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Up to 60fps interpolation</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            {% if current_user.is_authenticated and current_user.tier == 'pro' %}
+                            <button class="btn btn-pricing-primary" disabled>
+                                Current Plan
+                            </button>
+                            {% elif current_user.is_authenticated %}
+                            <button class="btn btn-pricing-primary" onclick="upgradeToPro()">
+                                Upgrade to Pro
+                            </button>
+                            {% else %}
+                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=pro" class="btn btn-pricing-primary">
+                                Start Free Trial
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Plus Tier -->
+                <div class="col-lg-3 col-md-6">
+                    <div class="pricing-card h-100">
+                        <div class="pricing-header">
+                            <h3 class="h4 mb-3">Plus</h3>
+                            <div class="pricing-price monthly">
+                                $250<span class="period">/month</span>
+                            </div>
+                            <div class="pricing-price yearly d-none">
+                                $200<span class="period">/month</span>
+                                <div class="text-muted small">$2,400 billed yearly</div>
+                            </div>
+                            <p class="text-muted">For businesses & teams</p>
+                        </div>
+                        <div class="pricing-features">
+                            <ul>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>500 videos/month</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>120 minutes max length</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>4K+HDR output quality</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>10 AI thumbnails (SD3.6-Turbo, 50 steps)</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>All premium + custom styles</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>GPT-4 Turbo primary</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>90-day retention</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>VIP processing queue</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Full video analysis</span>
+                                </li>
+                                <li>
+                                    <div class="feature-icon check">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <span>Priority support</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            {% if current_user.is_authenticated and current_user.tier == 'plus' %}
+                            <button class="btn btn-pricing-primary" disabled>
+                                Current Plan
+                            </button>
+                            {% elif current_user.is_authenticated %}
+                            <button class="btn btn-pricing-primary" onclick="upgradeToPlus()">
+                                Upgrade to Plus
+                            </button>
+                            {% else %}
+                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=plus" class="btn btn-pricing-primary">
+                                Start Free Trial
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enterprise Card -->
+            <div class="row mt-5">
+                <div class="col-12">
+                    <div class="pricing-card">
+                        <div class="row g-0">
+                            <div class="col-md-8">
+                                <div class="p-5">
+                                    <h3 class="h2 mb-3">Enterprise</h3>
+                                    <p class="lead mb-4">
+                                        Custom solutions for large organizations with specific requirements.
+                                    </p>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <ul class="list-unstyled">
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    Unlimited videos
+                                                </li>
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    Highest quality processing
+                                                </li>
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    White-label option
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <ul class="list-unstyled">
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    On-premise deployment
+                                                </li>
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    Dedicated account manager
+                                                </li>
+                                                <li class="mb-2">
+                                                    <i class="fas fa-check text-success me-2"></i>
+                                                    SLA guarantees
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4 bg-dark text-white">
+                                <div class="p-5 h-100 d-flex flex-column justify-content-center">
+                                    <h4 class="mb-3">Custom Pricing</h4>
+                                    <p class="mb-4">
+                                        Contact our sales team for a custom quote tailored to your needs.
+                                    </p>
+                                    <button class="btn btn-light" onclick="contactSales()">
+                                        Contact Sales
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature Comparison -->
+    <section class="tier-comparison">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="display-5 mb-3">Detailed Feature Comparison</h2>
+                    <p class="lead text-muted">Compare all features across different tiers</p>
+                </div>
+            </div>
+
+            <div class="comparison-table">
+                <!-- Table Header -->
+                <div class="table-header">
+                    <div class="row">
+                        <div class="col-4 text-start">
+                            <h4 class="mb-0">Feature</h4>
+                        </div>
+                        <div class="col-2">
+                            <h4 class="mb-0">Free</h4>
+                        </div>
+                        <div class="col-2">
+                            <h4 class="mb-0">Starter</h4>
+                        </div>
+                        <div class="col-2">
+                            <h4 class="mb-0">Pro</h4>
+                        </div>
+                        <div class="col-2">
+                            <h4 class="mb-0">Plus</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Processing Limits -->
+                <div class="feature-category">Processing Limits</div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Videos per month</div>
+                    <div class="feature-value free">3</div>
+                    <div class="feature-value starter">~50</div>
+                    <div class="feature-value pro">100</div>
+                    <div class="feature-value plus">500</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Max video length</div>
+                    <div class="feature-value free">3 min</div>
+                    <div class="feature-value starter">30 min</div>
+                    <div class="feature-value pro">60 min</div>
+                    <div class="feature-value plus">120 min</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Max file size</div>
+                    <div class="feature-value free">100 MB</div>
+                    <div class="feature-value starter">500 MB</div>
+                    <div class="feature-value pro">2 GB</div>
+                    <div class="feature-value plus">5 GB</div>
+                </div>
+
+                <!-- Video Quality -->
+                <div class="feature-category">Video Quality</div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Output resolution</div>
+                    <div class="feature-value free">720p</div>
+                    <div class="feature-value starter">1080p</div>
+                    <div class="feature-value pro">4K</div>
+                    <div class="feature-value plus">4K+HDR</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">FFmpeg preset</div>
+                    <div class="feature-value free">ultrafast</div>
+                    <div class="feature-value starter">veryfast</div>
+                    <div class="feature-value pro">slow</div>
+                    <div class="feature-value plus">veryslow</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Max frame rate</div>
+                    <div class="feature-value free">30 fps</div>
+                    <div class="feature-value starter">30 fps</div>
+                    <div class="feature-value pro">60 fps</div>
+                    <div class="feature-value plus">60 fps</div>
+                </div>
+
+                <!-- AI Features -->
+                <div class="feature-category">AI Features</div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">AI thumbnails</div>
+                    <div class="feature-value free">1 (20 steps)</div>
+                    <div class="feature-value starter">3 (30 steps)</div>
+                    <div class="feature-value pro">5 (40 steps)</div>
+                    <div class="feature-value plus">10 (50 steps)</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Extracted thumbnails</div>
+                    <div class="feature-value free">5</div>
+                    <div class="feature-value starter">8</div>
+                    <div class="feature-value pro">15</div>
+                    <div class="feature-value plus">25</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Text generation</div>
+                    <div class="feature-value free">Gemini Flash</div>
+                    <div class="feature-value starter">Gemini Flash</div>
+                    <div class="feature-value pro">Gemini Pro + GPT-4</div>
+                    <div class="feature-value plus">GPT-4 Turbo</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Video styles</div>
+                    <div class="feature-value free">3 basic</div>
+                    <div class="feature-value starter">All 20+</div>
+                    <div class="feature-value pro">All premium</div>
+                    <div class="feature-value plus">All + custom</div>
+                </div>
+
+                <!-- Processing -->
+                <div class="feature-category">Processing</div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Queue priority</div>
+                    <div class="feature-value free">Normal</div>
+                    <div class="feature-value starter">Priority</div>
+                    <div class="feature-value pro">Express</div>
+                    <div class="feature-value plus">VIP</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Retention period</div>
+                    <div class="feature-value free">24 hours</div>
+                    <div class="feature-value starter">7 days</div>
+                    <div class="feature-value pro">30 days</div>
+                    <div class="feature-value plus">90 days</div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Silent video analysis</div>
+                    <div class="feature-value free">-</div>
+                    <div class="feature-value starter">2 frames</div>
+                    <div class="feature-value pro">3 frames</div>
+                    <div class="feature-value plus">Full video</div>
+                </div>
+
+                <!-- Support -->
+                <div class="feature-category">Support</div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Email support</div>
+                    <div class="feature-value free">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value starter">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                    <div class="feature-value pro">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                    <div class="feature-value plus">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Priority support</div>
+                    <div class="feature-value free">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value starter">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value pro">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                    <div class="feature-value plus">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                </div>
+                
+                <div class="feature-row">
+                    <div class="feature-name">Dedicated support</div>
+                    <div class="feature-value free">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value starter">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value pro">
+                        <i class="fas fa-times text-danger"></i>
+                    </div>
+                    <div class="feature-value plus">
+                        <i class="fas fa-check text-success"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cost Savings Section -->
+    <section class="faq-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center mb-5">
+                    <h2 class="display-5 mb-3">Smart Cost Savings</h2>
+                    <p class="lead">Our intelligent system saves you money automatically</p>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="text-center p-4">
+                        <div class="mb-4">
+                            <div class="display-4 text-primary">69%</div>
+                            <div class="text-muted">Cost Savings</div>
+                        </div>
+                        <h5>Silent Video Detection</h5>
+                        <p class="text-muted">
+                            Automatic detection of silent videos reduces AI processing costs by 69%.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="text-center p-4">
+                        <div class="mb-4">
+                            <div class="display-4 text-success">100%</div>
+                            <div class="text-muted">Free Service</div>
+                        </div>
+                        <h5>Translation Service</h5>
+                        <p class="text-muted">
+                            All translation is free using googletrans with 100+ supported languages.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="text-center p-4">
+                        <div class="mb-4">
+                            <div class="display-4 text-warning">95%</div>
+                            <div class="text-muted">Profit Margin</div>
+                        </div>
+                        <h5>Efficient Processing</h5>
+                        <p class="text-muted">
+                            Our optimized AI models maintain 95%+ profit margins at scale.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2>Trusted by Creators Worldwide</h2>
+                    <p class="text-muted">See what our users are saying</p>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="testimonial-card">
+                        <div class="testimonial-text">
+                            "The silent video detection saved me hundreds of dollars. This is the smartest AI video tool I've used."
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">SM</div>
+                            <div>
+                                <h6 class="mb-0">Sarah Mitchell</h6>
+                                <small class="text-muted">Content Creator</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="testimonial-card">
+                        <div class="testimonial-text">
+                            "Upgraded to Pro and the quality difference is incredible. 4K processing is flawless and fast."
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">JR</div>
+                            <div>
+                                <h6 class="mb-0">James Rodriguez</h6>
+                                <small class="text-muted">Video Agency Owner</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="testimonial-card">
+                        <div class="testimonial-text">
+                            "The free tier got me hooked. Now on Plus and processing hundreds of videos monthly for my business."
+                        </div>
+                        <div class="testimonial-author">
+                            <div class="author-avatar">ET</div>
+                            <div>
+                                <h6 class="mb-0">Emma Thompson</h6>
+                                <small class="text-muted">E-commerce Brand</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="display-5 mb-3">Frequently Asked Questions</h2>
+                    <p class="lead text-muted">Find answers to common questions</p>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-lg-8 mx-auto">
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            What happens if I exceed my monthly video limit?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>If you exceed your monthly limit, you won't be able to process new videos until the next billing cycle. However, you can:</p>
+                            <ul>
+                                <li>Upgrade to a higher tier immediately</li>
+                                <li>Purchase additional credits</li>
+                                <li>Wait until your limit resets</li>
+                            </ul>
+                            <p>Free tier users have the option to upgrade to continue processing.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How does silent video detection work?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>Our system automatically analyzes audio tracks using FFmpeg to detect if a video contains speech. Videos without speech:</p>
+                            <ul>
+                                <li>Skip expensive transcription services</li>
+                                <li>Use cheaper AI models for analysis</li>
+                                <li>Save 69% on processing costs</li>
+                            </ul>
+                            <p>This happens automatically - you don't need to do anything!</p>
+                        </div>
+                    </div>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Can I cancel my subscription anytime?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>Yes, you can cancel your subscription at any time. When you cancel:</p>
+                            <ul>
+                                <li>You'll continue to have access until the end of your billing period</li>
+                                <li>Your account will downgrade to Free tier automatically</li>
+                                <li>You'll keep all your processed videos (subject to retention periods)</li>
+                                <li>You can resubscribe anytime</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            What payment methods do you accept?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>We accept all major credit cards through Stripe:</p>
+                            <ul>
+                                <li>Visa, Mastercard, American Express</li>
+                                <li>Discover, JCB, Diners Club</li>
+                                <li>Apple Pay, Google Pay</li>
+                            </ul>
+                            <p>Enterprise customers can also pay via invoice (net 30 terms).</p>
+                        </div>
+                    </div>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Is there a free trial for paid plans?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>Yes! All paid plans include a 14-day free trial with full access to all features. During the trial:</p>
+                            <ul>
+                                <li>No credit card required to start</li>
+                                <li>Full access to all plan features</li>
+                                <li>Process up to 10 videos for testing</li>
+                                <li>Cancel anytime during trial with no charge</li>
+                            </ul>
+                            <p>After the trial, you'll be asked to enter payment details to continue.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How do upgrades/downgrades work?
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="faq-answer">
+                            <p>Upgrading or downgrading is easy and immediate:</p>
+                            <ul>
+                                <li><strong>Upgrades:</strong> Take effect immediately. You'll be charged a prorated amount for the remainder of your billing cycle.</li>
+                                <li><strong>Downgrades:</strong> Take effect at the end of your current billing period. You'll keep access to higher tier features until then.</li>
+                                <li><strong>Yearly to Monthly:</strong> You can switch anytime, but yearly discounts won't apply to monthly billing.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-5 bg-primary text-white">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center">
+                    <h2 class="display-5 mb-4">Ready to Transform Your Videos?</h2>
+                    <p class="lead mb-4">Join thousands of creators using Video AI Studio to enhance their content.</p>
+                    <div class="d-flex flex-column flex-md-row justify-content-center gap-3">
+                        {% if current_user.is_authenticated %}
+                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" class="btn btn-light btn-lg">
+                            <i class="fas fa-upload me-2"></i>Upload Your First Video
+                        </a>
+                        <a href="{{ url_for('api.v1.routers.users.settings') }}#billing" class="btn btn-outline-light btn-lg">
+                            <i class="fas fa-credit-card me-2"></i>Upgrade Your Plan
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('api.v1.routers.auth.register') }}" class="btn btn-light btn-lg">
+                            <i class="fas fa-rocket me-2"></i>Start Free Trial
+                        </a>
+                        <a href="{{ url_for('api.v1.routers.auth.login') }}" class="btn btn-outline-light btn-lg">
+                            <i class="fas fa-sign-in-alt me-2"></i>Sign In
+                        </a>
+                        {% endif %}
+                    </div>
+                    <p class="mt-4 small">
+                        Free tier includes 3 videos/month • No credit card required
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-4 mb-4">
+                    <h5 class="mb-3">Video AI Studio</h5>
+                    <p class="text-muted">
+                        AI-powered video processing for creators, businesses, and agencies.
+                    </p>
+                    <div class="d-flex gap-3">
+                        <a href="#" class="text-white"><i class="fab fa-twitter"></i></a>
+                        <a href="#" class="text-white"><i class="fab fa-facebook"></i></a>
+                        <a href="#" class="text-white"><i class="fab fa-instagram"></i></a>
+                        <a href="#" class="text-white"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-6 mb-4">
+                    <h6 class="mb-3">Product</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Features</a></li>
+                        <li class="mb-2"><a href="{{ url_for('api.v1.routers.billing.pricing') }}" class="text-muted text-decoration-none">Pricing</a></li>
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">API</a></li>
+                        <li><a href="#" class="text-muted text-decoration-none">Changelog</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-2 col-md-6 mb-4">
+                    <h6 class="mb-3">Resources</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Documentation</a></li>
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Help Center</a></li>
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Blog</a></li>
+                        <li><a href="#" class="text-muted text-decoration-none">Community</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-2 col-md-6 mb-4">
+                    <h6 class="mb-3">Company</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">About</a></li>
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Careers</a></li>
+                        <li class="mb-2"><a href="#" class="text-muted text-decoration-none">Contact</a></li>
+                        <li><a href="#" class="text-muted text-decoration-none">Legal</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-2 col-md-6 mb-4">
+                    <h6 class="mb-3">Contact</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="mailto:support@videoaistudio.com" class="text-muted text-decoration-none">support@videoaistudio.com</a></li>
+                        <li class="mb-2"><a href="tel:+15551234567" class="text-muted text-decoration-none">+1 (555) 123-4567</a></li>
+                        <li class="text-muted">123 AI Street<br>San Francisco, CA 94107</li>
+                    </ul>
+                </div>
+            </div>
+            <hr class="bg-secondary">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="text-muted mb-0">© 2024 Video AI Studio. All rights reserved.</p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <a href="#" class="text-muted text-decoration-none me-3">Privacy Policy</a>
+                    <a href="#" class="text-muted text-decoration-none">Terms of Service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script>
+        // Billing toggle
+        const billingToggle = document.getElementById('billing-toggle');
+        const monthlyLabel = document.getElementById('monthly-label');
+        const yearlyLabel = document.getElementById('yearly-label');
+        const monthlyPrices = document.querySelectorAll('.pricing-price.monthly');
+        const yearlyPrices = document.querySelectorAll('.pricing-price.yearly');
+        
+        billingToggle.addEventListener('change', function() {
+            const isYearly = this.checked;
+            
+            // Update labels
+            monthlyLabel.classList.toggle('active', !isYearly);
+            yearlyLabel.classList.toggle('active', isYearly);
+            
+            // Update prices
+            monthlyPrices.forEach(price => {
+                price.classList.toggle('d-none', isYearly);
+            });
+            
+            yearlyPrices.forEach(price => {
+                price.classList.toggle('d-none', !isYearly);
+            });
+        });
+        
+        // FAQ toggle
+        function toggleFAQ(element) {
+            const answer = element.nextElementSibling;
+            const icon = element.querySelector('i');
+            
+            answer.classList.toggle('show');
+            icon.classList.toggle('fa-chevron-down');
+            icon.classList.toggle('fa-chevron-up');
+        }
+        
+        // Upgrade functions
+        function upgradeToStarter() {
+            const isYearly = billingToggle.checked;
+            const price = isYearly ? 23040 : 2400; // In cents
+            initiateCheckout('starter', price, isYearly ? 'yearly' : 'monthly');
+        }
+        
+        function upgradeToPro() {
+            const isYearly = billingToggle.checked;
+            const price = isYearly ? 75840 : 7900; // In cents
+            initiateCheckout('pro', price, isYearly ? 'yearly' : 'monthly');
+        }
+        
+        function upgradeToPlus() {
+            const isYearly = billingToggle.checked;
+            const price = isYearly ? 240000 : 25000; // In cents
+            initiateCheckout('plus', price, isYearly ? 'yearly' : 'monthly');
+        }
+        
+        function downgradeToFree() {
+            if (confirm('Are you sure you want to downgrade to Free tier? You will lose access to premium features.')) {
+                fetch('/api/v1/billing/downgrade/free', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': '{{ csrf_token() }}'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Successfully downgraded to Free tier.');
+                        window.location.reload();
+                    } else {
+                        alert('Error: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('Error downgrading plan.');
+                });
+            }
+        }
+        
+        function contactSales() {
+            window.location.href = 'mailto:sales@videoaistudio.com?subject=Enterprise%20Plan%20Inquiry';
+        }
+        
+        function initiateCheckout(tier, price, interval) {
+            fetch('/api/v1/billing/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({
+                    tier: tier,
+                    price: price,
+                    interval: interval
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.checkout_url) {
+                    window.location.href = data.checkout_url;
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error initiating checkout.');
+            });
+        }
+        
+        // Initialize tooltips
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    </script>
+</body>
+</html>

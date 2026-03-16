@@ -1,0 +1,210 @@
+# Tier configuration for Video AI Studio
+# This file defines the features and limits for each subscription tier
+
+tiers:
+  free:
+    name: "Free"
+    price_monthly: 0
+    price_yearly: 0
+    videos_per_month: 3
+    max_video_length: 180  # 3 minutes in seconds
+    max_quality: "720p"
+    ffmpeg_preset: "ultrafast"
+    ai_thumbnails_count: 1
+    ai_thumbnail_steps: 20
+    extracted_thumbnails_count: 5
+    video_styles_available:
+      - "cinematic"
+      - "educational"
+      - "gaming"
+    text_generation_model: "gemini-flash"
+    silent_video_analysis_frames: 0
+    priority: 1
+    retention_days: 1
+    max_fps: 30
+    translation_enabled: true
+    batch_translation: false
+    email_support: false
+    priority_support: false
+    dedicated_support: false
+    features:
+      - "3 videos per month"
+      - "3 minute max video length"
+      - "720p output quality"
+      - "1 AI thumbnail (20 steps)"
+      - "5 extracted thumbnails"
+      - "3 basic video styles"
+      - "Gemini Flash text generation"
+      - "24-hour video retention"
+      - "Normal processing queue"
+      - "100+ language translation"
+
+  starter:
+    name: "Starter"
+    price_monthly: 24
+    price_yearly: 230  # ~20% discount
+    videos_per_month: 50
+    max_video_length: 1800  # 30 minutes
+    max_quality: "1080p"
+    ffmpeg_preset: "medium"
+    ai_thumbnails_count: 3
+    ai_thumbnail_steps: 30
+    extracted_thumbnails_count: 8
+    video_styles_available: "all"
+    text_generation_model: "gemini-flash"
+    silent_video_analysis_frames: 2
+    priority: 3
+    retention_days: 7
+    max_fps: 30
+    translation_enabled: true
+    batch_translation: false
+    email_support: true
+    priority_support: false
+    dedicated_support: false
+    features:
+      - "Process more videos per month"
+      - "30 minute max video length"
+      - "1080p output quality"
+      - "3 AI thumbnails (30 steps)"
+      - "8 extracted thumbnails"
+      - "All 20+ video styles"
+      - "Gemini Flash text generation"
+      - "7-day video retention"
+      - "Priority processing queue"
+      - "2-frame silent video analysis"
+      - "Email support"
+
+  pro:
+    name: "Pro"
+    price_monthly: 79
+    price_yearly: 759  # ~20% discount
+    videos_per_month: 100
+    max_video_length: 3600  # 60 minutes
+    max_quality: "4k"
+    ffmpeg_preset: "slow"
+    ai_thumbnails_count: 5
+    ai_thumbnail_steps: 40
+    extracted_thumbnails_count: 15
+    video_styles_available: "all"
+    text_generation_model: "gemini-pro"
+    silent_video_analysis_frames: 3
+    priority: 5
+    retention_days: 30
+    max_fps: 60
+    translation_enabled: true
+    batch_translation: false
+    email_support: true
+    priority_support: true
+    dedicated_support: false
+    features:
+      - "100 videos per month"
+      - "60 minute max video length"
+      - "4K output quality"
+      - "5 AI thumbnails (40 steps, SD-XL)"
+      - "15 extracted thumbnails"
+      - "All premium video styles"
+      - "Gemini Pro + GPT-4 fallback"
+      - "30-day video retention"
+      - "Express processing queue"
+      - "3-frame silent video analysis"
+      - "Up to 60fps interpolation"
+      - "Priority email support"
+
+  plus:
+    name: "Plus"
+    price_monthly: 250
+    price_yearly: 2400  # ~20% discount
+    videos_per_month: 500
+    max_video_length: 7200  # 120 minutes
+    max_quality: "4k+hdr"
+    ffmpeg_preset: "veryslow"
+    ai_thumbnails_count: 10
+    ai_thumbnail_steps: 50
+    extracted_thumbnails_count: 25
+    video_styles_available: "all+"
+    text_generation_model: "gpt-4-turbo"
+    silent_video_analysis_frames: 5
+    priority: 10
+    retention_days: 90
+    max_fps: 60
+    translation_enabled: true
+    batch_translation: true
+    email_support: true
+    priority_support: true
+    dedicated_support: true
+    features:
+      - "500 videos per month"
+      - "2 hour max video length"
+      - "4K+HDR output quality"
+      - "10 AI thumbnails (50 steps, SD3.6-Turbo)"
+      - "25 extracted thumbnails"
+      - "All premium + custom styles"
+      - "GPT-4 Turbo primary"
+      - "90-day video retention"
+      - "VIP processing queue (always first)"
+      - "5-frame + full video analysis"
+      - "Batch translation"
+      - "Dedicated support channel"
+      - "Custom style requests"
+
+  enterprise:
+    name: "Enterprise"
+    price_monthly: 999  # Starting price
+    price_yearly: 9590  # ~20% discount
+    videos_per_month: null  # Unlimited
+    max_video_length: 18000  # 300 minutes
+    max_quality: "best"
+    ffmpeg_preset: "veryslow"
+    ai_thumbnails_count: 20
+    ai_thumbnail_steps: 50
+    extracted_thumbnails_count: 50
+    video_styles_available: "all+custom"
+    text_generation_model: "gpt-4-turbo"
+    silent_video_analysis_frames: 10
+    priority: 20
+    retention_days: 365
+    max_fps: 120
+    translation_enabled: true
+    batch_translation: true
+    email_support: true
+    priority_support: true
+    dedicated_support: true
+    features:
+      - "Unlimited videos"
+      - "Highest quality available"
+      - "White-label option"
+      - "On-premise deployment"
+      - "Dedicated account manager"
+      - "SLA guarantees"
+      - "Custom feature development"
+      - "API access"
+      - "Advanced analytics"
+      - "Custom integration support"
+
+# Business rules
+business:
+  yearly_discount_percentage: 20
+  trial_period_days: 14
+  payment_grace_period_days: 3
+  free_tier_promotion: true
+  upgrade_incentive: 10  # Percentage discount for upgrades
+  
+# Cost calculations
+costs:
+  transcription_per_minute: 0.006
+  gemini_flash_per_request: 0.00006
+  gemini_pro_per_request: 0.00025
+  gpt_3_5_per_request: 0.00015
+  gpt_4_per_request: 0.0015
+  sd_20_steps: 0.002
+  sd_30_steps: 0.003
+  sd_40_steps: 0.004
+  sd_50_steps: 0.005
+  sd_xl_40_steps: 0.008
+  sd_3_6_turbo_50_steps: 0.012
+  
+# Profit margins
+margins:
+  target_minimum: 0.94  # 94%
+  free_tier_loss_acceptable: true
+  silent_video_savings: 0.69  # 69% savings

@@ -1,0 +1,702 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics Dashboard - Video AI Studio Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Analytics Dashboard</h1>
+        <div class="btn-group">
+            <button class="btn btn-outline-primary" id="refreshAnalyticsBtn">
+                <i class="fas fa-sync-alt me-1"></i> Refresh
+            </button>
+            <button class="btn btn-outline-secondary" id="exportAnalyticsBtn">
+                <i class="fas fa-download me-1"></i> Export
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-calendar me-1"></i> Last 30 Days
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="setDateRange('today')">Today</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="setDateRange('week')">Last 7 Days</a></li>
+                    <li><a class="dropdown-item active" href="#" onclick="setDateRange('month')">Last 30 Days</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="setDateRange('quarter')">Last 90 Days</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="setDateRange('year')">Last 365 Days</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#customDateRangeModal">Custom Range</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Total Revenue</h6>
+                            <h3 class="mb-0" id="totalRevenue">$0</h3>
+                            <small class="text-success" id="revenueChange">+0%</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-primary rounded-circle">
+                                <i class="fas fa-dollar-sign"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Active Users</h6>
+                            <h3 class="mb-0" id="activeUsers">0</h3>
+                            <small class="text-success" id="usersChange">+0%</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-success rounded-circle">
+                                <i class="fas fa-users"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Videos Processed</h6>
+                            <h3 class="mb-0" id="videosProcessed">0</h3>
+                            <small class="text-success" id="videosChange">+0%</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-warning rounded-circle">
+                                <i class="fas fa-video"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Avg. Processing Time</h6>
+                            <h3 class="mb-0" id="avgProcessingTime">0s</h3>
+                            <small class="text-danger" id="processingTimeChange">-0%</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-info rounded-circle">
+                                <i class="fas fa-clock"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Revenue & Usage Trends</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="revenueChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">User Tier Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="tierDistributionChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2 -->
+    <div class="row mb-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Video Processing by Type</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="videoTypeChart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Processing Queue Status</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="queueStatusChart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Stats -->
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Top Performing Tiers</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Tier</th>
+                                    <th>Users</th>
+                                    <th>Revenue</th>
+                                    <th>Avg. Revenue/User</th>
+                                    <th>Churn Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tierPerformanceTable">
+                                <!-- Will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Activity</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group list-group-flush" id="recentActivityList">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Date Range Modal -->
+<div class="modal fade" id="customDateRangeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Custom Date Range</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="customDateRangeForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="startDate" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="endDate" required>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="applyCustomDateRange">Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+<style>
+.avatar-sm {
+    width: 40px;
+    height: 40px;
+}
+
+.avatar-title {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.activity-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #eee;
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+.activity-icon.signup { background-color: #e3f2fd; color: #1976d2; }
+.activity-icon.payment { background-color: #e8f5e9; color: #388e3c; }
+.activity-icon.upgrade { background-color: #fff3e0; color: #f57c00; }
+.activity-icon.video { background-color: #f3e5f5; color: #7b1fa2; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize
+        loadAnalytics();
+        
+        // Event listeners
+        document.getElementById('refreshAnalyticsBtn').addEventListener('click', loadAnalytics);
+        document.getElementById('exportAnalyticsBtn').addEventListener('click', exportAnalytics);
+        document.getElementById('applyCustomDateRange').addEventListener('click', applyCustomDateRange);
+        
+        // Default date range
+        let dateRange = 'month';
+        
+        // Auto-refresh every 5 minutes
+        setInterval(loadAnalytics, 300000);
+    });
+    
+    let revenueChart, tierDistributionChart, videoTypeChart, queueStatusChart;
+    
+    async function loadAnalytics() {
+        try {
+            const response = await fetch(`/api/v1/admin/analytics?date_range=${dateRange}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const data = await response.json();
+            updateKPIs(data.kpis);
+            updateCharts(data.charts);
+            updateTables(data.tables);
+            updateActivity(data.recent_activity);
+        } catch (error) {
+            console.error('Failed to load analytics:', error);
+            showAlert('Failed to load analytics data', 'danger');
+        }
+    }
+    
+    function updateKPIs(kpis) {
+        document.getElementById('totalRevenue').textContent = `$${kpis.total_revenue.toLocaleString()}`;
+        document.getElementById('revenueChange').textContent = `${kpis.revenue_change >= 0 ? '+' : ''}${kpis.revenue_change}%`;
+        document.getElementById('revenueChange').className = `text-${kpis.revenue_change >= 0 ? 'success' : 'danger'}`;
+        
+        document.getElementById('activeUsers').textContent = kpis.active_users.toLocaleString();
+        document.getElementById('usersChange').textContent = `${kpis.users_change >= 0 ? '+' : ''}${kpis.users_change}%`;
+        document.getElementById('usersChange').className = `text-${kpis.users_change >= 0 ? 'success' : 'danger'}`;
+        
+        document.getElementById('videosProcessed').textContent = kpis.videos_processed.toLocaleString();
+        document.getElementById('videosChange').textContent = `${kpis.videos_change >= 0 ? '+' : ''}${kpis.videos_change}%`;
+        document.getElementById('videosChange').className = `text-${kpis.videos_change >= 0 ? 'success' : 'danger'}`;
+        
+        document.getElementById('avgProcessingTime').textContent = `${kpis.avg_processing_time}s`;
+        document.getElementById('processingTimeChange').textContent = `${kpis.processing_time_change >= 0 ? '+' : ''}${kpis.processing_time_change}%`;
+        document.getElementById('processingTimeChange').className = `text-${kpis.processing_time_change <= 0 ? 'success' : 'danger'}`;
+    }
+    
+    function updateCharts(chartData) {
+        // Revenue Chart
+        if (revenueChart) revenueChart.destroy();
+        
+        const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+        revenueChart = new Chart(revenueCtx, {
+            type: 'line',
+            data: {
+                labels: chartData.revenue.labels,
+                datasets: [
+                    {
+                        label: 'Revenue ($)',
+                        data: chartData.revenue.data,
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Videos Processed',
+                        data: chartData.usage.data,
+                        borderColor: '#20c997',
+                        backgroundColor: 'rgba(32, 201, 151, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: chartData.revenue.time_unit
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Revenue ($)'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Videos Processed'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    }
+                }
+            }
+        });
+        
+        // Tier Distribution Chart
+        if (tierDistributionChart) tierDistributionChart.destroy();
+        
+        const tierCtx = document.getElementById('tierDistributionChart').getContext('2d');
+        tierDistributionChart = new Chart(tierCtx, {
+            type: 'doughnut',
+            data: {
+                labels: chartData.tier_distribution.labels,
+                datasets: [{
+                    data: chartData.tier_distribution.data,
+                    backgroundColor: [
+                        '#6c757d', // Free
+                        '#0dcaf0', // Starter
+                        '#ffc107', // Pro
+                        '#0d6efd', // Plus
+                        '#212529'  // Enterprise
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} users (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Video Type Chart
+        if (videoTypeChart) videoTypeChart.destroy();
+        
+        const videoTypeCtx = document.getElementById('videoTypeChart').getContext('2d');
+        videoTypeChart = new Chart(videoTypeCtx, {
+            type: 'bar',
+            data: {
+                labels: chartData.video_types.labels,
+                datasets: [{
+                    label: 'Videos Processed',
+                    data: chartData.video_types.data,
+                    backgroundColor: [
+                        'rgba(13, 110, 253, 0.7)',
+                        'rgba(32, 201, 151, 0.7)',
+                        'rgba(255, 193, 7, 0.7)'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Speech vs Silent vs Music Videos'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Videos'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Queue Status Chart
+        if (queueStatusChart) queueStatusChart.destroy();
+        
+        const queueCtx = document.getElementById('queueStatusChart').getContext('2d');
+        queueStatusChart = new Chart(queueCtx, {
+            type: 'pie',
+            data: {
+                labels: chartData.queue_status.labels,
+                datasets: [{
+                    data: chartData.queue_status.data,
+                    backgroundColor: [
+                        '#28a745', // Completed
+                        '#ffc107', // Processing
+                        '#dc3545', // Failed
+                        '#6c757d'  // Queued
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Current Processing Queue Status'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} videos (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function updateTables(tableData) {
+        // Tier Performance Table
+        const tierTable = document.getElementById('tierPerformanceTable');
+        tierTable.innerHTML = tableData.tier_performance.map(tier => `
+            <tr>
+                <td>
+                    <span class="badge bg-${getTierColor(tier.tier)}">${tier.tier.charAt(0).toUpperCase() + tier.tier.slice(1)}</span>
+                </td>
+                <td>${tier.users.toLocaleString()}</td>
+                <td>$${tier.revenue.toLocaleString()}</td>
+                <td>$${tier.avg_revenue_per_user.toFixed(2)}</td>
+                <td>
+                    <span class="badge bg-${tier.churn_rate < 0.05 ? 'success' : tier.churn_rate < 0.1 ? 'warning' : 'danger'}">
+                        ${(tier.churn_rate * 100).toFixed(1)}%
+                    </span>
+                </td>
+            </tr>
+        `).join('');
+    }
+    
+    function updateActivity(activities) {
+        const activityList = document.getElementById('recentActivityList');
+        
+        if (!activities || activities.length === 0) {
+            activityList.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-history fa-2x text-muted mb-3"></i>
+                    <p class="text-muted">No recent activity</p>
+                </div>
+            `;
+            return;
+        }
+        
+        activityList.innerHTML = activities.map(activity => {
+            let iconClass = '';
+            let iconColor = '';
+            let description = '';
+            
+            switch(activity.type) {
+                case 'signup':
+                    iconClass = 'fas fa-user-plus';
+                    iconColor = 'signup';
+                    description = `<strong>${activity.user_email}</strong> signed up`;
+                    break;
+                case 'payment':
+                    iconClass = 'fas fa-dollar-sign';
+                    iconColor = 'payment';
+                    description = `<strong>${activity.user_email}</strong> paid $${activity.amount} for ${activity.description}`;
+                    break;
+                case 'upgrade':
+                    iconClass = 'fas fa-arrow-up';
+                    iconColor = 'upgrade';
+                    description = `<strong>${activity.user_email}</strong> upgraded from ${activity.from_tier} to ${activity.to_tier}`;
+                    break;
+                case 'video_processed':
+                    iconClass = 'fas fa-video';
+                    iconColor = 'video';
+                    description = `<strong>${activity.user_email}</strong> processed a ${activity.video_type} video (${activity.duration}s)`;
+                    break;
+                default:
+                    iconClass = 'fas fa-info-circle';
+                    iconColor = 'info';
+                    description = activity.description;
+            }
+            
+            return `
+                <div class="activity-item d-flex align-items-start">
+                    <div class="activity-icon ${iconColor}">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between">
+                            <p class="mb-1">${description}</p>
+                            <small class="text-muted">${timeAgo(new Date(activity.timestamp))}</small>
+                        </div>
+                        ${activity.metadata ? `<small class="text-muted">${activity.metadata}</small>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    function getTierColor(tier) {
+        const colors = {
+            'free': 'secondary',
+            'starter': 'info',
+            'pro': 'warning',
+            'plus': 'primary',
+            'enterprise': 'dark'
+        };
+        return colors[tier] || 'secondary';
+    }
+    
+    function timeAgo(date) {
+        const seconds = Math.floor((new Date() - date) / 1000);
+        
+        if (seconds < 60) return 'just now';
+        
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + ' min ago';
+        
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+        
+        const days = Math.floor(hours / 24);
+        if (days < 7) return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+        
+        const weeks = Math.floor(days / 7);
+        if (weeks < 4) return weeks + ' week' + (weeks === 1 ? '' : 's') + ' ago';
+        
+        const months = Math.floor(days / 30);
+        if (months < 12) return months + ' month' + (months === 1 ? '' : 's') + ' ago';
+        
+        const years = Math.floor(days / 365);
+        return years + ' year' + (years === 1 ? '' : 's') + ' ago';
+    }
+    
+    function setDateRange(range) {
+        dateRange = range;
+        loadAnalytics();
+        
+        // Update dropdown text
+        const dropdownBtn = document.querySelector('[data-bs-toggle="dropdown"]');
+        const textMap = {
+            'today': 'Today',
+            'week': 'Last 7 Days',
+            'month': 'Last 30 Days',
+            'quarter': 'Last 90 Days',
+            'year': 'Last 365 Days'
+        };
+        
+        dropdownBtn.innerHTML = `<i class="fas fa-calendar me-1"></i> ${textMap[range]}`;
+    }
+    
+    function applyCustomDateRange() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        if (!startDate || !endDate) {
+            showAlert('Please select both start and end dates', 'warning');
+            return;
+        }
+        
+        dateRange = `custom:${startDate}:${endDate}`;
+        loadAnalytics();
+        $('#customDateRangeModal').modal('hide');
+        
+        // Update dropdown text
+        const dropdownBtn = document.querySelector('[data-bs-toggle="dropdown"]');
+        dropdownBtn.innerHTML = `<i class="fas fa-calendar me-1"></i> ${startDate} to ${endDate}`;
+    }
+    
+    async function exportAnalytics() {
+        try {
+            const response = await fetch(`/api/v1/admin/analytics/export?date_range=${dateRange}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `analytics_${dateRange}_${new Date().toISOString().split('T')[0]}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Failed to export analytics:', error);
+            showAlert('Failed to export analytics', 'danger');
+        }
+    }
+    
+    function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        alert.style.zIndex = '9999';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alert);
+        
+        setTimeout(() => alert.remove(), 5000);
+    }
+</script>
+{% endblock %}

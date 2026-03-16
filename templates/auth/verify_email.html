@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email - Video AI Studio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <style>
+        .verify-container {
+            max-width: 500px;
+            margin: 100px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .verify-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #4a6cf7 0%, #6a11cb 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            color: white;
+            font-size: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+        .email {
+            font-weight: 600;
+            color: #4a6cf7;
+            background: #f8f9fa;
+            padding: 8px 15px;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 10px 0;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #4a6cf7 0%, #6a11cb 100%);
+            border: none;
+            padding: 12px 30px;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 108, 247, 0.3);
+        }
+        .resend-link {
+            margin-top: 20px;
+            color: #666;
+        }
+        .resend-link a {
+            color: #4a6cf7;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .resend-link a:hover {
+            text-decoration: underline;
+        }
+        .alert {
+            border-radius: 8px;
+            border: none;
+            text-align: left;
+        }
+        .timer {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
+        .timer span {
+            font-weight: 600;
+            color: #4a6cf7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="verify-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="verify-icon">
+                <i class="fas fa-envelope"></i>
+            </div>
+
+            <h1>Verify Your Email</h1>
+            
+            <p>
+                We've sent a verification email to:
+            </p>
+            
+            <div class="email">{{ email }}</div>
+            
+            <p>
+                Please check your inbox and click the verification link to activate your account.
+                If you don't see the email, check your spam folder.
+            </p>
+
+            <button onclick="window.location.href='/api/v1/public_auth/login'" 
+                    class="btn btn-primary">
+                Go to Login
+            </button>
+
+            <div class="resend-link">
+                <p>Didn't receive the email?</p>
+                <form method="POST" action="{{ url_for('auth.resend_verification') }}"
+                      style="display: inline;">
+                    <input type="hidden" name="email" value="{{ email }}">
+                    <button type="submit" class="btn btn-link p-0">
+                        Resend Verification Email
+                    </button>
+                </form>
+                <div class="timer" id="timer">Resend available in <span id="countdown">60</span> seconds</div>
+            </div>
+
+            <div class="mt-4">
+                <p class="text-muted">
+                    Need help? <a href="mailto:support@videoaistudio.com">Contact Support</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script>
+        // Countdown timer for resend
+        let countdown = 60;
+        const countdownElement = document.getElementById('countdown');
+        const timerElement = document.getElementById('timer');
+        const resendForm = document.querySelector('form[action*="resend_verification"]');
+        const resendButton = resendForm.querySelector('button');
+
+        // Disable resend button initially
+        resendButton.disabled = true;
+        
+        const countdownInterval = setInterval(() => {
+            countdown--;
+            countdownElement.textContent = countdown;
+            
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                timerElement.style.display = 'none';
+                resendButton.disabled = false;
+                resendButton.textContent = 'Resend Verification Email';
+            }
+        }, 1000);
+
+        // Auto-dismiss alerts
+        setTimeout(() => {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+
+        // Handle resend form submission
+        resendForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Disable button and show loading
+            resendButton.disabled = true;
+            resendButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...';
+            
+            // Submit form
+            fetch(this.action, {
+                method: 'POST',
+                body: new FormData(this),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
+                    alertDiv.innerHTML = `
+                        Verification email resent successfully!
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    resendForm.parentNode.insertBefore(alertDiv, resendForm.nextSibling);
+                    
+                    // Reset countdown
+                    countdown = 60;
+                    countdownElement.textContent = countdown;
+                    timerElement.style.display = 'block';
+                    resendButton.disabled = true;
+                    resendButton.textContent = 'Resend Verification Email';
+                    
+                    // Restart countdown
+                    clearInterval(countdownInterval);
+                    const newInterval = setInterval(() => {
+                        countdown--;
+                        countdownElement.textContent = countdown;
+                        
+                        if (countdown <= 0) {
+                            clearInterval(newInterval);
+                            timerElement.style.display = 'none';
+                            resendButton.disabled = false;
+                        }
+                    }, 1000);
+                    
+                    // Auto-dismiss new alert
+                    setTimeout(() => {
+                        const bsAlert = new bootstrap.Alert(alertDiv);
+                        bsAlert.close();
+                    }, 5000);
+                } else {
+                    // Show error message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+                    alertDiv.innerHTML = `
+                        ${data.message || 'Failed to resend verification email.'}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    resendForm.parentNode.insertBefore(alertDiv, resendForm.nextSibling);
+                    resendButton.disabled = false;
+                    resendButton.textContent = 'Resend Verification Email';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                resendButton.disabled = false;
+                resendButton.textContent = 'Resend Verification Email';
+            });
+        });
+    </script>
+</body>
+</html>

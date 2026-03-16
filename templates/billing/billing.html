@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+
+{% block title %}Billing & Subscription - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-3 col-md-4">
+            <!-- Billing Sidebar -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Billing Overview</h5>
+                    <div class="list-group list-group-flush">
+                        <a href="#current-plan" class="list-group-item list-group-item-action active">
+                            <i class="fas fa-crown me-2"></i> Current Plan
+                        </a>
+                        <a href="#billing-history" class="list-group-item list-group-item-action">
+                            <i class="fas fa-history me-2"></i> Billing History
+                        </a>
+                        <a href="#payment-methods" class="list-group-item list-group-item-action">
+                            <i class="fas fa-credit-card me-2"></i> Payment Methods
+                        </a>
+                        <a href="#invoices" class="list-group-item list-group-item-action">
+                            <i class="fas fa-file-invoice me-2"></i> Invoices & Receipts
+                        </a>
+                        <a href="#credits" class="list-group-item list-group-item-action">
+                            <i class="fas fa-coins me-2"></i> Credits Balance
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Usage Summary -->
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">Usage This Month</h6>
+                    <div class="mb-3">
+                        <small class="text-muted">Videos Processed</small>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="progress flex-grow-1 me-3" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" 
+                                     style="width: {{ (user.videos_processed_this_month / user.monthly_video_limit * 100) | default(0) }}%">
+                                </div>
+                            </div>
+                            <span class="text-nowrap">{{ user.videos_processed_this_month }}/{{ user.monthly_video_limit }}</span>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Credits Remaining</small>
+                        <h4 class="mt-1">{{ user.credits_remaining }}</h4>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm w-100" data-bs-toggle="modal" data-bs-target="#buyCreditsModal">
+                        <i class="fas fa-plus me-1"></i> Buy More Credits
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-9 col-md-8">
+            <!-- Current Plan Card -->
+            <div class="card mb-4" id="current-plan">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Current Plan</h5>
+                    <span class="badge bg-{{ 'success' if user.tier != 'free' else 'secondary' }}">
+                        {{ user.tier|capitalize }} Tier
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Plan Details</h6>
+                            <ul class="list-unstyled">
+                                <li class="mb-2">
+                                    <i class="fas fa-check text-success me-2"></i>
+                                    {{ user.monthly_video_limit }} videos/month
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-check text-success me-2"></i>
+                                    {% if user.tier == 'free' %}720p{% elif user.tier == 'starter' %}1080p{% elif user.tier == 'pro' %}4K{% else %}4K+HDR{% endif %} max quality
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-check text-success me-2"></i>
+                                    {% if user.tier == 'free' %}24 hours{% elif user.tier == 'starter' %}7 days{% elif user.tier == 'pro' %}30 days{% else %}90 days{% endif %} retention
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-check text-success me-2"></i>
+                                    Priority {{ 'Express' if user.tier == 'pro' else 'VIP' if user.tier in ['plus', 'enterprise'] else 'Normal' }} processing
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Billing Information</h6>
+                            {% if user.tier == 'free' %}
+                                <p class="text-muted">Free plan - no billing information</p>
+                                <button class="btn btn-primary" onclick="window.location.href='/billing/pricing'">
+                                    <i class="fas fa-arrow-up me-1"></i> Upgrade Plan
+                                </button>
+                            {% else %}
+                                <div class="mb-3">
+                                    <small class="text-muted">Current Period</small>
+                                    <p class="mb-0">{{ subscription.current_period_start|datetimeformat }} - {{ subscription.current_period_end|datetimeformat }}</p>
+                                </div>
+                                <div class="mb-3">
+                                    <small class="text-muted">Next Billing Date</small>
+                                    <p class="mb-0">{{ subscription.next_payment_date|datetimeformat }}</p>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-primary" onclick="window.location.href='/billing/upgrade'">
+                                        <i class="fas fa-arrow-up me-1"></i> Change Plan
+                                    </button>
+                                    {% if not subscription.cancel_at_period_end %}
+                                        <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#cancelSubscriptionModal">
+                                            <i class="fas fa-ban me-1"></i> Cancel
+                                        </button>
+                                    {% else %}
+                                        <button class="btn btn-outline-success" id="reactivateSubscriptionBtn">
+                                            <i class="fas fa-play me-1"></i> Reactivate
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Methods -->
+            <div class="card mb-4" id="payment-methods">
+                <div class="card-header">
+                    <h5 class="mb-0">Payment Methods</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row" id="paymentMethodsList">
+                        <!-- Payment methods will be loaded here via JavaScript -->
+                        <div class="col-12 text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#addPaymentMethodModal">
+                        <i class="fas fa-plus me-1"></i> Add Payment Method
+                    </button>
+                </div>
+            </div>
+
+            <!-- Billing History -->
+            <div class="card" id="billing-history">
+                <div class="card-header">
+                    <h5 class="mb-0">Billing History</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Description</th>
+                                    <th>Amount</th>
+                                    <th>Status</th>
+                                    <th>Invoice</th>
+                                </tr>
+                            </thead>
+                            <tbody id="billingHistoryTable">
+                                <!-- Billing history will be loaded here via JavaScript -->
+                                <tr>
+                                    <td colspan="5" class="text-center py-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-center">
+                        <button class="btn btn-outline-secondary" id="loadMoreInvoicesBtn">
+                            <i class="fas fa-history me-1"></i> Load More
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<div class="modal fade" id="buyCreditsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Buy Credits</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-4">Credits are used to process videos. 1 credit = 1 minute of video processing.</p>
+                <div class="row g-3" id="creditPackages">
+                    <!-- Credit packages will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addPaymentMethodModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Payment Method</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="paymentFormContainer">
+                    <!-- Stripe Elements will be injected here -->
+                    <div id="card-element" class="form-control p-3"></div>
+                    <div id="card-errors" class="text-danger mt-2"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="savePaymentMethodBtn">Save Payment Method</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="cancelSubscriptionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Cancel Subscription</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to cancel your subscription?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Your subscription will remain active until {{ subscription.current_period_end|datetimeformat }}.
+                    After that, you'll be downgraded to the Free tier.
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="confirmCancel">
+                    <label class="form-check-label" for="confirmCancel">
+                        I understand that I'll lose access to premium features after my billing period ends.
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Subscription</button>
+                <button type="button" class="btn btn-danger" id="confirmCancelBtn" disabled>
+                    <i class="fas fa-ban me-1"></i> Cancel Subscription
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize Stripe
+        const stripe = Stripe('{{ config.STRIPE_PUBLISHABLE_KEY }}');
+        let cardElement;
+        
+        // Load billing data
+        loadBillingData();
+        
+        // Setup event listeners
+        document.getElementById('confirmCancel').addEventListener('change', function() {
+            document.getElementById('confirmCancelBtn').disabled = !this.checked;
+        });
+        
+        document.getElementById('confirmCancelBtn').addEventListener('click', cancelSubscription);
+        document.getElementById('reactivateSubscriptionBtn')?.addEventListener('click', reactivateSubscription);
+        document.getElementById('savePaymentMethodBtn').addEventListener('click', savePaymentMethod);
+        
+        // Load credit packages
+        loadCreditPackages();
+        
+        async function loadBillingData() {
+            try {
+                const response = await fetch('/api/v1/billing/info', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const data = await response.json();
+                
+                // Update UI with billing data
+                updatePaymentMethods(data.payment_methods);
+                updateBillingHistory(data.invoices);
+            } catch (error) {
+                console.error('Failed to load billing data:', error);
+                showAlert('Failed to load billing data. Please try again.', 'danger');
+            }
+        }
+        
+        function updatePaymentMethods(methods) {
+            const container = document.getElementById('paymentMethodsList');
+            if (!methods || methods.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="text-center py-4">
+                            <i class="fas fa-credit-card fa-3x text-muted mb-3"></i>
+                            <p class="text-muted">No payment methods added yet.</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = methods.map(method => `
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="card-title">
+                                        <i class="fab fa-cc-${method.brand.toLowerCase()} me-2"></i>
+                                        ${method.brand} ending in ${method.last4}
+                                    </h6>
+                                    <p class="card-text text-muted small">
+                                        Expires: ${method.exp_month}/${method.exp_year}
+                                        ${method.is_default ? '<span class="badge bg-success ms-2">Default</span>' : ''}
+                                    </p>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                                        <i class="fas fa-ellipsis-v"></i>
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        ${!method.is_default ? `
+                                            <li><a class="dropdown-item" href="#" onclick="setDefaultPaymentMethod('${method.id}')">
+                                                <i class="fas fa-check me-2"></i> Set as Default
+                                            </a></li>
+                                        ` : ''}
+                                        <li><a class="dropdown-item text-danger" href="#" onclick="removePaymentMethod('${method.id}')">
+                                            <i class="fas fa-trash me-2"></i> Remove
+                                        </a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function updateBillingHistory(invoices) {
+            const tbody = document.getElementById('billingHistoryTable');
+            if (!invoices || invoices.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center py-4">
+                            <i class="fas fa-history fa-2x text-muted mb-3"></i>
+                            <p class="text-muted">No billing history yet.</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = invoices.map(invoice => `
+                <tr>
+                    <td>${new Date(invoice.created * 1000).toLocaleDateString()}</td>
+                    <td>${invoice.description || invoice.lines.data[0]?.description || 'Subscription'}</td>
+                    <td>$${(invoice.amount_paid / 100).toFixed(2)} ${invoice.currency.toUpperCase()}</td>
+                    <td>
+                        <span class="badge bg-${invoice.paid ? 'success' : 'danger'}">
+                            ${invoice.paid ? 'Paid' : 'Unpaid'}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="${invoice.hosted_invoice_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-download me-1"></i> Download
+                        </a>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        async function loadCreditPackages() {
+            try {
+                const response = await fetch('/api/v1/billing/credit-packages', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const packages = await response.json();
+                
+                const container = document.getElementById('creditPackages');
+                container.innerHTML = packages.map(pkg => `
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">${pkg.credits} Credits</h5>
+                                <h3 class="text-primary">$${pkg.price.toFixed(2)}</h3>
+                                <p class="text-muted small">$${(pkg.price / pkg.credits).toFixed(3)} per credit</p>
+                                <button class="btn btn-primary w-100" onclick="buyCredits(${pkg.credits}, ${pkg.price})">
+                                    <i class="fas fa-shopping-cart me-1"></i> Purchase
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load credit packages:', error);
+            }
+        }
+        
+        async function cancelSubscription() {
+            if (!confirm('Are you sure you want to cancel your subscription?')) return;
+            
+            try {
+                const response = await fetch('/api/v1/billing/cancel', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    showAlert('Subscription cancelled successfully. It will remain active until the end of your billing period.', 'success');
+                    $('#cancelSubscriptionModal').modal('hide');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    throw new Error('Failed to cancel subscription');
+                }
+            } catch (error) {
+                console.error('Failed to cancel subscription:', error);
+                showAlert('Failed to cancel subscription. Please try again.', 'danger');
+            }
+        }
+        
+        async function reactivateSubscription() {
+            try {
+                const response = await fetch('/api/v1/billing/reactivate', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    showAlert('Subscription reactivated successfully!', 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    throw new Error('Failed to reactivate subscription');
+                }
+            } catch (error) {
+                console.error('Failed to reactivate subscription:', error);
+                showAlert('Failed to reactivate subscription. Please try again.', 'danger');
+            }
+        }
+        
+        async function savePaymentMethod() {
+            const saveBtn = document.getElementById('savePaymentMethodBtn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Saving...';
+            
+            try {
+                const { paymentMethod, error } = await stripe.createPaymentMethod({
+                    type: 'card',
+                    card: cardElement,
+                });
+                
+                if (error) {
+                    throw new Error(error.message);
+                }
+                
+                const response = await fetch('/api/v1/billing/payment-methods', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ payment_method_id: paymentMethod.id })
+                });
+                
+                if (response.ok) {
+                    showAlert('Payment method added successfully!', 'success');
+                    $('#addPaymentMethodModal').modal('hide');
+                    loadBillingData();
+                } else {
+                    throw new Error('Failed to save payment method');
+                }
+            } catch (error) {
+                console.error('Failed to save payment method:', error);
+                showAlert(error.message || 'Failed to save payment method', 'danger');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = 'Save Payment Method';
+            }
+        }
+        
+        function showAlert(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type} alert-dismissible fade show`;
+            alert.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            const container = document.querySelector('.container-fluid');
+            container.insertBefore(alert, container.firstChild);
+            
+            setTimeout(() => alert.remove(), 5000);
+        }
+    });
+    
+    // Global functions for dropdown actions
+    async function setDefaultPaymentMethod(paymentMethodId) {
+        try {
+            const response = await fetch(`/api/v1/billing/payment-methods/${paymentMethodId}/default`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                throw new Error('Failed to set default payment method');
+            }
+        } catch (error) {
+            console.error('Failed to set default payment method:', error);
+            alert('Failed to set default payment method. Please try again.');
+        }
+    }
+    
+    async function removePaymentMethod(paymentMethodId) {
+        if (!confirm('Are you sure you want to remove this payment method?')) return;
+        
+        try {
+            const response = await fetch(`/api/v1/billing/payment-methods/${paymentMethodId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                throw new Error('Failed to remove payment method');
+            }
+        } catch (error) {
+            console.error('Failed to remove payment method:', error);
+            alert('Failed to remove payment method. Please try again.');
+        }
+    }
+    
+    async function buyCredits(credits, price) {
+        try {
+            const response = await fetch('/api/v1/billing/create-credit-payment', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ credits, price })
+            });
+            
+            const { sessionId } = await response.json();
+            
+            // Redirect to Stripe Checkout
+            const stripe = Stripe('{{ config.STRIPE_PUBLISHABLE_KEY }}');
+            await stripe.redirectToCheckout({ sessionId });
+        } catch (error) {
+            console.error('Failed to initiate credit purchase:', error);
+            alert('Failed to initiate credit purchase. Please try again.');
+        }
+    }
+</script>
+{% endblock %}

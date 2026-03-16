@@ -1,0 +1,402 @@
+<!-- Thumbnail Grid Component -->
+{% macro thumbnail_grid(thumbnails, selectable=false, selected_index=0, on_select_callback='selectThumbnail') %}
+    <div class="thumbnail-grid">
+        <div class="row g-2">
+            {% for thumbnail in thumbnails %}
+                <div class="col-6 col-md-4 col-lg-3">
+                    <div class="thumbnail-card {{ 'selected' if selectable and loop.index0 == selected_index else '' }}"
+                         data-index="{{ loop.index0 }}"
+                         onclick="{{ on_select_callback }}({{ loop.index0 }})">
+                        <div class="thumbnail-image-container">
+                            <img src="{{ thumbnail.url }}" 
+                                 class="thumbnail-image" 
+                                 alt="Thumbnail {{ loop.index }}"
+                                 loading="lazy">
+                            
+                            {% if thumbnail.type == 'ai' %}
+                                <span class="thumbnail-badge badge bg-primary">
+                                    <i class="fas fa-robot me-1"></i> AI
+                                </span>
+                            {% elif thumbnail.type == 'extracted' %}
+                                <span class="thumbnail-badge badge bg-info">
+                                    <i class="fas fa-image me-1"></i> Extracted
+                                </span>
+                            {% endif %}
+                            
+                            {% if selectable %}
+                                <div class="thumbnail-selection">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="thumbnail-footer">
+                            <small class="text-muted">
+                                {% if thumbnail.score %}
+                                    <i class="fas fa-chart-line me-1"></i>
+                                    Score: {{ thumbnail.score|round(2) }}
+                                {% endif %}
+                            </small>
+                            <div class="thumbnail-actions">
+                                <button class="btn btn-sm btn-outline-secondary" 
+                                        onclick="downloadThumbnail('{{ thumbnail.url }}', event)">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" 
+                                        onclick="previewThumbnail('{{ thumbnail.url }}', event)">
+                                    <i class="fas fa-expand"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        
+        {% if selectable %}
+            <div class="selected-thumbnail-info mt-3 p-3 border rounded bg-light">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <img src="{{ thumbnails[selected_index].url }}" 
+                             class="selected-thumbnail-preview" 
+                             alt="Selected thumbnail">
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h6>Selected Thumbnail</h6>
+                        <p class="mb-1">
+                            <small class="text-muted">
+                                Type: {{ thumbnails[selected_index].type|capitalize }}
+                                {% if thumbnails[selected_index].generation_time %}
+                                    • Generated in {{ thumbnails[selected_index].generation_time }}s
+                                {% endif %}
+                            </small>
+                        </p>
+                        {% if thumbnails[selected_index].prompt %}
+                            <p class="mb-0">
+                                <small>
+                                    <strong>AI Prompt:</strong> {{ thumbnails[selected_index].prompt|truncate(100) }}
+                                </small>
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+<style>
+.thumbnail-grid {
+    padding: 1rem;
+}
+
+.thumbnail-card {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    background: white;
+    cursor: pointer;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.thumbnail-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #0d6efd;
+}
+
+.thumbnail-card.selected {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+}
+
+.thumbnail-image-container {
+    position: relative;
+    padding-top: 56.25%; /* 16:9 aspect ratio */
+    overflow: hidden;
+    background-color: #f8f9fa;
+}
+
+.thumbnail-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.thumbnail-card:hover .thumbnail-image {
+    transform: scale(1.05);
+}
+
+.thumbnail-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 0.7rem;
+    opacity: 0.9;
+}
+
+.thumbnail-selection {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    background: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.thumbnail-card.selected .thumbnail-selection {
+    opacity: 1;
+}
+
+.thumbnail-card .thumbnail-selection i {
+    color: #0d6efd;
+    font-size: 0.875rem;
+}
+
+.thumbnail-footer {
+    padding: 0.5rem;
+    background: white;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto;
+}
+
+.thumbnail-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.thumbnail-actions .btn {
+    padding: 0.125rem 0.375rem;
+    font-size: 0.75rem;
+}
+
+.selected-thumbnail-preview {
+    width: 80px;
+    height: 45px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 2px solid #0d6efd;
+}
+</style>
+
+<script>
+// Thumbnail selection handler
+function selectThumbnail(index) {
+    // Remove selected class from all thumbnails
+    document.querySelectorAll('.thumbnail-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    
+    // Add selected class to clicked thumbnail
+    const selectedCard = document.querySelector(`.thumbnail-card[data-index="${index}"]`);
+    if (selectedCard) {
+        selectedCard.classList.add('selected');
+        
+        // Update selected thumbnail info section
+        updateSelectedThumbnailInfo(index);
+        
+        // Dispatch custom event
+        const event = new CustomEvent('thumbnailSelected', {
+            detail: { index: index }
+        });
+        document.dispatchEvent(event);
+    }
+}
+
+function updateSelectedThumbnailInfo(index) {
+    // This would typically fetch additional info from the server
+    // For now, we'll just update the preview image
+    const thumbnailCard = document.querySelector(`.thumbnail-card[data-index="${index}"]`);
+    const thumbnailImg = thumbnailCard.querySelector('.thumbnail-image');
+    const previewImg = document.querySelector('.selected-thumbnail-preview');
+    
+    if (previewImg && thumbnailImg) {
+        previewImg.src = thumbnailImg.src;
+    }
+}
+
+function downloadThumbnail(url, event) {
+    event.stopPropagation();
+    
+    // Create a temporary anchor element
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `thumbnail_${Date.now()}.jpg`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    // Show toast notification
+    showToast('Thumbnail download started', 'info');
+}
+
+function previewThumbnail(url, event) {
+    event.stopPropagation();
+    
+    // Create modal for thumbnail preview
+    const modalHtml = `
+        <div class="modal fade" id="thumbnailPreviewModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Thumbnail Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <img src="${url}" class="img-fluid" alt="Thumbnail preview">
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="downloadThumbnail('${url}')">
+                            <i class="fas fa-download me-1"></i> Download
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remove existing modal if any
+    const existingModal = document.getElementById('thumbnailPreviewModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Add new modal to DOM
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('thumbnailPreviewModal'));
+    modal.show();
+    
+    // Remove modal from DOM after hidden
+    document.getElementById('thumbnailPreviewModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+function showToast(message, type) {
+    // Simple toast notification implementation
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+    toast.style.zIndex = '9999';
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+    
+    toast.addEventListener('hidden.bs.toast', function() {
+        this.remove();
+    });
+}
+
+// Initialize thumbnail grid interactions
+document.addEventListener('DOMContentLoaded', function() {
+    // Add keyboard navigation support
+    document.addEventListener('keydown', function(e) {
+        if (e.target.closest('.thumbnail-grid')) {
+            const selected = document.querySelector('.thumbnail-card.selected');
+            if (selected) {
+                const currentIndex = parseInt(selected.dataset.index);
+                let newIndex = currentIndex;
+                
+                switch(e.key) {
+                    case 'ArrowLeft':
+                        newIndex = Math.max(0, currentIndex - 1);
+                        break;
+                    case 'ArrowRight':
+                        newIndex = Math.min(
+                            document.querySelectorAll('.thumbnail-card').length - 1,
+                            currentIndex + 1
+                        );
+                        break;
+                    case 'Enter':
+                        // Trigger click on selected thumbnail
+                        selected.click();
+                        break;
+                    default:
+                        return;
+                }
+                
+                if (newIndex !== currentIndex) {
+                    e.preventDefault();
+                    selectThumbnail(newIndex);
+                }
+            }
+        }
+    });
+    
+    // Add drag and drop support for reordering (if needed)
+    let draggedItem = null;
+    
+    document.querySelectorAll('.thumbnail-card').forEach(card => {
+        card.setAttribute('draggable', 'true');
+        
+        card.addEventListener('dragstart', function(e) {
+            draggedItem = this;
+            this.style.opacity = '0.5';
+        });
+        
+        card.addEventListener('dragend', function() {
+            this.style.opacity = '1';
+            draggedItem = null;
+        });
+        
+        card.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+        
+        card.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (draggedItem && draggedItem !== this) {
+                // Swap positions
+                const allCards = Array.from(document.querySelectorAll('.thumbnail-card'));
+                const draggedIndex = allCards.indexOf(draggedItem);
+                const dropIndex = allCards.indexOf(this);
+                
+                // Reorder in DOM
+                const grid = this.closest('.row');
+                if (draggedIndex < dropIndex) {
+                    grid.insertBefore(draggedItem, this.nextSibling);
+                } else {
+                    grid.insertBefore(draggedItem, this);
+                }
+                
+                // Dispatch reorder event
+                const event = new CustomEvent('thumbnailsReordered', {
+                    detail: {
+                        fromIndex: draggedIndex,
+                        toIndex: dropIndex
+                    }
+                });
+                document.dispatchEvent(event);
+            }
+        });
+    });
+});
+</script>

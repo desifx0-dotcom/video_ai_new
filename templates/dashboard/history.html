@@ -1,0 +1,924 @@
+{% extends "base.html" %}
+
+{% block title %}Video History - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="page-header mb-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1 class="h2">Video History</h1>
+                        <p class="text-muted">All your processed videos in one place</p>
+                    </div>
+                    <div>
+                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" 
+                           class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Upload New Video
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters & Search -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" id="status-filter">
+                                <option value="all">All Status</option>
+                                <option value="completed">Completed</option>
+                                <option value="processing">Processing</option>
+                                <option value="failed">Failed</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Date Range</label>
+                            <select class="form-select" id="date-filter">
+                                <option value="all">All Time</option>
+                                <option value="today">Today</option>
+                                <option value="week">This Week</option>
+                                <option value="month">This Month</option>
+                                <option value="custom">Custom Range</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Sort By</label>
+                            <select class="form-select" id="sort-filter">
+                                <option value="newest">Newest First</option>
+                                <option value="oldest">Oldest First</option>
+                                <option value="name">Name A-Z</option>
+                                <option value="size">File Size</option>
+                                <option value="duration">Duration</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Search</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="search-input" 
+                                       placeholder="Search videos...">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="searchVideos()">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Custom Date Range (Hidden by default) -->
+                    <div class="row mt-3 d-none" id="custom-date-range">
+                        <div class="col-md-3">
+                            <label class="form-label">From Date</label>
+                            <input type="date" class="form-control" id="from-date">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">To Date</label>
+                            <input type="date" class="form-control" id="to-date">
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button class="btn btn-primary" onclick="applyCustomDate()">
+                                Apply Range
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- history_loading -->
+  <div id="history-loading" class="text-center py-5" style="display: none;">
+      <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-2">Loading your videos...</p>
+  </div>
+
+    <!-- Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-primary text-white">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <div class="ms-3">
+                            <h5 class="mb-0">{{ total_videos }}</h5>
+                            <p class="text-muted mb-0">Total Videos</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-success text-white">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="ms-3">
+                            <h5 class="mb-0">{{ completed_videos }}</h5>
+                            <p class="text-muted mb-0">Completed</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-warning text-white">
+                            <i class="fas fa-spinner"></i>
+                        </div>
+                        <div class="ms-3">
+                            <h5 class="mb-0">{{ processing_videos }}</h5>
+                            <p class="text-muted mb-0">Processing</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-danger text-white">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="ms-3">
+                            <h5 class="mb-0">{{ failed_videos }}</h5>
+                            <p class="text-muted mb-0">Failed</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Videos Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Your Videos</h5>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" 
+                                    type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="selectAllVideos()">Select All</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="deselectAllVideos()">Deselect All</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteSelectedVideos()">Delete Selected</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if videos %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th width="30">
+                                        <input type="checkbox" class="form-check-input" 
+                                               id="select-all" onchange="toggleSelectAll()">
+                                    </th>
+                                    <th>Video</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                    <th>Size</th>
+                                    <th>Uploaded</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for video in videos %}
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input video-checkbox" 
+                                               value="{{ video.id }}">
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            {% if video.selected_thumbnail_url %}
+                                            <img src="{{ video.selected_thumbnail_url }}" 
+                                                 alt="Thumbnail" 
+                                                 class="rounded me-3" 
+                                                 style="width: 60px; height: 40px; object-fit: cover;">
+                                            {% else %}
+                                            <div class="bg-light rounded me-3 d-flex align-items-center justify-content-center"
+                                                 style="width: 60px; height: 40px;">
+                                                <i class="fas fa-video text-muted"></i>
+                                            </div>
+                                            {% endif %}
+                                            <div>
+                                                <h6 class="mb-0">{{ video.original_filename|truncate(30) }}</h6>
+                                                <small class="text-muted">
+                                                    {{ video.output_quality|upper }}
+                                                    {% if video.applied_styles %}
+                                                    • {{ video.applied_styles|join(', ') }}
+                                                    {% endif %}
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if video.status == 'completed' %}
+                                        <span class="badge bg-success">Completed</span>
+                                        {% elif video.status == 'processing' %}
+                                        <span class="badge bg-warning">Processing</span>
+                                        <div class="progress mt-1" style="height: 4px; width: 80px;">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                 style="width: {{ video.progress }}%"></div>
+                                        </div>
+                                        {% elif video.status == 'failed' %}
+                                        <span class="badge bg-danger">Failed</span>
+                                        {% elif video.status == 'cancelled' %}
+                                        <span class="badge bg-secondary">Cancelled</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ video.duration|format_duration }}</td>
+                                    <td>{{ video.file_size|filesizeformat }}</td>
+                                    <td>
+                                        <small>{{ video.created_at|datetimeformat('short') }}</small>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            {% if video.status == 'completed' %}
+                                            <a href="{{ url_for('api.v1.routers.videos.results', video_id=video.id) }}" 
+                                               class="btn btn-outline-primary" title="View Results">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            <a href="{{ url_for('api.v1.routers.videos.download', video_id=video.id) }}" 
+                                               class="btn btn-outline-success" title="Download">
+                                                <i class="fas fa-download"></i>
+                                            </a>
+                                            {% elif video.status == 'processing' %}
+                                            <a href="{{ url_for('api.v1.routers.videos.processing', video_id=video.id) }}" 
+                                               class="btn btn-outline-warning" title="View Progress">
+                                                <i class="fas fa-spinner"></i>
+                                            </a>
+                                            <button class="btn btn-outline-danger" 
+                                                    onclick="cancelVideo('{{ video.id }}')" 
+                                                    title="Cancel">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                            {% elif video.status == 'failed' %}
+                                            <button class="btn btn-outline-warning" 
+                                                    onclick="retryVideo('{{ video.id }}')" 
+                                                    title="Retry">
+                                                <i class="fas fa-redo"></i>
+                                            </button>
+                                            {% endif %}
+                                            <button class="btn btn-outline-secondary" 
+                                                    onclick="showVideoDetails('{{ video.id }}')" 
+                                                    title="Details">
+                                                <i class="fas fa-info-circle"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" 
+                                                    onclick="deleteVideo('{{ video.id }}')" 
+                                                    title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    {% if total_pages > 1 %}
+                    <nav aria-label="Video pagination">
+                        <ul class="pagination justify-content-center mt-4">
+                            <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                                <a class="page-link" href="?page={{ page-1 }}" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;</span>
+                                </a>
+                            </li>
+                            
+                            {% for p in range(1, total_pages + 1) %}
+                            <li class="page-item {% if p == page %}active{% endif %}">
+                                <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+                            </li>
+                            {% endfor %}
+                            
+                            <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+                                <a class="page-link" href="?page={{ page+1 }}" aria-label="Next">
+                                    <span aria-hidden="true">&raquo;</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                    {% endif %}
+                    
+                    <!-- Summary -->
+                    <div class="mt-3 text-center text-muted">
+                        Showing {{ videos|length }} of {{ total_videos }} videos
+                        {% if total_size %}
+                        • Total size: {{ total_size|filesizeformat }}
+                        {% endif %}
+                    </div>
+                    
+                    {% else %}
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <div class="empty-state-icon mb-4">
+                            <i class="fas fa-video-slash fa-4x text-muted"></i>
+                        </div>
+                        <h4>No videos yet</h4>
+                        <p class="text-muted mb-4">
+                            Upload your first video to start using AI processing
+                        </p>
+                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" 
+                           class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i>Upload First Video
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions Panel -->
+    <div class="row mt-3 d-none" id="bulk-actions-panel">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span id="selected-count">0</span> videos selected
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary" onclick="downloadSelected()">
+                                <i class="fas fa-download me-2"></i>Download
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="reprocessSelected()">
+                                <i class="fas fa-redo me-2"></i>Reprocess
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteSelected()">
+                                <i class="fas fa-trash me-2"></i>Delete
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="clearSelection()">
+                                <i class="fas fa-times me-2"></i>Clear
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Video Details Modal -->
+<div class="modal fade" id="video-details-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Video Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="video-details-content">
+                <!-- Content loaded via AJAX -->
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="delete-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Video</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this video?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    This action cannot be undone. All associated files will be permanently deleted.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let selectedVideos = new Set();
+    let videoToDelete = null;
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize filters from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('status')) {
+            document.getElementById('status-filter').value = urlParams.get('status');
+        }
+        if (urlParams.get('date')) {
+            document.getElementById('date-filter').value = urlParams.get('date');
+        }
+        if (urlParams.get('sort')) {
+            document.getElementById('sort-filter').value = urlParams.get('sort');
+        }
+        if (urlParams.get('search')) {
+            document.getElementById('search-input').value = urlParams.get('search');
+        }
+        
+        // Show/hide custom date range
+        document.getElementById('date-filter').addEventListener('change', function() {
+            const customRangeDiv = document.getElementById('custom-date-range');
+            if (this.value === 'custom') {
+                customRangeDiv.classList.remove('d-none');
+            } else {
+                customRangeDiv.classList.add('d-none');
+            }
+        });
+        
+        // Apply filters on change
+        document.getElementById('status-filter').addEventListener('change', applyFilters);
+        document.getElementById('date-filter').addEventListener('change', applyFilters);
+        document.getElementById('sort-filter').addEventListener('change', applyFilters);
+        
+        // Search on enter
+        document.getElementById('search-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchVideos();
+            }
+        });
+        
+        // Update selected count
+        updateSelectedCount();
+    });
+    
+    function toggleSelectAll() {
+        const selectAll = document.getElementById('select-all');
+        const checkboxes = document.querySelectorAll('.video-checkbox');
+        
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAll.checked;
+            if (selectAll.checked) {
+                selectedVideos.add(checkbox.value);
+            } else {
+                selectedVideos.delete(checkbox.value);
+            }
+        });
+        
+        updateSelectedCount();
+        updateBulkActionsPanel();
+    }
+    
+    function selectAllVideos() {
+        document.getElementById('select-all').checked = true;
+        toggleSelectAll();
+    }
+    
+    function deselectAllVideos() {
+        document.getElementById('select-all').checked = false;
+        toggleSelectAll();
+    }
+    
+    function videoCheckboxChanged(checkbox) {
+        if (checkbox.checked) {
+            selectedVideos.add(checkbox.value);
+        } else {
+            selectedVideos.delete(checkbox.value);
+            document.getElementById('select-all').checked = false;
+        }
+        
+        updateSelectedCount();
+        updateBulkActionsPanel();
+    }
+    
+    function updateSelectedCount() {
+        const count = selectedVideos.size;
+        document.getElementById('selected-count').textContent = count;
+    }
+    
+    function updateBulkActionsPanel() {
+        const panel = document.getElementById('bulk-actions-panel');
+        if (selectedVideos.size > 0) {
+            panel.classList.remove('d-none');
+        } else {
+            panel.classList.add('d-none');
+        }
+    }
+    
+    function clearSelection() {
+        selectedVideos.clear();
+        document.getElementById('select-all').checked = false;
+        document.querySelectorAll('.video-checkbox').forEach(cb => cb.checked = false);
+        updateSelectedCount();
+        updateBulkActionsPanel();
+    }
+    
+    function applyFilters() {
+        const status = document.getElementById('status-filter').value;
+        const date = document.getElementById('date-filter').value;
+        const sort = document.getElementById('sort-filter').value;
+        
+        let url = window.location.pathname + '?';
+        const params = new URLSearchParams();
+        
+        if (status !== 'all') params.append('status', status);
+        if (date !== 'all') params.append('date', date);
+        if (sort !== 'newest') params.append('sort', sort);
+        
+        const search = document.getElementById('search-input').value;
+        if (search) params.append('search', search);
+        
+        window.location.href = url + params.toString();
+    }
+    
+    function applyCustomDate() {
+        const fromDate = document.getElementById('from-date').value;
+        const toDate = document.getElementById('to-date').value;
+        
+        if (fromDate && toDate) {
+            let url = window.location.pathname + '?';
+            const params = new URLSearchParams(window.location.search);
+            params.set('date', 'custom');
+            params.set('from', fromDate);
+            params.set('to', toDate);
+            window.location.href = url + params.toString();
+        }
+    }
+    
+    function searchVideos() {
+        applyFilters();
+    }
+    
+    function showVideoDetails(videoId) {
+        fetch(`/api/v1/videos/${videoId}/details`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const content = document.getElementById('video-details-content');
+            content.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Basic Information</h6>
+                        <table class="table table-sm">
+                            <tr><th>ID:</th><td><code>${data.id}</code></td></tr>
+                            <tr><th>Filename:</th><td>${data.original_filename}</td></tr>
+                            <tr><th>Duration:</th><td>${formatDuration(data.duration)}</td></tr>
+                            <tr><th>File Size:</th><td>${formatFileSize(data.file_size)}</td></tr>
+                            <tr><th>Format:</th><td>${data.format || 'MP4'}</td></tr>
+                            <tr><th>Uploaded:</th><td>${new Date(data.created_at).toLocaleString()}</td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Processing Information</h6>
+                        <table class="table table-sm">
+                            <tr><th>Status:</th><td><span class="badge bg-${getStatusColor(data.status)}">${data.status}</span></td></tr>
+                            <tr><th>Tier:</th><td><span class="badge bg-secondary">${data.processed_tier}</span></td></tr>
+                            <tr><th>Quality:</th><td>${data.output_quality || '720p'}</td></tr>
+                            <tr><th>Processing Time:</th><td>${data.processing_time ? formatDuration(data.processing_time) : 'N/A'}</td></tr>
+                            <tr><th>AI Cost:</th><td>$${data.total_cost ? data.total_cost.toFixed(4) : '0.0000'}</td></tr>
+                            <tr><th>Video Type:</th><td>${data.video_type || 'Unknown'}</td></tr>
+                        </table>
+                    </div>
+                </div>
+                
+                ${data.transcription ? `
+                <div class="mt-3">
+                    <h6>Transcription</h6>
+                    <div class="transcription-preview border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+                        ${data.transcription.substring(0, 500)}${data.transcription.length > 500 ? '...' : ''}
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div class="mt-3">
+                    <h6>File URLs</h6>
+                    <div class="input-group mb-2">
+                        <input type="text" class="form-control" value="${data.output_video_url || 'N/A'}" readonly>
+                        ${data.output_video_url ? `
+                        <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard(this.previousElementSibling)">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        ` : ''}
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="form-control" value="${data.selected_thumbnail_url || 'N/A'}" readonly>
+                        ${data.selected_thumbnail_url ? `
+                        <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard(this.previousElementSibling)">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            const modal = new bootstrap.Modal(document.getElementById('video-details-modal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading video details:', error);
+        });
+    }
+    
+    function deleteVideo(videoId) {
+        videoToDelete = videoId;
+        const modal = new bootstrap.Modal(document.getElementById('delete-modal'));
+        modal.show();
+    }
+    
+    document.getElementById('confirm-delete').addEventListener('click', function() {
+        if (!videoToDelete) return;
+        
+        fetch(`/api/v1/videos/${videoToDelete}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-Token': '{{ csrf_token() }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Video deleted successfully.', 'success');
+                // Remove row from table
+                const row = document.querySelector(`.video-checkbox[value="${videoToDelete}"]`).closest('tr');
+                row.remove();
+                // Update counts
+                updateVideoCounts(-1);
+            } else {
+                showAlert(`Failed to delete video: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error deleting video.', 'danger');
+        });
+        
+        bootstrap.Modal.getInstance(document.getElementById('delete-modal')).hide();
+        videoToDelete = null;
+    });
+    
+    function cancelVideo(videoId) {
+        if (confirm('Are you sure you want to cancel this video processing?')) {
+            fetch(`/api/v1/videos/${videoId}/cancel`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Video processing cancelled.', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showAlert(`Failed to cancel: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error cancelling video.', 'danger');
+            });
+        }
+    }
+    
+    function retryVideo(videoId) {
+        if (confirm('Retry processing this video?')) {
+            fetch(`/api/v1/videos/${videoId}/retry`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Video processing retry started.', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showAlert(`Failed to retry: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error retrying video.', 'danger');
+            });
+        }
+    }
+    
+    function downloadSelected() {
+        if (selectedVideos.size === 0) return;
+        
+        if (selectedVideos.size === 1) {
+            // Single video - redirect to download page
+            const videoId = Array.from(selectedVideos)[0];
+            window.location.href = `/api/v1/videos/${videoId}/download`;
+        } else {
+            // Multiple videos - show option to download as ZIP
+            if (confirm(`Download ${selectedVideos.size} videos as ZIP archive?`)) {
+                const videoIds = Array.from(selectedVideos).join(',');
+                window.location.href = `/api/v1/videos/bulk-download?ids=${videoIds}`;
+            }
+        }
+    }
+    
+    function reprocessSelected() {
+        if (selectedVideos.size === 0) return;
+        
+        if (confirm(`Reprocess ${selectedVideos.size} selected videos?`)) {
+            const videoIds = Array.from(selectedVideos);
+            fetch('/api/v1/videos/bulk-reprocess', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ video_ids: videoIds })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`${data.count} videos queued for reprocessing.`, 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showAlert(`Failed to reprocess videos: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error reprocessing videos.', 'danger');
+            });
+        }
+    }
+    
+    function deleteSelected() {
+        if (selectedVideos.size === 0) return;
+        
+        if (confirm(`Permanently delete ${selectedVideos.size} selected videos? This action cannot be undone.`)) {
+            const videoIds = Array.from(selectedVideos);
+            fetch('/api/v1/videos/bulk-delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ video_ids: videoIds })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`${data.count} videos deleted successfully.`, 'success');
+                    // Remove rows from table
+                    videoIds.forEach(videoId => {
+                        const row = document.querySelector(`.video-checkbox[value="${videoId}"]`);
+                        if (row) {
+                            row.closest('tr').remove();
+                        }
+                    });
+                    // Update counts
+                    updateVideoCounts(-videoIds.length);
+                    // Clear selection
+                    clearSelection();
+                } else {
+                    showAlert(`Failed to delete videos: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error deleting videos.', 'danger');
+            });
+        }
+    }
+    
+    function updateVideoCounts(delta) {
+        // Update the total videos count in the UI
+        const totalElement = document.querySelector('.stat-card:nth-child(1) h5');
+        if (totalElement) {
+            const current = parseInt(totalElement.textContent);
+            totalElement.textContent = Math.max(0, current + delta);
+        }
+    }
+    
+    function copyToClipboard(input) {
+        input.select();
+        input.setSelectionRange(0, 99999); // For mobile devices
+        navigator.clipboard.writeText(input.value)
+            .then(() => {
+                showAlert('Copied to clipboard!', 'success');
+            })
+            .catch(err => {
+                console.error('Failed to copy: ', err);
+                showAlert('Failed to copy to clipboard.', 'danger');
+            });
+    }
+    
+    function formatDuration(seconds) {
+        if (!seconds) return '0:00';
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = Math.floor(seconds % 60);
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    function getStatusColor(status) {
+        switch (status) {
+            case 'completed': return 'success';
+            case 'processing': return 'warning';
+            case 'failed': return 'danger';
+            default: return 'secondary';
+        }
+    }
+    
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alertDiv);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            const bsAlert = bootstrap.Alert.getInstance(alertDiv);
+            if (bsAlert) {
+                bsAlert.close();
+            }
+        }, 5000);
+    }
+</script>
+
+<style>
+.stat-card .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.empty-state-icon {
+    opacity: 0.5;
+}
+
+.table td, .table th {
+    vertical-align: middle;
+}
+
+.video-checkbox {
+    margin: 0;
+}
+
+.progress {
+    margin-bottom: 0;
+}
+
+.badge {
+    font-size: 0.75em;
+}
+
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+}
+</style>
+{% endblock %}

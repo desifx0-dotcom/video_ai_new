@@ -1,0 +1,123 @@
+# Fly.io configuration
+
+app = "video-ai-studio"
+primary_region = "iad"  # Washington DC
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  FLASK_APP = "app:app"
+  FLASK_ENV = "production"
+  PORT = "8080"
+  DATABASE_PROVIDER = "firebase"
+  PYTHON_VERSION = "3.11"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    timeout = "2s"
+    protocol = "http"
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/v1/health"
+    timeout = "5s"
+    protocol = "http"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 2048
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024
+  processes = ["worker"]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+  processes = ["beat"]
+
+[[statics]]
+  guest_path = "/app/static"
+  url_prefix = "/static"
+
+[mounts]
+  source = "uploads_volume"
+  destination = "/tmp/video_ai/uploads"
+
+[mounts]
+  source = "processing_volume"
+  destination = "/tmp/video_ai/processing"
+
+[mounts]
+  source = "outputs_volume"
+  destination = "/tmp/video_ai/outputs"
+
+# Redis service
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 6379
+
+  [[services.concurrency]]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 750
+
+# SMTP service (optional)
+[[services]]
+  internal_port = 25
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 25
+    handlers = ["tls"]
+
+# Scaling
+[scale]
+  initial = 1
+  max_per_region = 3
+
+# Auto scaling
+[autoscaling]
+  enabled = true
+  min = 1
+  max = 3
+
+  [[autoscaling.cpu]]
+    percent = 70
+    duration = "60s"
+
+  [[autoscaling.memory]]
+    percent = 80
+    duration = "60s"
+
+# Deployment strategy
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 0
+  wait_time = 60
+
+# Process groups
+[processes]
+  web = "gunicorn --bind 0.0.0.0:8080 --workers 4 --worker-class eventlet --timeout 120 --keep-alive 5 app:app"
+  worker = "celery -A tasks.celery_app:celery worker --loglevel=info --concurrency=2 --max-tasks-per-child=100"
+  beat = "celery -A tasks.celery_app:celery beat --loglevel=info"

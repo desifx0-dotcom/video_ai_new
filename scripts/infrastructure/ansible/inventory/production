@@ -1,0 +1,119 @@
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_private_key_file=~/.ssh/video-ai-studio.pem
+
+[web_servers]
+web1.videoaistudio.com ansible_host=54.123.45.67
+web2.videoaistudio.com ansible_host=54.123.45.68
+
+[celery_workers]
+worker1.videoaistudio.com ansible_host=54.123.45.69
+worker2.videoaistudio.com ansible_host=54.123.45.70
+
+[database]
+db.videoaistudio.com ansible_host=54.123.45.71
+
+[redis]
+redis.videoaistudio.com ansible_host=54.123.45.72
+
+[load_balancer]
+lb.videoaistudio.com ansible_host=54.123.45.73
+
+[monitoring]
+monitoring.videoaistudio.com ansible_host=54.123.45.74
+
+[production:children]
+web_servers
+celery_workers
+database
+redis
+load_balancer
+monitoring
+
+[production:vars]
+environment=production
+repository_url=https://github.com/yourusername/video-ai-studio.git
+branch=main
+domain_name=videoaistudio.com
+certbot_email=admin@videoaistudio.com
+
+postgres_user=videoai
+postgres_password=changeme123
+
+# API Keys (would be stored in Ansible Vault)
+openai_api_key=sk-...
+google_api_key=...
+stability_api_key=sk-...
+stripe_secret_key=sk_live_...
+sendgrid_api_key=SG...
+
+# Monitoring
+enable_prometheus=true
+enable_grafana=true
+enable_alertmanager=true
+
+# Backup
+backup_enabled=true
+backup_s3_bucket=video-ai-studio-backups
+backup_retention_days=30
+
+# Scaling
+min_instances=2
+max_instances=10
+cpu_threshold=70
+memory_threshold=80
+
+# Security
+enable_firewall=true
+enable_ssh_key_auth=true
+disable_password_auth=true
+fail2ban_enabled=true
+
+# SSL
+ssl_enabled=true
+ssl_certificate=/etc/letsencrypt/live/videoaistudio.com/fullchain.pem
+ssl_certificate_key=/etc/letsencrypt/live/videoaistudio.com/privkey.pem
+
+# Logging
+log_level=INFO
+log_retention_days=30
+enable_log_rotation=true
+
+# Storage
+upload_max_size=2G
+processing_timeout=1800
+cleanup_interval=3600
+
+# Email
+smtp_host=smtp.sendgrid.net
+smtp_port=587
+smtp_username=apikey
+smtp_password=SG...
+email_from=noreply@videoaistudio.com
+
+# Feature flags
+enable_silent_detection=true
+enable_translation=true
+enable_video_styles=true
+enable_ai_thumbnails=true
+
+# Rate limiting
+rate_limit_free=10
+rate_limit_starter=50
+rate_limit_pro=200
+rate_limit_plus=1000
+rate_limit_enterprise=10000
+
+# Cache
+redis_max_memory=1gb
+redis_max_memory_policy=allkeys-lru
+redis_timeout=300
+
+# Database
+postgres_max_connections=100
+postgres_shared_buffers=256MB
+postgres_effective_cache_size=1GB
+postgres_maintenance_work_mem=64MB
+postgres_checkpoint_completion_target=0.9
+postgres_wal_buffers=16MB
+postgres_default_statistics_target=100

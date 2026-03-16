@@ -1,0 +1,275 @@
+<!-- Video Card Component -->
+<div class="card video-card h-100">
+    <div class="card-img-top position-relative">
+        <!-- Video Thumbnail -->
+        {% if video.selected_thumbnail %}
+            <img src="{{ video.selected_thumbnail }}" class="card-img-top" alt="{{ video.title }}" 
+                 style="height: 180px; object-fit: cover;">
+        {% else %}
+            <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center" 
+                 style="height: 180px;">
+                <i class="fas fa-video fa-3x text-white-50"></i>
+            </div>
+        {% endif %}
+        
+        <!-- Status Badge -->
+        <div class="position-absolute top-0 end-0 m-2">
+            <span class="badge bg-{{ 'success' if video.status == 'completed' else 'warning' if video.status == 'processing' else 'danger' }}">
+                {{ video.status|capitalize }}
+            </span>
+        </div>
+        
+        <!-- Duration Badge -->
+        <div class="position-absolute bottom-0 start-0 m-2">
+            <span class="badge bg-dark bg-opacity-75">
+                {{ (video.duration / 60)|round|int }}:{{ (video.duration % 60)|round(0, 'floor')|int|string.rjust(2, '0') }}
+            </span>
+        </div>
+        
+        <!-- Progress Overlay (for processing videos) -->
+        {% if video.status == 'processing' %}
+            <div class="position-absolute top-50 start-50 translate-middle">
+                <div class="spinner-border text-white" role="status">
+                    <span class="visually-hidden">Processing...</span>
+                </div>
+            </div>
+            <div class="progress position-absolute bottom-0 w-100 rounded-0" style="height: 4px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: {{ video.progress }}%">
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <h6 class="card-title mb-0 text-truncate" title="{{ video.title or video.original_filename }}">
+                {{ video.title or video.original_filename }}
+            </h6>
+            <span class="badge bg-secondary">{{ video.output_quality }}</span>
+        </div>
+        
+        <p class="card-text small text-muted mb-2">
+            {% if video.description %}
+                {{ video.description|truncate(80) }}
+            {% else %}
+                Uploaded {{ video.created_at|datetimeformat('%b %d, %Y') }}
+            {% endif %}
+        </p>
+        
+        <!-- Video Type Indicator -->
+        <div class="mb-2">
+            <small class="text-muted">
+                <i class="fas fa-{{ 'volume-up' if video.video_type == 'speech' else 'volume-mute' if video.video_type == 'silent' else 'music' }} me-1"></i>
+                {{ video.video_type|capitalize }} Video
+            </small>
+        </div>
+        
+        <!-- Applied Styles -->
+        {% if video.applied_styles %}
+            <div class="mb-2">
+                {% for style in video.applied_styles[:2] %}
+                    <span class="badge bg-light text-dark border me-1">{{ style }}</span>
+                {% endfor %}
+                {% if video.applied_styles|length > 2 %}
+                    <small class="text-muted">+{{ video.applied_styles|length - 2 }} more</small>
+                {% endif %}
+            </div>
+        {% endif %}
+        
+        <!-- Stats -->
+        <div class="row small text-center mb-3">
+            <div class="col">
+                <div class="text-muted">Size</div>
+                <div class="fw-bold">{{ (video.file_size / 1024 / 1024)|round(1) }} MB</div>
+            </div>
+            <div class="col">
+                <div class="text-muted">Cost</div>
+                <div class="fw-bold">${{ video.total_cost|round(4) }}</div>
+            </div>
+            <div class="col">
+                <div class="text-muted">Time</div>
+                <div class="fw-bold">{{ video.processing_time|round(1) if video.processing_time else 'N/A' }}s</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card-footer bg-transparent border-top-0">
+        <div class="d-flex justify-content-between">
+            <!-- View/Download Button -->
+            {% if video.status == 'completed' and video.output_video_url %}
+                <a href="{{ video.output_video_url }}" class="btn btn-sm btn-primary" target="_blank">
+                    <i class="fas fa-download me-1"></i> Download
+                </a>
+            {% elif video.status == 'completed' %}
+                <button class="btn btn-sm btn-primary" disabled>
+                    <i class="fas fa-check me-1"></i> Ready
+                </button>
+            {% elif video.status == 'processing' %}
+                <button class="btn btn-sm btn-secondary" disabled>
+                    <i class="fas fa-spinner fa-spin me-1"></i> Processing
+                </button>
+            {% else %}
+                <button class="btn btn-sm btn-outline-secondary" disabled>
+                    <i class="fas fa-clock me-1"></i> {{ video.status|capitalize }}
+                </button>
+            {% endif %}
+            
+            <!-- Action Menu -->
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <a class="dropdown-item" href="#" onclick="viewVideoDetails('{{ video.id }}')">
+                            <i class="fas fa-eye me-2"></i> View Details
+                        </a>
+                    </li>
+                    {% if video.status == 'completed' and video.output_video_url %}
+                        <li>
+                            <a class="dropdown-item" href="{{ video.output_video_url }}" target="_blank">
+                                <i class="fas fa-external-link-alt me-2"></i> Open in New Tab
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="copyVideoLink('{{ video.id }}')">
+                                <i class="fas fa-copy me-2"></i> Copy Link
+                            </a>
+                        </li>
+                    {% endif %}
+                    {% if video.transcription %}
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="viewTranscription('{{ video.id }}')">
+                                <i class="fas fa-file-alt me-2"></i> View Transcription
+                            </a>
+                        </li>
+                    {% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item text-danger" href="#" onclick="deleteVideo('{{ video.id }}')">
+                            <i class="fas fa-trash me-2"></i> Delete
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.video-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid #e9ecef;
+}
+
+.video-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.video-card .card-img-top {
+    background-color: #f8f9fa;
+}
+
+.video-card .progress {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.video-card .badge {
+    font-size: 0.7rem;
+}
+</style>
+
+<script>
+function viewVideoDetails(videoId) {
+    window.location.href = `/dashboard/videos/${videoId}`;
+}
+
+function copyVideoLink(videoId) {
+    navigator.clipboard.writeText(`${window.location.origin}/dashboard/videos/${videoId}`)
+        .then(() => {
+            showToast('Video link copied to clipboard!', 'success');
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            showToast('Failed to copy link', 'danger');
+        });
+}
+
+function viewTranscription(videoId) {
+    // Open transcription modal
+    fetch(`/api/v1/videos/${videoId}/transcription`)
+        .then(response => response.json())
+        .then(data => {
+            const modal = new bootstrap.Modal(document.getElementById('transcriptionModal'));
+            document.getElementById('transcriptionContent').textContent = data.transcription;
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Failed to load transcription:', error);
+            showToast('Failed to load transcription', 'danger');
+        });
+}
+
+function deleteVideo(videoId) {
+    if (!confirm('Are you sure you want to delete this video? This action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/api/v1/videos/${videoId}`, {
+        method: 'DELETE',
+        headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            showToast('Video deleted successfully!', 'success');
+            // Remove the card from the UI
+            document.querySelector(`[data-video-id="${videoId}"]`).remove();
+        } else {
+            throw new Error('Failed to delete video');
+        }
+    })
+    .catch(error => {
+        console.error('Failed to delete video:', error);
+        showToast('Failed to delete video', 'danger');
+    });
+}
+
+function showToast(message, type) {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    
+    // Add to toast container
+    const container = document.getElementById('toastContainer') || createToastContainer();
+    container.appendChild(toast);
+    
+    // Show toast
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+    
+    // Remove after hidden
+    toast.addEventListener('hidden.bs.toast', () => {
+        toast.remove();
+    });
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+    return container;
+}
+</script>

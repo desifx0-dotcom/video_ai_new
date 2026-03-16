@@ -1,0 +1,151 @@
+# Rate limiting configuration
+# Limits are in requests per time period
+
+# Global defaults
+default:
+  requests_per_hour: 100
+  requests_per_minute: 20
+  requests_per_second: 5
+
+# Tier-based rate limits
+tiers:
+  free:
+    requests_per_hour: 10
+    requests_per_minute: 2
+    requests_per_second: 1
+    uploads_per_hour: 1
+    videos_per_day: 1
+  
+  starter:
+    requests_per_hour: 50
+    requests_per_minute: 10
+    requests_per_second: 2
+    uploads_per_hour: 3
+    videos_per_day: 5
+  
+  pro:
+    requests_per_hour: 200
+    requests_per_minute: 40
+    requests_per_second: 5
+    uploads_per_hour: 10
+    videos_per_day: 20
+  
+  plus:
+    requests_per_hour: 1000
+    requests_per_minute: 200
+    requests_per_second: 10
+    uploads_per_hour: 50
+    videos_per_day: 100
+  
+  enterprise:
+    requests_per_hour: 10000
+    requests_per_minute: 1000
+    requests_per_second: 50
+    uploads_per_hour: 500
+    videos_per_day: 1000
+
+# Endpoint-specific rate limits
+endpoints:
+  auth:
+    login:
+      requests_per_hour: 20
+      requests_per_minute: 5
+      requests_per_second: 1
+    
+    register:
+      requests_per_hour: 10
+      requests_per_minute: 2
+      requests_per_second: 1
+    
+    reset_password:
+      requests_per_hour: 5
+      requests_per_minute: 1
+      requests_per_second: 0.2
+  
+  videos:
+    upload:
+      requests_per_hour: 5
+      requests_per_minute: 1
+      requests_per_second: 0.1
+      file_size_limit: "2GB"
+      upload_timeout: 3600  # 1 hour in seconds
+    
+    list:
+      requests_per_hour: 100
+      requests_per_minute: 20
+      requests_per_second: 5
+    
+    download:
+      requests_per_hour: 50
+      requests_per_minute: 10
+      requests_per_second: 2
+  
+  billing:
+    checkout:
+      requests_per_hour: 30
+      requests_per_minute: 5
+      requests_per_second: 1
+    
+    webhook:
+      requests_per_hour: 1000
+      requests_per_minute: 100
+      requests_per_second: 10
+  
+  admin:
+    users:
+      requests_per_hour: 1000
+      requests_per_minute: 100
+      requests_per_second: 10
+    
+    analytics:
+      requests_per_hour: 500
+      requests_per_minute: 50
+      requests_per_second: 5
+
+# Rate limit storage
+storage:
+  type: "redis"  # redis, memory, or database
+  redis_prefix: "rate_limit"
+  cleanup_interval: 3600  # Clean up old entries every hour
+
+# Rate limit strategies
+strategies:
+  fixed_window:
+    enabled: true
+    window_size: 3600  # 1 hour in seconds
+  
+  sliding_window:
+    enabled: false
+    window_size: 3600
+  
+  token_bucket:
+    enabled: false
+    capacity: 100
+    refill_rate: 10  # tokens per second
+
+# Exemptions
+exemptions:
+  health_check: true
+  metrics_endpoint: true
+  internal_ips:
+    - "127.0.0.1"
+    - "::1"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+# Response headers
+headers:
+  enabled: true
+  limit: "X-RateLimit-Limit"
+  remaining: "X-RateLimit-Remaining"
+  reset: "X-RateLimit-Reset"
+  retry_after: "Retry-After"
+
+# Error responses
+errors:
+  enabled: true
+  status_code: 429
+  message: "Rate limit exceeded. Please try again later."
+  retry_after_header: true
+  include_limit_info: true

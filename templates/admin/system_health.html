@@ -1,0 +1,825 @@
+{% extends "base.html" %}
+
+{% block title %}System Health - Video AI Studio Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">System Health & Monitoring</h1>
+        <div class="btn-group">
+            <button class="btn btn-outline-primary" id="refreshHealthBtn">
+                <i class="fas fa-sync-alt me-1"></i> Refresh
+            </button>
+            <button class="btn btn-outline-success" id="runHealthChecksBtn">
+                <i class="fas fa-stethoscope me-1"></i> Run Health Checks
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-cog me-1"></i> Actions
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="clearOldLogs()"><i class="fas fa-trash me-2"></i> Clear Old Logs</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="flushCache()"><i class="fas fa-broom me-2"></i> Flush Cache</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="restartWorkers()"><i class="fas fa-redo me-2"></i> Restart Workers</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="triggerMaintenanceMode()"><i class="fas fa-tools me-2"></i> Maintenance Mode</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Status Overview -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">System Status</h6>
+                            <h3 class="mb-0" id="systemStatus">Healthy</h3>
+                            <small class="text-success" id="uptime">Uptime: 99.9%</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-success rounded-circle">
+                                <i class="fas fa-heartbeat"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Active Workers</h6>
+                            <h3 class="mb-0" id="activeWorkers">0/0</h3>
+                            <small class="text-muted" id="workerStatus">All active</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-info rounded-circle">
+                                <i class="fas fa-server"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Queue Length</h6>
+                            <h3 class="mb-0" id="queueLength">0</h3>
+                            <small class="text-muted" id="queueStatus">Normal</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-warning rounded-circle">
+                                <i class="fas fa-list-ol"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Error Rate</h6>
+                            <h3 class="mb-0" id="errorRate">0%</h3>
+                            <small class="text-muted" id="errorTrend">Stable</small>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-danger rounded-circle">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Service Status -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Service Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Status</th>
+                                    <th>Response Time</th>
+                                    <th>Version</th>
+                                    <th>Last Check</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="serviceStatusTable">
+                                <!-- Will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Resource Usage</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>CPU Usage</span>
+                            <span id="cpuUsage">0%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" role="progressbar" id="cpuProgress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Memory Usage</span>
+                            <span id="memoryUsage">0 MB / 0 MB</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-info" role="progressbar" id="memoryProgress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Disk Usage</span>
+                            <span id="diskUsage">0 GB / 0 GB</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-warning" role="progressbar" id="diskProgress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Network I/O</span>
+                            <span id="networkIO">0 KB/s</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-primary" role="progressbar" id="networkProgress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Charts -->
+    <div class="row mb-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Request Rate & Latency</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="requestChart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Error Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="errorChart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Alerts & Logs -->
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Alerts</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group list-group-flush" id="recentAlertsList">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">System Logs</h5>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" onclick="filterLogs('error')">
+                                <i class="fas fa-exclamation-circle"></i> Errors
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="filterLogs('warning')">
+                                <i class="fas fa-exclamation-triangle"></i> Warnings
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="filterLogs('info')">
+                                <i class="fas fa-info-circle"></i> Info
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="logs-container" style="max-height: 300px; overflow-y: auto;">
+                        <pre id="systemLogs"><code><!-- Logs will be populated here --></code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+.avatar-sm {
+    width: 40px;
+    height: 40px;
+}
+
+.avatar-title {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.service-status {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-healthy { background-color: #28a745; }
+.status-warning { background-color: #ffc107; }
+.status-error { background-color: #dc3545; }
+.status-offline { background-color: #6c757d; }
+
+.alert-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #eee;
+}
+
+.alert-item:last-child {
+    border-bottom: none;
+}
+
+.alert-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+.alert-icon.critical { background-color: #dc3545; color: white; }
+.alert-icon.error { background-color: #fd7e14; color: white; }
+.alert-icon.warning { background-color: #ffc107; color: black; }
+.alert-icon.info { background-color: #0dcaf0; color: white; }
+
+.logs-container pre {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.log-error { color: #dc3545; }
+.log-warning { color: #ffc107; }
+.log-info { color: #0dcaf0; }
+.log-debug { color: #6c757d; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize
+        loadSystemHealth();
+        
+        // Event listeners
+        document.getElementById('refreshHealthBtn').addEventListener('click', loadSystemHealth);
+        document.getElementById('runHealthChecksBtn').addEventListener('click', runHealthChecks);
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadSystemHealth, 30000);
+    });
+    
+    let requestChart, errorChart;
+    let currentLogFilter = 'all';
+    
+    async function loadSystemHealth() {
+        try {
+            const response = await fetch('/api/v1/admin/health', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const data = await response.json();
+            updateSystemStatus(data.system_status);
+            updateServiceStatus(data.services);
+            updateResourceUsage(data.resources);
+            updateCharts(data.metrics);
+            updateAlerts(data.alerts);
+            updateLogs(data.logs);
+        } catch (error) {
+            console.error('Failed to load system health:', error);
+            showAlert('Failed to load system health data', 'danger');
+        }
+    }
+    
+    function updateSystemStatus(status) {
+        document.getElementById('systemStatus').textContent = status.overall;
+        document.getElementById('systemStatus').className = `text-${status.overall === 'healthy' ? 'success' : status.overall === 'degraded' ? 'warning' : 'danger'}`;
+        
+        document.getElementById('uptime').textContent = `Uptime: ${status.uptime}%`;
+        document.getElementById('activeWorkers').textContent = `${status.active_workers}/${status.total_workers}`;
+        document.getElementById('workerStatus').textContent = status.worker_status;
+        document.getElementById('queueLength').textContent = status.queue_length;
+        document.getElementById('queueStatus').textContent = status.queue_status;
+        document.getElementById('queueStatus').className = `text-${status.queue_status === 'Normal' ? 'success' : status.queue_status === 'High' ? 'warning' : 'danger'}`;
+        document.getElementById('errorRate').textContent = `${status.error_rate}%`;
+        document.getElementById('errorTrend').textContent = status.error_trend;
+    }
+    
+    function updateServiceStatus(services) {
+        const table = document.getElementById('serviceStatusTable');
+        
+        table.innerHTML = services.map(service => `
+            <tr>
+                <td>
+                    <strong>${service.name}</strong>
+                    <br><small class="text-muted">${service.description}</small>
+                </td>
+                <td>
+                    <span class="service-status status-${service.status}"></span>
+                    <span class="text-${service.status === 'healthy' ? 'success' : service.status === 'degraded' ? 'warning' : 'danger'}">
+                        ${service.status.charAt(0).toUpperCase() + service.status.slice(1)}
+                    </span>
+                </td>
+                <td>${service.response_time}ms</td>
+                <td><code>${service.version}</code></td>
+                <td>${new Date(service.last_check).toLocaleTimeString()}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="testService('${service.name}')">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    ${service.can_restart ? `
+                        <button class="btn btn-sm btn-outline-warning" onclick="restartService('${service.name}')">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    ` : ''}
+                </td>
+            </tr>
+        `).join('');
+    }
+    
+    function updateResourceUsage(resources) {
+        // CPU
+        const cpuPercent = Math.round((resources.cpu.used / resources.cpu.total) * 100);
+        document.getElementById('cpuUsage').textContent = `${cpuPercent}%`;
+        document.getElementById('cpuProgress').style.width = `${cpuPercent}%`;
+        document.getElementById('cpuProgress').className = `progress-bar bg-${cpuPercent < 70 ? 'success' : cpuPercent < 90 ? 'warning' : 'danger'}`;
+        
+        // Memory
+        const memoryUsedGB = (resources.memory.used / 1024 / 1024 / 1024).toFixed(1);
+        const memoryTotalGB = (resources.memory.total / 1024 / 1024 / 1024).toFixed(1);
+        const memoryPercent = Math.round((resources.memory.used / resources.memory.total) * 100);
+        document.getElementById('memoryUsage').textContent = `${memoryUsedGB} GB / ${memoryTotalGB} GB`;
+        document.getElementById('memoryProgress').style.width = `${memoryPercent}%`;
+        document.getElementById('memoryProgress').className = `progress-bar bg-${memoryPercent < 70 ? 'info' : memoryPercent < 90 ? 'warning' : 'danger'}`;
+        
+        // Disk
+        const diskUsedGB = (resources.disk.used / 1024 / 1024 / 1024).toFixed(1);
+        const diskTotalGB = (resources.disk.total / 1024 / 1024 / 1024).toFixed(1);
+        const diskPercent = Math.round((resources.disk.used / resources.disk.total) * 100);
+        document.getElementById('diskUsage').textContent = `${diskUsedGB} GB / ${diskTotalGB} GB`;
+        document.getElementById('diskProgress').style.width = `${diskPercent}%`;
+        document.getElementById('diskProgress').className = `progress-bar bg-${diskPercent < 70 ? 'warning' : diskPercent < 90 ? 'warning' : 'danger'}`;
+        
+        // Network
+        const networkSpeed = (resources.network.io_rate / 1024).toFixed(1);
+        const networkPercent = Math.min(100, Math.round((resources.network.io_rate / (10 * 1024 * 1024)) * 100)); // Cap at 10MB/s
+        document.getElementById('networkIO').textContent = `${networkSpeed} KB/s`;
+        document.getElementById('networkProgress').style.width = `${networkPercent}%`;
+        document.getElementById('networkProgress').className = `progress-bar bg-${networkPercent < 70 ? 'primary' : networkPercent < 90 ? 'warning' : 'danger'}`;
+    }
+    
+    function updateCharts(metrics) {
+        // Request Chart
+        if (requestChart) requestChart.destroy();
+        
+        const requestCtx = document.getElementById('requestChart').getContext('2d');
+        requestChart = new Chart(requestCtx, {
+            type: 'line',
+            data: {
+                labels: metrics.request_rate.labels,
+                datasets: [
+                    {
+                        label: 'Requests/sec',
+                        data: metrics.request_rate.data,
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Avg Latency (ms)',
+                        data: metrics.latency.data,
+                        borderColor: '#20c997',
+                        backgroundColor: 'rgba(32, 201, 151, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute'
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Requests/sec'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Latency (ms)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    }
+                }
+            }
+        });
+        
+        // Error Chart
+        if (errorChart) errorChart.destroy();
+        
+        const errorCtx = document.getElementById('errorChart').getContext('2d');
+        errorChart = new Chart(errorCtx, {
+            type: 'bar',
+            data: {
+                labels: metrics.error_distribution.labels,
+                datasets: [{
+                    label: 'Errors',
+                    data: metrics.error_distribution.data,
+                    backgroundColor: [
+                        '#dc3545', // 400
+                        '#fd7e14', // 401
+                        '#ffc107', // 403
+                        '#0dcaf0', // 404
+                        '#6c757d'  // 500
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Errors'
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function updateAlerts(alerts) {
+        const alertsList = document.getElementById('recentAlertsList');
+        
+        if (!alerts || alerts.length === 0) {
+            alertsList.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-check-circle fa-2x text-success mb-3"></i>
+                    <p class="text-muted">No recent alerts</p>
+                </div>
+            `;
+            return;
+        }
+        
+        alertsList.innerHTML = alerts.map(alert => {
+            let iconClass = '';
+            let iconColor = '';
+            
+            switch(alert.severity) {
+                case 'critical':
+                    iconClass = 'fas fa-fire';
+                    iconColor = 'critical';
+                    break;
+                case 'error':
+                    iconClass = 'fas fa-exclamation-circle';
+                    iconColor = 'error';
+                    break;
+                case 'warning':
+                    iconClass = 'fas fa-exclamation-triangle';
+                    iconColor = 'warning';
+                    break;
+                default:
+                    iconClass = 'fas fa-info-circle';
+                    iconColor = 'info';
+            }
+            
+            return `
+                <div class="alert-item d-flex align-items-start">
+                    <div class="alert-icon ${iconColor}">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between">
+                            <h6 class="mb-1">${alert.title}</h6>
+                            <span class="badge bg-${alert.severity === 'critical' ? 'danger' : alert.severity === 'error' ? 'warning' : 'info'}">
+                                ${alert.severity.toUpperCase()}
+                            </span>
+                        </div>
+                        <p class="mb-1 small">${alert.message}</p>
+                        <div class="d-flex justify-content-between">
+                            <small class="text-muted">${alert.service}</small>
+                            <small class="text-muted">${timeAgo(new Date(alert.timestamp))}</small>
+                        </div>
+                        ${alert.acknowledged ? `
+                            <small class="text-success">
+                                <i class="fas fa-check me-1"></i>
+                                Acknowledged by ${alert.acknowledged_by} ${timeAgo(new Date(alert.acknowledged_at))}
+                            </small>
+                        ` : `
+                            <button class="btn btn-sm btn-outline-success mt-2" onclick="acknowledgeAlert('${alert.id}')">
+                                <i class="fas fa-check me-1"></i> Acknowledge
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    function updateLogs(logs) {
+        const logsContainer = document.getElementById('systemLogs');
+        
+        if (!logs || logs.length === 0) {
+            logsContainer.innerHTML = '<code>No recent logs</code>';
+            return;
+        }
+        
+        const filteredLogs = currentLogFilter === 'all' 
+            ? logs 
+            : logs.filter(log => log.level === currentLogFilter);
+        
+        logsContainer.innerHTML = filteredLogs.map(log => {
+            const timestamp = new Date(log.timestamp).toLocaleTimeString();
+            const levelClass = `log-${log.level}`;
+            
+            return `<span class="${levelClass}">[${timestamp}] [${log.level.toUpperCase()}] ${log.message}</span>\n`;
+        }).join('');
+        
+        // Auto-scroll to bottom
+        logsContainer.parentElement.scrollTop = logsContainer.parentElement.scrollHeight;
+    }
+    
+    function timeAgo(date) {
+        const seconds = Math.floor((new Date() - date) / 1000);
+        
+        if (seconds < 60) return 'just now';
+        
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + ' min ago';
+        
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+        
+        const days = Math.floor(hours / 24);
+        return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+    }
+    
+    async function runHealthChecks() {
+        try {
+            const response = await fetch('/api/v1/admin/health/run-checks', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Health checks completed successfully', 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to run health checks');
+            }
+        } catch (error) {
+            console.error('Failed to run health checks:', error);
+            showAlert('Failed to run health checks', 'danger');
+        }
+    }
+    
+    async function testService(serviceName) {
+        try {
+            const response = await fetch(`/api/v1/admin/health/services/${serviceName}/test`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert(`Service ${serviceName} test completed`, 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Service test failed');
+            }
+        } catch (error) {
+            console.error('Failed to test service:', error);
+            showAlert('Failed to test service', 'danger');
+        }
+    }
+    
+    async function restartService(serviceName) {
+        if (!confirm(`Are you sure you want to restart ${serviceName}?`)) return;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/health/services/${serviceName}/restart`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert(`Service ${serviceName} restart initiated`, 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to restart service');
+            }
+        } catch (error) {
+            console.error('Failed to restart service:', error);
+            showAlert('Failed to restart service', 'danger');
+        }
+    }
+    
+    async function acknowledgeAlert(alertId) {
+        try {
+            const response = await fetch(`/api/v1/admin/alerts/${alertId}/acknowledge`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Alert acknowledged', 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to acknowledge alert');
+            }
+        } catch (error) {
+            console.error('Failed to acknowledge alert:', error);
+            showAlert('Failed to acknowledge alert', 'danger');
+        }
+    }
+    
+    function filterLogs(level) {
+        currentLogFilter = level;
+        loadSystemHealth();
+    }
+    
+    async function clearOldLogs() {
+        if (!confirm('Clear logs older than 30 days?')) return;
+        
+        try {
+            const response = await fetch('/api/v1/admin/logs/clear', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Old logs cleared successfully', 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to clear logs');
+            }
+        } catch (error) {
+            console.error('Failed to clear logs:', error);
+            showAlert('Failed to clear logs', 'danger');
+        }
+    }
+    
+    async function flushCache() {
+        if (!confirm('Flush all cache? This may temporarily increase load.')) return;
+        
+        try {
+            const response = await fetch('/api/v1/admin/cache/flush', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Cache flushed successfully', 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to flush cache');
+            }
+        } catch (error) {
+            console.error('Failed to flush cache:', error);
+            showAlert('Failed to flush cache', 'danger');
+        }
+    }
+    
+    async function restartWorkers() {
+        if (!confirm('Restart all Celery workers? Processing will pause briefly.')) return;
+        
+        try {
+            const response = await fetch('/api/v1/admin/workers/restart', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Workers restart initiated', 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to restart workers');
+            }
+        } catch (error) {
+            console.error('Failed to restart workers:', error);
+            showAlert('Failed to restart workers', 'danger');
+        }
+    }
+    
+    async function triggerMaintenanceMode() {
+        const enable = confirm('Enable maintenance mode? The system will be unavailable to users.');
+        
+        try {
+            const response = await fetch('/api/v1/admin/maintenance', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enable: enable })
+            });
+            
+            if (response.ok) {
+                showAlert(`Maintenance mode ${enable ? 'enabled' : 'disabled'}`, 'success');
+                loadSystemHealth();
+            } else {
+                throw new Error('Failed to update maintenance mode');
+            }
+        } catch (error) {
+            console.error('Failed to update maintenance mode:', error);
+            showAlert('Failed to update maintenance mode', 'danger');
+        }
+    }
+    
+    function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        alert.style.zIndex = '9999';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alert);
+        
+        setTimeout(() => alert.remove(), 5000);
+    }
+</script>
+{% endblock %}

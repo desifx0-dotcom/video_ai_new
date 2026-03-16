@@ -1,0 +1,272 @@
+# AI Model configurations for Video AI Studio
+# This file defines which AI models to use for different tasks and tiers
+
+# Transcription models
+transcription:
+  default: "whisper-1"
+  models:
+    whisper-1:
+      provider: "openai"
+      cost_per_minute: 0.006
+      max_audio_length: 300  # 5 minutes in seconds
+      supported_languages:
+        - "en"
+        - "es"
+        - "fr"
+        - "de"
+        - "it"
+        - "pt"
+        - "ru"
+        - "zh"
+        - "ja"
+        - "ko"
+      auto_detect: true
+      accuracy: 0.95
+    
+    whisper-medium:
+      provider: "openai"
+      cost_per_minute: 0.012
+      max_audio_length: 600
+      supported_languages: "all"
+      auto_detect: true
+      accuracy: 0.97
+    
+    whisper-large:
+      provider: "openai"
+      cost_per_minute: 0.024
+      max_audio_length: 1200
+      supported_languages: "all"
+      auto_detect: true
+      accuracy: 0.98
+
+# Text generation models
+text_generation:
+  # Model mapping by tier
+  tier_models:
+    free: "gemini-1.5-flash"
+    starter: "gemini-1.5-flash"
+    pro: "gemini-1.5-pro"
+    plus: "gpt-4-turbo"
+    enterprise: "gpt-4-turbo"
+  
+  models:
+    gemini-1.5-flash:
+      provider: "google"
+      cost_per_request: 0.00006
+      max_tokens: 8192
+      context_window: 1048576
+      capabilities:
+        - "text_generation"
+        - "summarization"
+        - "tag_generation"
+        - "title_generation"
+      speed: "fast"
+      quality: "good"
+    
+    gemini-1.5-pro:
+      provider: "google"
+      cost_per_request: 0.00025
+      max_tokens: 8192
+      context_window: 1048576
+      capabilities:
+        - "text_generation"
+        - "summarization"
+        - "tag_generation"
+        - "title_generation"
+        - "complex_reasoning"
+      speed: "medium"
+      quality: "excellent"
+    
+    gpt-3.5-turbo:
+      provider: "openai"
+      cost_per_request: 0.00015
+      max_tokens: 4096
+      context_window: 16384
+      capabilities:
+        - "text_generation"
+        - "summarization"
+        - "tag_generation"
+      speed: "fast"
+      quality: "good"
+    
+    gpt-4:
+      provider: "openai"
+      cost_per_request: 0.0015
+      max_tokens: 8192
+      context_window: 32768
+      capabilities:
+        - "text_generation"
+        - "summarization"
+        - "tag_generation"
+        - "complex_reasoning"
+        - "creative_writing"
+      speed: "slow"
+      quality: "excellent"
+    
+    gpt-4-turbo:
+      provider: "openai"
+      cost_per_request: 0.0010
+      max_tokens: 4096
+      context_window: 128000
+      capabilities:
+        - "text_generation"
+        - "summarization"
+        - "tag_generation"
+        - "complex_reasoning"
+        - "creative_writing"
+      speed: "medium"
+      quality: "excellent"
+
+# Image generation models (for thumbnails)
+image_generation:
+  # Model mapping by tier
+  tier_models:
+    free: "sd-3.5-medium"
+    starter: "sd-3.5-medium"
+    pro: "sd-xl"
+    plus: "sd-3.6-turbo"
+    enterprise: "sd-3.6-turbo"
+  
+  # Steps mapping by tier
+  tier_steps:
+    free: 20
+    starter: 30
+    pro: 40
+    plus: 50
+    enterprise: 50
+  
+  models:
+    sd-3.5-medium:
+      provider: "stability"
+      cost_per_image_20_steps: 0.002
+      cost_per_image_30_steps: 0.003
+      cost_per_image_40_steps: 0.004
+      cost_per_image_50_steps: 0.005
+      resolution: "1024x1024"
+      style_preset: "cinematic"
+      quality: "good"
+      speed: "fast"
+    
+    sd-xl:
+      provider: "stability"
+      cost_per_image_20_steps: 0.004
+      cost_per_image_30_steps: 0.006
+      cost_per_image_40_steps: 0.008
+      cost_per_image_50_steps: 0.010
+      resolution: "1024x1024"
+      style_preset: "photographic"
+      quality: "excellent"
+      speed: "medium"
+    
+    sd-3.6-turbo:
+      provider: "stability"
+      cost_per_image_20_steps: 0.006
+      cost_per_image_30_steps: 0.009
+      cost_per_image_40_steps: 0.012
+      cost_per_image_50_steps: 0.015
+      resolution: "1024x1024"
+      style_preset: "realistic"
+      quality: "excellent"
+      speed: "fast"
+
+# Vision models (for silent video analysis)
+vision:
+  models:
+    gemini-1.5-pro-vision:
+      provider: "google"
+      cost_per_request: 0.0005
+      max_images: 16
+      max_tokens: 8192
+      capabilities:
+        - "image_analysis"
+        - "object_detection"
+        - "scene_understanding"
+        - "text_extraction"
+      quality: "excellent"
+    
+    gpt-4-vision:
+      provider: "openai"
+      cost_per_request: 0.0025
+      max_images: 10
+      max_tokens: 4096
+      capabilities:
+        - "image_analysis"
+        - "object_detection"
+        - "scene_understanding"
+      quality: "excellent"
+
+# Translation models
+translation:
+  default: "googletrans"
+  models:
+    googletrans:
+      provider: "google"
+      cost_per_request: 0.000  # Free
+      supported_languages: 109
+      quality: "good"
+      speed: "fast"
+      limitations:
+        - "rate_limited"
+        - "no_official_api"
+    
+    google-cloud-translate:
+      provider: "google"
+      cost_per_million_characters: 20.00
+      supported_languages: 134
+      quality: "excellent"
+      speed: "fast"
+    
+    deepl:
+      provider: "deepl"
+      cost_per_million_characters: 25.00
+      supported_languages: 31
+      quality: "excellent"
+      speed: "fast"
+
+# Model selection strategies
+strategies:
+  cost_optimization: true
+  fallback_enabled: true
+  tier_based_selection: true
+  
+  # Fallback chain for text generation
+  text_generation_fallback:
+    primary: "gemini-1.5-flash"
+    fallback_1: "gpt-3.5-turbo"
+    fallback_2: "gemini-1.5-pro"
+    fallback_3: "gpt-4"
+  
+  # Fallback chain for image generation
+  image_generation_fallback:
+    primary: "sd-3.5-medium"
+    fallback_1: "sd-xl"
+    fallback_2: "sd-3.6-turbo"
+
+# Request configuration
+requests:
+  timeout: 30  # seconds
+  max_retries: 3
+  retry_delay: 1  # seconds
+  exponential_backoff: true
+  
+  # Rate limiting per provider
+  rate_limits:
+    openai:
+      requests_per_minute: 60
+      tokens_per_minute: 150000
+    
+    google:
+      requests_per_minute: 300
+      tokens_per_minute: 1000000
+    
+    stability:
+      requests_per_minute: 50
+      images_per_minute: 100
+
+# Cost tracking
+cost_tracking:
+  enabled: true
+  granularity: "per_request"
+  aggregation: "daily"
+  alert_threshold: 50  # USD per day
+  budget_limit: 500  # USD per month

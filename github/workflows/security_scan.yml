@@ -1,0 +1,57 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Scan for secrets
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base64-entropy: 4.5
+        regex: true
+    
+    - name: Check for exposed API keys
+      run: |
+        # Simple check for common API key patterns
+        if grep -r "sk_live_" . --include="*.py" --include="*.env" --include="*.yml" --include="*.yaml"; then
+          echo "Potential Stripe secret key found!"
+          exit 1
+        fi
+        if grep -r "sk-" . --include="*.py" --include="*.env" --include="*.yml" --include="*.yaml" | grep -v "sk-test"; then
+          echo "Potential OpenAI/Stability AI key found!"
+          exit 1
+        fi

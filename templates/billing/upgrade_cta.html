@@ -1,0 +1,97 @@
+<!-- Upgrade CTA Component -->
+<div class="card border-primary upgrade-cta">
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <h5 class="card-title text-primary mb-2">
+                    <i class="fas fa-crown me-2"></i>
+                    {% if current_tier == 'free' %}
+                        Upgrade to Starter Tier
+                    {% elif current_tier == 'starter' %}
+                        Upgrade to Pro Tier
+                    {% elif current_tier == 'pro' %}
+                        Upgrade to Plus Tier
+                    {% else %}
+                        Upgrade to Enterprise
+                    {% endif %}
+                </h5>
+                <p class="card-text text-muted mb-3">
+                    {% if current_tier == 'free' %}
+                        Get 16x more videos, 10x longer videos, and premium features for just $24/month.
+                    {% elif current_tier == 'starter' %}
+                        Get 4K quality, 2x more videos, and priority processing for just $79/month.
+                    {% elif current_tier == 'pro' %}
+                        Get unlimited processing, HDR support, and VIP priority for just $250/month.
+                    {% else %}
+                        Get custom solutions, white-label options, and dedicated support.
+                    {% endif %}
+                </p>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {% if current_tier == 'free' %}
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 50 videos/month</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 30 min videos</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 1080p quality</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 7-day retention</span>
+                    {% elif current_tier == 'starter' %}
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 100 videos/month</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 60 min videos</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 4K quality</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 30-day retention</span>
+                    {% elif current_tier == 'pro' %}
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 500 videos/month</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 120 min videos</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 4K+HDR quality</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> 90-day retention</span>
+                    {% else %}
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> Unlimited videos</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> Unlimited length</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> Highest quality</span>
+                        <span class="badge bg-primary"><i class="fas fa-check me-1"></i> Custom retention</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4 text-md-end">
+                {% if current_tier == 'free' %}
+                    <div class="h4 mb-2">$24<span class="text-muted small">/month</span></div>
+                    <p class="text-muted small mb-3">Save 20% with annual billing</p>
+                {% elif current_tier == 'starter' %}
+                    <div class="h4 mb-2">$79<span class="text-muted small">/month</span></div>
+                    <p class="text-muted small mb-3">Save 20% with annual billing</p>
+                {% elif current_tier == 'pro' %}
+                    <div class="h4 mb-2">$250<span class="text-muted small">/month</span></div>
+                    <p class="text-muted small mb-3">Save 20% with annual billing</p>
+                {% else %}
+                    <div class="h4 mb-2">Custom Pricing</div>
+                    <p class="text-muted small mb-3">Contact for enterprise quote</p>
+                {% endif %}
+                
+                {% if current_tier != 'enterprise' %}
+                    <button class="btn btn-primary btn-lg w-100 mb-2" onclick="window.location.href='/billing/upgrade?tier={{ next_tier }}'">
+                        <i class="fas fa-arrow-up me-2"></i> Upgrade Now
+                    </button>
+                    <a href="/billing/pricing" class="btn btn-outline-primary w-100">
+                        <i class="fas fa-chart-bar me-1"></i> Compare Plans
+                    </a>
+                {% else %}
+                    <button class="btn btn-primary btn-lg w-100" onclick="window.location.href='/contact'">
+                        <i class="fas fa-headset me-2"></i> Contact Sales
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.upgrade-cta {
+    background: linear-gradient(135deg, #f8f9ff 0%, #e3f2fd 100%);
+    border-width: 2px;
+    animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+    0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
+}
+</style>

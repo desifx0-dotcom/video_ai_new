@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Payment Successful - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6 text-center">
+            <!-- Success Icon -->
+            <div class="mb-4">
+                <div class="success-icon mx-auto">
+                    <i class="fas fa-check-circle fa-5x text-success"></i>
+                </div>
+            </div>
+            
+            <!-- Success Message -->
+            <h1 class="display-5 fw-bold mb-3">Payment Successful!</h1>
+            <p class="lead text-muted mb-4">
+                {% if payment_type == 'subscription' %}
+                    Your subscription has been activated successfully. Welcome to the {{ tier|capitalize }} tier!
+                {% elif payment_type == 'credits' %}
+                    Your credits have been added to your account. You now have {{ credits_remaining }} credits available.
+                {% elif payment_type == 'upgrade' %}
+                    Your account has been upgraded to the {{ tier|capitalize }} tier. Enjoy the new features!
+                {% else %}
+                    Thank you for your payment. Your transaction was completed successfully.
+                {% endif %}
+            </p>
+            
+            <!-- Transaction Details -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Transaction Details</h5>
+                    <div class="row">
+                        <div class="col-6">
+                            <small class="text-muted">Transaction ID</small>
+                            <p class="mb-2">{{ transaction_id|truncate(20) }}</p>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Amount</small>
+                            <p class="mb-2">${{ amount|float }}</p>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Date</small>
+                            <p class="mb-2">{{ timestamp|datetimeformat }}</p>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Status</small>
+                            <p class="mb-2"><span class="badge bg-success">Completed</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- What's Next -->
+            <div class="mb-4">
+                <h5 class="mb-3">What's Next?</h5>
+                <div class="row">
+                    {% if payment_type == 'subscription' or payment_type == 'upgrade' %}
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 border rounded text-center h-100">
+                                <i class="fas fa-upload fa-2x text-primary mb-3"></i>
+                                <h6>Upload Videos</h6>
+                                <p class="small text-muted mb-0">Start processing videos with your new tier benefits</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 border rounded text-center h-100">
+                                <i class="fas fa-cogs fa-2x text-primary mb-3"></i>
+                                <h6>Explore Features</h6>
+                                <p class="small text-muted mb-0">Check out all the premium features now available to you</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 border rounded text-center h-100">
+                                <i class="fas fa-question-circle fa-2x text-primary mb-3"></i>
+                                <h6>Get Help</h6>
+                                <p class="small text-muted mb-0">Need help? Check our documentation or contact support</p>
+                            </div>
+                        </div>
+                    {% elif payment_type == 'credits' %}
+                        <div class="col-md-6 mb-3">
+                            <div class="p-3 border rounded text-center h-100">
+                                <i class="fas fa-play-circle fa-2x text-primary mb-3"></i>
+                                <h6>Start Processing</h6>
+                                <p class="small text-muted mb-0">Use your new credits to process videos immediately</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="p-3 border rounded text-center h-100">
+                                <i class="fas fa-chart-line fa-2x text-primary mb-3"></i>
+                                <h6>Track Usage</h6>
+                                <p class="small text-muted mb-0">Monitor your credit usage in the billing dashboard</p>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                {% if payment_type == 'subscription' or payment_type == 'upgrade' %}
+                    <a href="/dashboard/upload" class="btn btn-primary btn-lg px-4 me-md-2">
+                        <i class="fas fa-upload me-2"></i> Upload First Video
+                    </a>
+                {% elif payment_type == 'credits' %}
+                    <a href="/dashboard/upload" class="btn btn-primary btn-lg px-4 me-md-2">
+                        <i class="fas fa-play me-2"></i> Process Videos
+                    </a>
+                {% endif %}
+                
+                <a href="/dashboard" class="btn btn-outline-primary btn-lg px-4">
+                    <i class="fas fa-tachometer-alt me-2"></i> Go to Dashboard
+                </a>
+                
+                <a href="/billing" class="btn btn-outline-secondary btn-lg px-4">
+                    <i class="fas fa-receipt me-2"></i> View Receipt
+                </a>
+            </div>
+            
+            <!-- Email Confirmation -->
+            <div class="mt-4 pt-4 border-top">
+                <p class="text-muted small">
+                    <i class="fas fa-envelope me-1"></i>
+                    A receipt has been sent to your email address ({{ user.email }}).
+                    If you don't see it, please check your spam folder.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confetti Animation -->
+<canvas id="confetti-canvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999;"></canvas>
+
+<style>
+    .success-icon {
+        width: 120px;
+        height: 120px;
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Launch confetti animation
+        launchConfetti();
+        
+        // Auto-redirect after 10 seconds
+        setTimeout(() => {
+            window.location.href = '/dashboard';
+        }, 10000);
+        
+        // Update countdown timer
+        let countdown = 10;
+        const countdownElement = document.createElement('div');
+        countdownElement.className = 'text-muted small mt-3';
+        countdownElement.innerHTML = `Redirecting to dashboard in <span id="countdown">${countdown}</span> seconds...`;
+        document.querySelector('.container.py-5 .text-center').appendChild(countdownElement);
+        
+        setInterval(() => {
+            countdown--;
+            document.getElementById('countdown').textContent = countdown;
+            if (countdown <= 0) {
+                window.location.href = '/dashboard';
+            }
+        }, 1000);
+    });
+    
+    function launchConfetti() {
+        const canvas = document.getElementById('confetti-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        const confettiCount = 150;
+        const confetti = [];
+        
+        // Confetti colors
+        const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#fab1a0'];
+        
+        // Create confetti particles
+        for (let i = 0; i < confettiCount; i++) {
+            confetti.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height - canvas.height,
+                r: Math.random() * 10 + 5,
+                d: Math.random() * 5 + 2,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                tilt: Math.floor(Math.random() * 10) - 10,
+                tiltAngleIncrement: Math.random() * 0.07 + 0.05,
+                tiltAngle: 0
+            });
+        }
+        
+        // Animation loop
+        function drawConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            confetti.forEach((p, i) => {
+                ctx.beginPath();
+                ctx.lineWidth = p.d;
+                ctx.strokeStyle = p.color;
+                ctx.moveTo(p.x + p.tilt + p.r / 4, p.y);
+                ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4);
+                ctx.stroke();
+                
+                p.tiltAngle += p.tiltAngleIncrement;
+                p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
+                p.x += Math.sin(p.d);
+                p.tilt = Math.sin(p.tiltAngle) * 15;
+                
+                // Reset particle if it goes off screen
+                if (p.x > canvas.width + 20 || p.x < -20 || p.y > canvas.height) {
+                    confetti[i] = {
+                        x: Math.random() * canvas.width,
+                        y: -20,
+                        r: p.r,
+                        d: p.d,
+                        color: p.color,
+                        tilt: p.tilt,
+                        tiltAngleIncrement: p.tiltAngleIncrement,
+                        tiltAngle: p.tiltAngle
+                    };
+                }
+            });
+            
+            requestAnimationFrame(drawConfetti);
+        }
+        
+        // Start animation
+        drawConfetti();
+        
+        // Resize handler
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        
+        // Stop animation after 5 seconds
+        setTimeout(() => {
+            // Fade out canvas
+            let opacity = 1;
+            const fadeOut = setInterval(() => {
+                opacity -= 0.05;
+                canvas.style.opacity = opacity;
+                if (opacity <= 0) {
+                    clearInterval(fadeOut);
+                    canvas.remove();
+                }
+            }, 50);
+        }, 5000);
+    }
+</script>
+{% endblock %}

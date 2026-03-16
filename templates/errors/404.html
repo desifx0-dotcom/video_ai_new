@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 Not Found - Video AI Studio</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3a0ca3;
+            --warning-color: #f59e0b;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .error-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .error-icon {
+            font-size: 5rem;
+            color: var(--warning-color);
+            margin-bottom: 30px;
+        }
+        
+        .error-title {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--warning-color) 0%, #fbbf24 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .error-message {
+            font-size: 1.2rem;
+            color: #94a3b8;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .search-box {
+            max-width: 400px;
+            margin: 0 auto 30px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 12px 20px;
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #e2e8f0;
+            font-size: 1rem;
+        }
+        
+        .search-box input:focus {
+            outline: none;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .btn-error {
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            border: none;
+        }
+        
+        .btn-error-primary {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #d97706 100%);
+            color: white;
+        }
+        
+        .btn-error-primary:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-2px);
+            color: white;
+            text-decoration: none;
+        }
+        
+        .btn-error-secondary {
+            background: #334155;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+        }
+        
+        .btn-error-secondary:hover {
+            background: #475569;
+            transform: translateY(-2px);
+            color: white;
+            text-decoration: none;
+        }
+        
+        .btn-error i {
+            margin-right: 8px;
+        }
+        
+        .suggestions {
+            margin-top: 40px;
+            padding: 20px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid #334155;
+            border-radius: 10px;
+        }
+        
+        .suggestions h5 {
+            color: #f59e0b;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .suggestions ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .suggestions li {
+            margin-bottom: 10px;
+        }
+        
+        .suggestions a {
+            color: #60a5fa;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+        
+        .suggestions a:hover {
+            color: #93c5fd;
+            text-decoration: underline;
+        }
+        
+        .suggestions i {
+            width: 20px;
+            margin-right: 10px;
+            color: #94a3b8;
+        }
+        
+        .error-code {
+            font-family: monospace;
+            background: #0f172a;
+            padding: 5px 10px;
+            border-radius: 5px;
+            border: 1px solid #334155;
+            color: #fbbf24;
+            font-size: 0.9rem;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container text-center">
+        <div class="error-icon">
+            <i class="fas fa-map-signs"></i>
+        </div>
+        
+        <h1 class="error-title">404 Not Found</h1>
+        
+        <div class="error-message">
+            The page you're looking for doesn't exist or has been moved.
+            <br>
+            <small class="text-muted">URL: <code id="current-url">{{ request.url }}</code></small>
+        </div>
+        
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search for videos, documentation, or help...">
+        </div>
+        
+        <div class="action-buttons">
+            <a href="javascript:history.back()" class="btn-error btn-error-secondary">
+                <i class="fas fa-arrow-left"></i> Go Back
+            </a>
+            
+            <a href="/" class="btn-error btn-error-primary">
+                <i class="fas fa-home"></i> Go Home
+            </a>
+            
+            <a href="/dashboard" class="btn-error btn-error-secondary">
+                <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+        </div>
+        
+        <div class="suggestions">
+            <h5>You might be looking for:</h5>
+            <ul>
+                <li>
+                    <a href="/dashboard">
+                        <i class="fas fa-tachometer-alt"></i> Dashboard
+                    </a>
+                </li>
+                <li>
+                    <a href="/upload">
+                        <i class="fas fa-upload"></i> Upload Video
+                    </a>
+                </li>
+                <li>
+                    <a href="/pricing">
+                        <i class="fas fa-tags"></i> Pricing & Plans
+                    </a>
+                </li>
+                <li>
+                    <a href="/docs">
+                        <i class="fas fa-book"></i> Documentation
+                    </a>
+                </li>
+                <li>
+                    <a href="/contact">
+                        <i class="fas fa-envelope"></i> Contact Support
+                    </a>
+                </li>
+            </ul>
+        </div>
+        
+        <div class="mt-4 text-muted">
+            <small>
+                If you believe this is an error, please contact support.
+                <br>
+                Error Reference: <span class="error-code">NOT_FOUND_{{ timestamp }}</span>
+            </small>
+        </div>
+    </div>
+    
+    <script>
+        // Display current URL
+        document.getElementById('current-url').textContent = window.location.pathname;
+        
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const query = this.value.trim();
+                if (query) {
+                    window.location.href = `/search?q=${encodeURIComponent(query)}`;
+                }
+            }
+        });
+        
+        // Auto-redirect after 30 seconds
+        setTimeout(function() {
+            window.location.href = '/';
+        }, 30000);
+        
+        // Countdown display
+        let countdown = 30;
+        const countdownElement = document.createElement('div');
+        countdownElement.className = 'countdown mt-3';
+        countdownElement.style.color = '#94a3b8';
+        countdownElement.innerHTML = `Auto-redirecting to homepage in <span id="countdown">${countdown}</span> seconds...`;
+        document.querySelector('.suggestions').parentNode.insertBefore(countdownElement, document.querySelector('.suggestions'));
+        
+        const countdownInterval = setInterval(function() {
+            countdown--;
+            document.getElementById('countdown').textContent = countdown;
+            
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+            }
+        }, 1000);
+        
+        // Add timestamp if not present
+        if (!document.querySelector('.error-code').textContent.includes('{{ timestamp }}')) {
+            const timestamp = new Date().getTime();
+            document.querySelector('.error-code').textContent = `NOT_FOUND_${timestamp}`;
+        }
+    </script>
+</body>
+</html>

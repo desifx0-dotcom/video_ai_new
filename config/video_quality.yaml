@@ -1,0 +1,319 @@
+# Video quality settings per tier
+# This file defines the video processing parameters for each quality level
+
+# Quality levels
+qualities:
+  480p:
+    name: "Standard Definition"
+    resolution: "854x480"
+    aspect_ratio: "16:9"
+    bitrate: "1M"
+    max_bitrate: "2M"
+    buffer_size: "2M"
+    keyframe_interval: 30
+    fps: 30
+    preset: "ultrafast"
+    tune: "film"
+    profile: "main"
+    level: "3.1"
+    codec: "h264"
+    pixel_format: "yuv420p"
+    audio_bitrate: "128k"
+    audio_channels: 2
+    audio_sample_rate: 44100
+    container: "mp4"
+    file_extension: ".mp4"
+    estimated_size_per_minute: 7.5  # MB
+  
+  720p:
+    name: "High Definition"
+    resolution: "1280x720"
+    aspect_ratio: "16:9"
+    bitrate: "2M"
+    max_bitrate: "4M"
+    buffer_size: "4M"
+    keyframe_interval: 30
+    fps: 30
+    preset: "veryfast"
+    tune: "film"
+    profile: "high"
+    level: "3.1"
+    codec: "h264"
+    pixel_format: "yuv420p"
+    audio_bitrate: "192k"
+    audio_channels: 2
+    audio_sample_rate: 44100
+    container: "mp4"
+    file_extension: ".mp4"
+    estimated_size_per_minute: 15  # MB
+  
+  1080p:
+    name: "Full HD"
+    resolution: "1920x1080"
+    aspect_ratio: "16:9"
+    bitrate: "5M"
+    max_bitrate: "8M"
+    buffer_size: "8M"
+    keyframe_interval: 30
+    fps: 30
+    preset: "medium"
+    tune: "film"
+    profile: "high"
+    level: "4.0"
+    codec: "h264"
+    pixel_format: "yuv420p"
+    audio_bitrate: "256k"
+    audio_channels: 2
+    audio_sample_rate: 48000
+    container: "mp4"
+    file_extension: ".mp4"
+    estimated_size_per_minute: 37.5  # MB
+  
+  4k:
+    name: "Ultra HD 4K"
+    resolution: "3840x2160"
+    aspect_ratio: "16:9"
+    bitrate: "15M"
+    max_bitrate: "25M"
+    buffer_size: "25M"
+    keyframe_interval: 30
+    fps: 30
+    preset: "slow"
+    tune: "film"
+    profile: "high"
+    level: "5.1"
+    codec: "h265"
+    pixel_format: "yuv420p10le"
+    audio_bitrate: "320k"
+    audio_channels: 2
+    audio_sample_rate: 48000
+    container: "mp4"
+    file_extension: ".mp4"
+    estimated_size_per_minute: 112.5  # MB
+  
+  4k+hdr:
+    name: "Ultra HD 4K with HDR"
+    resolution: "3840x2160"
+    aspect_ratio: "16:9"
+    bitrate: "25M"
+    max_bitrate: "40M"
+    buffer_size: "40M"
+    keyframe_interval: 30
+    fps: 30
+    preset: "veryslow"
+    tune: "film"
+    profile: "main10"
+    level: "5.1"
+    codec: "h265"
+    pixel_format: "yuv420p10le"
+    color_primaries: "bt2020"
+    color_trc: "smpte2084"
+    colorspace: "bt2020nc"
+    audio_bitrate: "320k"
+    audio_channels: 2
+    audio_sample_rate: 48000
+    container: "mp4"
+    file_extension: ".mp4"
+    estimated_size_per_minute: 187.5  # MB
+
+# Tier to quality mapping
+tier_qualities:
+  free: "720p"
+  starter: "1080p"
+  pro: "4k"
+  plus: "4k+hdr"
+  enterprise: "4k+hdr"
+
+# FFmpeg presets with descriptions
+presets:
+  ultrafast:
+    name: "Ultrafast"
+    compression_ratio: 0.3
+    encoding_speed: "very_fast"
+    quality: "low"
+    cpu_usage: "low"
+    recommended_for: "free_tier, live_streaming"
+  
+  superfast:
+    name: "Superfast"
+    compression_ratio: 0.4
+    encoding_speed: "fast"
+    quality: "medium"
+    cpu_usage: "low"
+    recommended_for: "fast_processing"
+  
+  veryfast:
+    name: "Veryfast"
+    compression_ratio: 0.5
+    encoding_speed: "fast"
+    quality: "good"
+    cpu_usage: "medium"
+    recommended_for: "720p_processing"
+  
+  faster:
+    name: "Faster"
+    compression_ratio: 0.6
+    encoding_speed: "medium"
+    quality: "good"
+    cpu_usage: "medium"
+    recommended_for: "balanced_processing"
+  
+  fast:
+    name: "Fast"
+    compression_ratio: 0.7
+    encoding_speed: "medium"
+    quality: "very_good"
+    cpu_usage: "medium"
+    recommended_for: "1080p_processing"
+  
+  medium:
+    name: "Medium"
+    compression_ratio: 0.8
+    encoding_speed: "slow"
+    quality: "excellent"
+    cpu_usage: "high"
+    recommended_for: "1080p_quality"
+  
+  slow:
+    name: "Slow"
+    compression_ratio: 0.9
+    encoding_speed: "very_slow"
+    quality: "outstanding"
+    cpu_usage: "very_high"
+    recommended_for: "4k_processing"
+  
+  slower:
+    name: "Slower"
+    compression_ratio: 0.95
+    encoding_speed: "extremely_slow"
+    quality: "perfect"
+    cpu_usage: "extremely_high"
+    recommended_for: "archival_quality"
+  
+  veryslow:
+    name: "Veryslow"
+    compression_ratio: 1.0
+    encoding_speed: "ultra_slow"
+    quality: "perfect"
+    cpu_usage: "maximum"
+    recommended_for: "4k+hdr, master_quality"
+
+# Codec configurations
+codecs:
+  h264:
+    name: "H.264/AVC"
+    compatibility: "excellent"
+    efficiency: "good"
+    hardware_acceleration: "yes"
+    license: "patented"
+    recommended_for: "compatibility"
+  
+  h265:
+    name: "H.265/HEVC"
+    compatibility: "good"
+    efficiency: "excellent"
+    hardware_acceleration: "yes"
+    license: "patented"
+    recommended_for: "4k, high_efficiency"
+  
+  av1:
+    name: "AV1"
+    compatibility: "limited"
+    efficiency: "outstanding"
+    hardware_acceleration: "emerging"
+    license: "royalty_free"
+    recommended_for: "future_proofing"
+  
+  vp9:
+    name: "VP9"
+    compatibility: "good"
+    efficiency: "very_good"
+    hardware_acceleration: "yes"
+    license: "royalty_free"
+    recommended_for: "web_optimization"
+
+# Audio configurations
+audio:
+  qualities:
+    low:
+      bitrate: "96k"
+      codec: "aac"
+      channels: 2
+      sample_rate: 44100
+      recommended_for: "speech"
+    
+    medium:
+      bitrate: "128k"
+      codec: "aac"
+      channels: 2
+      sample_rate: 44100
+      recommended_for: "general_use"
+    
+    good:
+      bitrate: "192k"
+      codec: "aac"
+      channels: 2
+      sample_rate: 44100
+      recommended_for: "music"
+    
+    high:
+      bitrate: "256k"
+      codec: "aac"
+      channels: 2
+      sample_rate: 48000
+      recommended_for: "high_quality"
+    
+    excellent:
+      bitrate: "320k"
+      codec: "aac"
+      channels: 2
+      sample_rate: 48000
+      recommended_for: "premium_content"
+
+# Processing optimization
+optimization:
+  parallel_processing: true
+  max_parallel_jobs: 4
+  gpu_acceleration: false  # Enable if GPU available
+  memory_limit: "4G"
+  cpu_limit: "80%"
+  
+  # Adaptive bitrate
+  adaptive_bitrate: true
+  min_bitrate_ratio: 0.5
+  max_bitrate_ratio: 2.0
+  
+  # Two-pass encoding (for better quality)
+  two_pass_encoding:
+    enabled_for:
+      - "4k"
+      - "4k+hdr"
+    first_pass_options: "-pass 1 -an -f null"
+    second_pass_options: "-pass 2"
+
+# File size estimation (per minute of video)
+size_estimation:
+  480p: 7.5  # MB
+  720p: 15   # MB
+  1080p: 37.5  # MB
+  4k: 112.5  # MB
+  4k+hdr: 187.5  # MB
+  
+  # Formula: (bitrate_in_mbps * 60) / 8
+  calculation_formula: "(bitrate_mbps * duration_seconds) / 8"
+
+# Quality validation
+validation:
+  enabled: true
+  checks:
+    - "resolution_match"
+    - "bitrate_within_range"
+    - "codec_supported"
+    - "container_valid"
+    - "audio_present"
+  
+  min_acceptable_quality:
+    resolution: "480p"
+    bitrate: "500k"
+    fps: 24
+    audio_bitrate: "64k"

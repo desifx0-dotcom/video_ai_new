@@ -1,0 +1,288 @@
+---
+- name: Setup Video AI Studio Server
+  hosts: all
+  become: yes
+  vars:
+    app_user: videoai
+    app_group: videoai
+    app_dir: /opt/video-ai-studio
+    venv_dir: "{{ app_dir }}/venv"
+    python_version: "3.11"
+    
+  tasks:
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+      cache_valid_time: 3600
+    
+  - name: Install system dependencies
+    apt:
+      name:
+        - python3-pip
+        - python3-venv
+        - python3-dev
+        - build-essential
+        - libssl-dev
+        - libffi-dev
+        - libxml2-dev
+        - libxslt1-dev
+        - zlib1g-dev
+        - ffmpeg
+        - libsm6
+        - libxext6
+        - libgl1-mesa-glx
+        - nginx
+        - redis-server
+        - postgresql
+        - postgresql-contrib
+        - certbot
+        - python3-certbot-nginx
+        - supervisor
+        - git
+        - curl
+        - wget
+        - unzip
+        - tree
+        - htop
+        - net-tools
+      state: present
+    
+  - name: Create application user and group
+    group:
+      name: "{{ app_group }}"
+      state: present
+    
+    user:
+      name: "{{ app_user }}"
+      group: "{{ app_group }}"
+      shell: /bin/bash
+      create_home: yes
+      home: "/home/{{ app_user }}"
+    
+  - name: Create application directory
+    file:
+      path: "{{ app_dir }}"
+      state: directory
+      owner: "{{ app_user }}"
+      group: "{{ app_group }}"
+      mode: '0755'
+    
+  - name: Clone repository
+    git:
+      repo: "{{ repository_url }}"
+      dest: "{{ app_dir }}"
+      version: "{{ branch }}"
+      accept_hostkey: yes
+    when: repository_url is defined
+    
+  - name: Copy application files
+    copy:
+      src: "{{ item }}"
+      dest: "{{ app_dir }}/"
+    with_items:
+      - requirements.txt
+      - requirements-dev.txt
+      - app.py
+      - src/
+      - config/
+      - static/
+      - templates/
+    when: repository_url is not defined
+    
+  - name: Create virtual environment
+    command:
+      cmd: "python3 -m venv {{ venv_dir }}"
+      creates: "{{ venv_dir }}"
+    
+  - name: Install Python dependencies
+    pip:
+      requirements: "{{ app_dir }}/requirements.txt"
+      virtualenv: "{{ venv_dir }}"
+      virtualenv_python: python3
+    
+  - name: Create data directories
+    file:
+      path: "{{ item }}"
+      state: directory
+      owner: "{{ app_user }}"
+      group: "{{ app_group }}"
+      mode: '0755'
+    with_items:
+      - "{{ app_dir }}/data/uploads"
+      - "{{ app_dir }}/data/processing"
+      - "{{ app_dir }}/data/outputs"
+      - "{{ app_dir }}/data/logs"
+      - "{{ app_dir }}/data/cache"
+    
+  - name: Copy environment file
+    template:
+      src: "templates/env.j2"
+      dest: "{{ app_dir }}/.env"
+      owner: "{{ app_user }}"
+      group: "{{ app_group }}"
+      mode: '0600'
+    
+  - name: Configure PostgreSQL
+    postgresql_user:
+      name: "{{ postgres_user }}"
+      password: "{{ postgres_password }}"
+      state: present
+    when: postgres_user is defined and postgres_password is defined
+    
+    postgresql_db:
+      name: videoaistudio
+      owner: "{{ postgres_user }}"
+      state: present
+    when: postgres_user is defined
+    
+  - name: Configure Redis
+    template:
+      src: "templates/redis.conf.j2"
+      dest: /etc/redis/redis.conf
+      owner: redis
+      group: redis
+      mode: '0644'
+    notify: restart redis
+    
+  - name: Configure Nginx
+    template:
+      src: "templates/nginx.conf.j2"
+      dest: /etc/nginx/sites-available/video-ai-studio
+      owner: root
+      group: root
+      mode: '0644'
+    
+    file:
+      src: /etc/nginx/sites-available/video-ai-studio
+      dest: /etc/nginx/sites-enabled/video-ai-studio
+      state: link
+    notify: restart nginx
+    
+  - name: Configure Supervisor
+    template:
+      src: "templates/supervisor.conf.j2"
+      dest: /etc/supervisor/conf.d/video-ai-studio.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: restart supervisor
+    
+  - name: Configure systemd services
+    template:
+      src: "templates/{{ item }}.service.j2"
+      dest: /etc/systemd/system/{{ item }}.service
+      owner: root
+      group: root
+      mode: '0644'
+    with_items:
+      - video-ai-studio-web
+      - video-ai-studio-celery
+      - video-ai-studio-celery-beat
+    notify: reload systemd
+    
+  - name: Configure firewall
+    ufw:
+      rule: "{{ item.rule }}"
+      port: "{{ item.port }}"
+      proto: "{{ item.proto | default('tcp') }}"
+    with_items:
+      - { rule: allow, port: '22', proto: 'tcp' }
+      - { rule: allow, port: '80', proto: 'tcp' }
+      - { rule: allow, port: '443', proto: 'tcp' }
+    
+  - name: Enable and start services
+    systemd:
+      name: "{{ item }}"
+      enabled: yes
+      state: started
+    with_items:
+      - nginx
+      - redis-server
+      - postgresql
+      - supervisor
+      - video-ai-studio-web
+      - video-ai-studio-celery
+      - video-ai-studio-celery-beat
+    
+  - name: Run database migrations
+    command:
+      cmd: "{{ venv_dir }}/bin/flask db upgrade"
+      chdir: "{{ app_dir }}"
+      creates: "{{ app_dir }}/migrations/versions/"
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: production
+    
+  - name: Seed initial data
+    command:
+      cmd: "{{ venv_dir }}/bin/python scripts/dev/seed-db.py"
+      chdir: "{{ app_dir }}"
+    when: seed_database is defined and seed_database
+    
+  - name: Set up SSL certificate with Certbot
+    command:
+      cmd: "certbot --nginx -d {{ domain_name }} --non-interactive --agree-tos --email {{ certbot_email }}"
+      creates: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+    when: domain_name is defined and certbot_email is defined
+    
+  - name: Set up log rotation
+    template:
+      src: "templates/logrotate.j2"
+      dest: /etc/logrotate.d/video-ai-studio
+      owner: root
+      group: root
+      mode: '0644'
+    
+  - name: Set up monitoring scripts
+    template:
+      src: "templates/monitoring.sh.j2"
+      dest: /usr/local/bin/monitor-video-ai-studio
+      owner: root
+      group: root
+      mode: '0755'
+    
+  - name: Set up backup scripts
+    template:
+      src: "templates/backup.sh.j2"
+      dest: /usr/local/bin/backup-video-ai-studio
+      owner: root
+      group: root
+      mode: '0755'
+    
+  - name: Create cron jobs
+    cron:
+      name: "{{ item.name }}"
+      job: "{{ item.job }}"
+      user: root
+      state: present
+    with_items:
+      - { name: 'Backup database', job: '0 2 * * * /usr/local/bin/backup-video-ai-studio' }
+      - { name: 'Cleanup temp files', job: '0 3 * * * find {{ app_dir }}/data -type f -mtime +1 -delete' }
+      - { name: 'Monitor system', job: '*/5 * * * * /usr/local/bin/monitor-video-ai-studio' }
+      - { name: 'Renew SSL certificate', job: '0 12 * * * certbot renew --quiet' }
+    
+  - name: Verify installation
+    command:
+      cmd: "curl -f http://localhost/health"
+      register: health_check
+      failed_when: health_check.rc != 0
+    
+  handlers:
+  - name: restart nginx
+    service:
+      name: nginx
+      state: restarted
+    
+  - name: restart redis
+    service:
+      name: redis-server
+      state: restarted
+    
+  - name: restart supervisor
+    service:
+      name: supervisor
+      state: restarted
+    
+  - name: reload systemd
+    systemd:
+      daemon_reload: yes

@@ -1,0 +1,196 @@
+{
+  "languages": {
+    "en": {
+      "code": "en",
+      "name": "English",
+      "native_name": "English",
+      "country": "United States",
+      "country_code": "US",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "es": {
+      "code": "es",
+      "name": "Spanish",
+      "native_name": "Español",
+      "country": "Spain",
+      "country_code": "ES",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "fr": {
+      "code": "fr",
+      "name": "French",
+      "native_name": "Français",
+      "country": "France",
+      "country_code": "FR",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "de": {
+      "code": "de",
+      "name": "German",
+      "native_name": "Deutsch",
+      "country": "Germany",
+      "country_code": "DE",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "zh-CN": {
+      "code": "zh-CN",
+      "name": "Chinese (Simplified)",
+      "native_name": "简体中文",
+      "country": "China",
+      "country_code": "CN",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "good",
+      "ai_model_support": "excellent"
+    },
+    "ja": {
+      "code": "ja",
+      "name": "Japanese",
+      "native_name": "日本語",
+      "country": "Japan",
+      "country_code": "JP",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "good",
+      "ai_model_support": "excellent"
+    },
+    "ko": {
+      "code": "ko",
+      "name": "Korean",
+      "native_name": "한국어",
+      "country": "South Korea",
+      "country_code": "KR",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "good",
+      "ai_model_support": "excellent"
+    },
+    "ar": {
+      "code": "ar",
+      "name": "Arabic",
+      "native_name": "العربية",
+      "country": "Saudi Arabia",
+      "country_code": "SA",
+      "direction": "rtl",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "good",
+      "ai_model_support": "good"
+    },
+    "hi": {
+      "code": "hi",
+      "name": "Hindi",
+      "native_name": "हिन्दी",
+      "country": "India",
+      "country_code": "IN",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "good",
+      "ai_model_support": "good"
+    },
+    "pt": {
+      "code": "pt",
+      "name": "Portuguese",
+      "native_name": "Português",
+      "country": "Portugal",
+      "country_code": "PT",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "ru": {
+      "code": "ru",
+      "name": "Russian",
+      "native_name": "Русский",
+      "country": "Russia",
+      "country_code": "RU",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    },
+    "it": {
+      "code": "it",
+      "name": "Italian",
+      "native_name": "Italiano",
+      "country": "Italy",
+      "country_code": "IT",
+      "direction": "ltr",
+      "supported": true,
+      "transcription": true,
+      "translation": true,
+      "whisper_support": "excellent",
+      "ai_model_support": "excellent"
+    }
+  },
+
+  "language_groups": {
+    "popular": ["en", "es", "fr", "de", "zh-CN", "ja", "ko", "ar", "hi", "pt", "ru", "it"],
+    "european": ["en", "es", "fr", "de", "pt", "it", "ru", "nl", "pl", "uk", "ro", "hu", "sv", "da", "fi", "no", "cs", "el"],
+    "asian": ["zh-CN", "ja", "ko", "hi", "bn", "ur", "tr", "vi", "th", "id", "ms"],
+    "middle_eastern": ["ar", "fa", "he", "tr"],
+    "african": ["sw", "ha", "yo", "ig", "am"],
+    "latin_american": ["es", "pt", "fr"]
+  },
+
+  "translation_support": {
+    "fully_supported": 109,
+    "partially_supported": 25,
+    "total_languages": 134,
+    "auto_detect": true,
+    "batch_translation": true,
+    "real_time": true
+  },
+
+  "transcription_support": {
+    "whisper_supported": 99,
+    "excellent_quality": 30,
+    "good_quality": 40,
+    "basic_quality": 29,
+    "auto_detect": true,
+    "language_detection_accuracy": 0.99
+  },
+
+  "default_settings": {
+    "default_language": "en",
+    "fallback_language": "en",
+    "auto_detect": true,
+    "preferred_languages": ["en", "es", "fr", "de", "zh-CN"],
+    "rtl_support": true,
+    "unicode_support": true
+  }
+}

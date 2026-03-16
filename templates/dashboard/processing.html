@@ -1,0 +1,839 @@
+{% extends "base.html" %}
+
+{% block title %}Processing - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="page-header mb-4">
+                <h1 class="h2">Processing Video</h1>
+                <p class="text-muted">Your video is being processed by AI</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Processing Status -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Processing Status</h5>
+                        <span class="badge bg-{{ status_color }}">{{ status|title }}</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Progress Bar -->
+                    <div class="processing-progress mb-4">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Overall Progress</span>
+                            <span id="progress-percentage">{{ progress }}%</span>
+                        </div>
+                        <div class="progress" style="height: 12px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: {{ progress }}%"
+                                 aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100">
+                            </div>
+                        </div>
+                        <div class="text-end mt-1">
+                            <small class="text-muted" id="estimated-time">
+                                {% if estimated_time %}
+                                Estimated time remaining: {{ estimated_time }}
+                                {% endif %}
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Processing Steps -->
+                    <div class="processing-steps mb-4">
+                        <h6 class="mb-3">Processing Steps</h6>
+                        <div class="steps-container">
+                            {% for step in steps %}
+                            <div class="step-item {% if step.status == 'completed' %}completed{% elif step.status == 'active' %}active{% endif %}">
+                                <div class="step-icon">
+                                    {% if step.status == 'completed' %}
+                                    <i class="fas fa-check-circle text-success"></i>
+                                    {% elif step.status == 'active' %}
+                                    <i class="fas fa-spinner fa-spin text-primary"></i>
+                                    {% else %}
+                                    <i class="far fa-circle text-muted"></i>
+                                    {% endif %}
+                                </div>
+                                <div class="step-content">
+                                    <div class="step-title">{{ step.title }}</div>
+                                    {% if step.description %}
+                                    <div class="step-description text-muted small">{{ step.description }}</div>
+                                    {% endif %}
+                                    {% if step.progress %}
+                                    <div class="step-progress mt-1">
+                                        <div class="progress" style="height: 4px;">
+                                            <div class="progress-bar" role="progressbar" 
+                                                 style="width: {{ step.progress }}%"></div>
+                                        </div>
+                                        <small class="text-muted">{{ step.progress }}%</small>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="step-time">
+                                    {% if step.completed_at %}
+                                    <small class="text-muted">{{ step.completed_at|datetimeformat('short') }}</small>
+                                    {% elif step.started_at %}
+                                    <small class="text-muted">Started: {{ step.started_at|datetimeformat('short') }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Current Step Details -->
+                    {% if current_step %}
+                    <div class="current-step-details card border-primary">
+                        <div class="card-body">
+                            <h6 class="card-title text-primary">
+                                <i class="fas fa-cogs me-2"></i>Currently Processing: {{ current_step.title }}
+                            </h6>
+                            <p class="card-text">{{ current_step.description }}</p>
+                            {% if current_step.details %}
+                            <div class="step-details mt-3">
+                                <ul class="list-unstyled">
+                                    {% for detail in current_step.details %}
+                                    <li class="mb-1">
+                                        <i class="fas fa-chevron-right text-primary me-2"></i>
+                                        {{ detail }}
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Video Preview -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Video Preview</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="video-preview-container">
+                                <h6 class="mb-2">Original</h6>
+                                <div class="video-wrapper mb-3">
+                                    {% if video.original_preview_url %}
+                                    <video controls class="w-100 rounded" style="max-height: 300px;">
+                                        <source src="{{ video.original_preview_url }}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    {% else %}
+                                    <div class="no-preview bg-light rounded d-flex align-items-center justify-content-center" 
+                                         style="height: 200px;">
+                                        <div class="text-center">
+                                            <i class="fas fa-video text-muted fa-2x mb-2"></i>
+                                            <p class="text-muted mb-0">No preview available</p>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="video-info small">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <strong>File:</strong> {{ video.original_filename|truncate(20) }}
+                                        </div>
+                                        <div class="col-6">
+                                            <strong>Size:</strong> {{ video.file_size|filesizeformat }}
+                                        </div>
+                                        <div class="col-6">
+                                            <strong>Duration:</strong> {{ video.duration|format_duration }}
+                                        </div>
+                                        <div class="col-6">
+                                            <strong>Format:</strong> {{ video.format|default('MP4') }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="video-preview-container">
+                                <h6 class="mb-2">Processed Preview</h6>
+                                <div class="video-wrapper mb-3">
+                                    {% if video.processed_preview_url %}
+                                    <video controls class="w-100 rounded" style="max-height: 300px;">
+                                        <source src="{{ video.processed_preview_url }}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    {% else %}
+                                    <div class="no-preview bg-light rounded d-flex align-items-center justify-content-center" 
+                                         style="height: 200px;">
+                                        <div class="text-center">
+                                            <i class="fas fa-hourglass-half text-muted fa-2x mb-2"></i>
+                                            <p class="text-muted mb-0">Processing in progress</p>
+                                            <small>Preview will appear when ready</small>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="video-info small">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <strong>Quality:</strong> {{ video.output_quality|default('720p') }}
+                                        </div>
+                                        <div class="col-6">
+                                            <strong>Styles:</strong> 
+                                            {% if video.applied_styles %}
+                                                {{ video.applied_styles|join(', ')|truncate(15) }}
+                                            {% else %}
+                                                None
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-12">
+                                            <strong>AI Features:</strong>
+                                            {% if video.has_transcription %}
+                                            <span class="badge bg-info me-1">Transcription</span>
+                                            {% endif %}
+                                            {% if video.has_translation %}
+                                            <span class="badge bg-info me-1">Translation</span>
+                                            {% endif %}
+                                            {% if video.ai_thumbnails_count > 0 %}
+                                            <span class="badge bg-info me-1">AI Thumbnails</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thumbnails Preview -->
+            {% if thumbnails %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Generated Thumbnails</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for thumbnail in thumbnails %}
+                        <div class="col-md-4 col-lg-3 mb-3">
+                            <div class="thumbnail-card {% if thumbnail.selected %}border-primary border-2{% endif %}">
+                                <div class="thumbnail-image">
+                                    <img src="{{ thumbnail.url }}" 
+                                         alt="Thumbnail {{ loop.index }}"
+                                         class="img-fluid rounded">
+                                    {% if thumbnail.selected %}
+                                    <div class="selected-badge">
+                                        <span class="badge bg-primary">Selected</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="thumbnail-info mt-2">
+                                    <small class="text-muted d-block">
+                                        {% if thumbnail.type == 'ai' %}
+                                        <i class="fas fa-robot text-primary me-1"></i> AI Generated
+                                        {% else %}
+                                        <i class="fas fa-image text-secondary me-1"></i> Extracted
+                                        {% endif %}
+                                    </small>
+                                    <small class="text-muted">
+                                        Score: {{ thumbnail.score|default('N/A') }}
+                                    </small>
+                                </div>
+                                {% if not thumbnail.selected %}
+                                <button class="btn btn-sm btn-outline-primary w-100 mt-2"
+                                        onclick="selectThumbnail('{{ thumbnail.id }}')">
+                                    <i class="fas fa-check me-1"></i> Select
+                                </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-4">
+            <!-- Video Information -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Video Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th>Video ID:</th>
+                                <td><code>{{ video.id|truncate(10) }}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Filename:</th>
+                                <td>{{ video.original_filename }}</td>
+                            </tr>
+                            <tr>
+                                <th>Uploaded:</th>
+                                <td>{{ video.created_at|datetimeformat }}</td>
+                            </tr>
+                            <tr>
+                                <th>Duration:</th>
+                                <td>{{ video.duration|format_duration }}</td>
+                            </tr>
+                            <tr>
+                                <th>File Size:</th>
+                                <td>{{ video.file_size|filesizeformat }}</td>
+                            </tr>
+                            <tr>
+                                <th>Tier:</th>
+                                <td>
+                                    <span class="badge bg-{{ tier_color }}">
+                                        {{ video.processed_tier|title }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Processing Queue:</th>
+                                <td>
+                                    <span class="badge bg-{{ queue_badge_color }}">
+                                        {{ queue_position }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- AI Processing Details -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-brain me-2"></i>AI Processing Details
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="ai-services mb-3">
+                        <h6 class="small text-uppercase text-muted mb-2">Services Used</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for service in ai_services %}
+                            <span class="badge bg-info">
+                                <i class="fas fa-{{ service.icon }} me-1"></i>
+                                {{ service.name }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="cost-estimate mb-3">
+                        <h6 class="small text-uppercase text-muted mb-2">Estimated Cost</h6>
+                        <div class="cost-breakdown">
+                            {% for cost in cost_breakdown %}
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>{{ cost.service }}:</span>
+                                <span>${{ cost.amount|round(4) }}</span>
+                            </div>
+                            {% endfor %}
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between fw-bold">
+                                <span>Total:</span>
+                                <span>${{ total_cost|round(4) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cost-savings">
+                        <h6 class="small text-uppercase text-muted mb-2">Cost Savings</h6>
+                        <div class="alert alert-success mb-0">
+                            <div class="d-flex">
+                                <i class="fas fa-piggy-bank fa-2x me-3"></i>
+                                <div>
+                                    <strong>69% Savings!</strong>
+                                    <div class="small">
+                                        Silent video detection saved ${{ savings_amount|round(2) }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        {% if video.status == 'completed' %}
+                        <a href="{{ url_for('api.v1.routers.videos.download', video_id=video.id) }}" 
+                           class="btn btn-success">
+                            <i class="fas fa-download me-2"></i>Download Processed Video
+                        </a>
+                        <a href="{{ url_for('api.v1.routers.videos.results', video_id=video.id) }}" 
+                           class="btn btn-primary">
+                            <i class="fas fa-chart-bar me-2"></i>View Results
+                        </a>
+                        {% endif %}
+                        
+                        {% if video.status == 'processing' %}
+                        <button class="btn btn-warning" onclick="pauseProcessing()">
+                            <i class="fas fa-pause me-2"></i>Pause Processing
+                        </button>
+                        {% endif %}
+                        
+                        <button class="btn btn-outline-danger" onclick="cancelProcessing()">
+                            <i class="fas fa-times me-2"></i>Cancel Processing
+                        </button>
+                        
+                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" 
+                           class="btn btn-outline-primary">
+                            <i class="fas fa-plus me-2"></i>Upload Another Video
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processing Tips -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-lightbulb me-2"></i>Processing Tips
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0">
+                        <li class="mb-2">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <small>Processing continues in background</small>
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <small>You'll receive email when complete</small>
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <small>Close this page, processing continues</small>
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-clock text-warning me-2"></i>
+                            <small>Complex styles take longer to process</small>
+                        </li>
+                        <li>
+                            <i class="fas fa-bolt text-primary me-2"></i>
+                            <small>Higher tiers process faster</small>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cancel Processing Modal -->
+<div class="modal fade" id="cancel-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Cancel Processing</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to cancel this video processing?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Any progress will be lost and credits may not be refunded.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Processing</button>
+                <button type="button" class="btn btn-danger" onclick="confirmCancel()">Cancel Processing</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pause Processing Modal -->
+<div class="modal fade" id="pause-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Pause Processing</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Processing will be paused and can be resumed later.</p>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Your video will remain in the queue and processing will resume when you're ready.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Continue Processing</button>
+                <button type="button" class="btn btn-warning" onclick="confirmPause()">Pause Now</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/realtime-updates.js') }}"></script>
+<script>
+    // WebSocket connection for real-time updates
+    const socket = io('{{ socketio_url }}');
+    const videoId = '{{ video.id }}';
+    let processingInterval = null;
+    
+    // Connect to WebSocket
+    socket.on('connect', function() {
+        console.log('Connected to WebSocket server');
+        socket.emit('join_video', { video_id: videoId });
+    });
+    
+    // Handle processing updates
+    socket.on('video_processing', function(data) {
+        updateProcessingStatus(data);
+    });
+    
+    socket.on('progress_update', function(data) {
+        updateProgress(data);
+    });
+    
+    socket.on('video_completed', function(data) {
+        showCompletion(data);
+    });
+    
+    socket.on('video_failed', function(data) {
+        showFailure(data);
+    });
+    
+    // Update processing status
+    function updateProcessingStatus(data) {
+        // Update overall progress
+        const progressBar = document.querySelector('.processing-progress .progress-bar');
+        const progressPercentage = document.getElementById('progress-percentage');
+        
+        progressBar.style.width = `${data.progress}%`;
+        progressBar.setAttribute('aria-valuenow', data.progress);
+        progressPercentage.textContent = `${data.progress}%`;
+        
+        // Update estimated time
+        const estimatedTime = document.getElementById('estimated-time');
+        if (data.estimated_time_remaining) {
+            estimatedTime.textContent = `Estimated time remaining: ${formatTime(data.estimated_time_remaining)}`;
+        }
+        
+        // Update current step
+        if (data.current_step) {
+            updateCurrentStep(data.current_step);
+        }
+        
+        // Update step statuses
+        updateStepStatuses(data.steps);
+    }
+    
+    function updateProgress(data) {
+        // Update specific step progress
+        const stepId = data.step_id;
+        const progress = data.progress;
+        
+        const stepElement = document.querySelector(`[data-step-id="${stepId}"]`);
+        if (stepElement) {
+            const progressBar = stepElement.querySelector('.progress-bar');
+            const progressText = stepElement.querySelector('.step-progress small');
+            
+            if (progressBar) {
+                progressBar.style.width = `${progress}%`;
+            }
+            if (progressText) {
+                progressText.textContent = `${progress}%`;
+            }
+        }
+    }
+    
+    function updateCurrentStep(step) {
+        const currentStepDiv = document.querySelector('.current-step-details');
+        if (currentStepDiv) {
+            currentStepDiv.querySelector('.card-title').innerHTML = 
+                `<i class="fas fa-cogs me-2"></i>Currently Processing: ${step.title}`;
+            currentStepDiv.querySelector('.card-text').textContent = step.description;
+            
+            // Update details
+            if (step.details && step.details.length > 0) {
+                const detailsList = currentStepDiv.querySelector('.step-details ul');
+                detailsList.innerHTML = '';
+                step.details.forEach(detail => {
+                    const li = document.createElement('li');
+                    li.className = 'mb-1';
+                    li.innerHTML = `<i class="fas fa-chevron-right text-primary me-2"></i>${detail}`;
+                    detailsList.appendChild(li);
+                });
+            }
+        }
+    }
+    
+    function updateStepStatuses(steps) {
+        steps.forEach(step => {
+            const stepElement = document.querySelector(`[data-step-id="${step.id}"]`);
+            if (stepElement) {
+                // Update icon
+                const icon = stepElement.querySelector('.step-icon i');
+                if (icon) {
+                    icon.className = '';
+                    if (step.status === 'completed') {
+                        icon.className = 'fas fa-check-circle text-success';
+                    } else if (step.status === 'active') {
+                        icon.className = 'fas fa-spinner fa-spin text-primary';
+                    } else {
+                        icon.className = 'far fa-circle text-muted';
+                    }
+                }
+                
+                // Update time
+                const timeElement = stepElement.querySelector('.step-time small');
+                if (timeElement && step.completed_at) {
+                    timeElement.textContent = formatDateTime(step.completed_at);
+                }
+            }
+        });
+    }
+    
+    function showCompletion(data) {
+        // Show success message
+        showAlert('Video processing completed successfully!', 'success');
+        
+        // Update UI for completion
+        document.querySelector('.processing-progress .progress-bar').classList.remove('progress-bar-animated');
+        document.querySelector('.page-header p').textContent = 'Processing complete!';
+        
+        // Update actions
+        const actionsDiv = document.querySelector('.card .card-body .d-grid');
+        actionsDiv.innerHTML = `
+            <a href="${data.download_url}" class="btn btn-success">
+                <i class="fas fa-download me-2"></i>Download Processed Video
+            </a>
+            <a href="${data.results_url}" class="btn btn-primary">
+                <i class="fas fa-chart-bar me-2"></i>View Results
+            </a>
+            <a href="{{ url_for('api.v1.routers.videos.upload') }}" class="btn btn-outline-primary">
+                <i class="fas fa-plus me-2"></i>Upload Another Video
+            </a>
+        `;
+        
+        // Update video preview if available
+        if (data.preview_url) {
+            const previewVideo = document.querySelector('.col-md-6 .video-wrapper video');
+            if (previewVideo) {
+                previewVideo.src = data.preview_url;
+                previewVideo.load();
+            }
+        }
+        
+        // Stop WebSocket updates
+        socket.disconnect();
+    }
+    
+    function showFailure(data) {
+        // Show error message
+        showAlert(`Processing failed: ${data.error_message}`, 'danger');
+        
+        // Update UI for failure
+        document.querySelector('.processing-progress .progress-bar').classList.add('bg-danger');
+        document.querySelector('.processing-progress .progress-bar').classList.remove('progress-bar-animated');
+        document.querySelector('.page-header p').textContent = 'Processing failed';
+        
+        // Update actions
+        const actionsDiv = document.querySelector('.card .card-body .d-grid');
+        actionsDiv.innerHTML = `
+            <button class="btn btn-warning" onclick="retryProcessing()">
+                <i class="fas fa-redo me-2"></i>Retry Processing
+            </button>
+            <a href="{{ url_for('api.v1.routers.videos.upload') }}" class="btn btn-outline-primary">
+                <i class="fas fa-plus me-2"></i>Upload Another Video
+            </a>
+            <button class="btn btn-outline-danger" onclick="deleteFailedVideo()">
+                <i class="fas fa-trash me-2"></i>Delete Video
+            </button>
+        `;
+        
+        // Stop WebSocket updates
+        socket.disconnect();
+    }
+    
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        const container = document.querySelector('.container-fluid');
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // Auto-dismiss after 10 seconds for success, keep for errors
+        if (type !== 'danger') {
+            setTimeout(() => {
+                const bsAlert = bootstrap.Alert.getInstance(alertDiv);
+                if (bsAlert) {
+                    bsAlert.close();
+                }
+            }, 10000);
+        }
+    }
+    
+    function cancelProcessing() {
+        const modal = new bootstrap.Modal(document.getElementById('cancel-modal'));
+        modal.show();
+    }
+    
+    function confirmCancel() {
+        fetch(`/api/v1/videos/${videoId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token() }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Processing cancelled successfully.', 'success');
+                setTimeout(() => {
+                    window.location.href = '{{ url_for("api.v1.routers.videos.history") }}';
+                }, 2000);
+            } else {
+                showAlert(`Failed to cancel: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error cancelling processing.', 'danger');
+        });
+        
+        bootstrap.Modal.getInstance(document.getElementById('cancel-modal')).hide();
+    }
+    
+    function pauseProcessing() {
+        const modal = new bootstrap.Modal(document.getElementById('pause-modal'));
+        modal.show();
+    }
+    
+    function confirmPause() {
+        fetch(`/api/v1/videos/${videoId}/pause`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token() }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Processing paused. You can resume from your video history.', 'success');
+                setTimeout(() => {
+                    window.location.href = '{{ url_for("api.v1.routers.videos.history") }}';
+                }, 2000);
+            } else {
+                showAlert(`Failed to pause: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error pausing processing.', 'danger');
+        });
+        
+        bootstrap.Modal.getInstance(document.getElementById('pause-modal')).hide();
+    }
+    
+    function retryProcessing() {
+        fetch(`/api/v1/videos/${videoId}/retry`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token() }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Processing retry started.', 'success');
+                // Reload page to show new processing status
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showAlert(`Failed to retry: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error retrying processing.', 'danger');
+        });
+    }
+    
+    function deleteFailedVideo() {
+        if (confirm('Are you sure you want to delete this failed video?')) {
+            fetch(`/api/v1/videos/${videoId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-Token': '{{ csrf_token() }}'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Video deleted successfully.', 'success');
+                    setTimeout(() => {
+                        window.location.href = '{{ url_for("api.v1.routers.videos.history") }}';
+                    }, 1000);
+                } else {
+                    showAlert(`Failed to delete: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error deleting video.', 'danger');
+            });
+        }
+    }
+    
+    function selectThumbnail(thumbnailId) {
+        fetch(`/api/v1/videos/${videoId}/thumbnails/${thumbnailId}/select`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': '{{ csrf_token() }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Thumbnail selected successfully.', 'success');
+                // Reload to update UI
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showAlert(`Failed to select thumbnail: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error selecting thumbnail.', 'danger');
+        });
+    }
+    
+    function formatTime(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = Math.floor(seconds % 60);
+        return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    
+    function formatDateTime(datetimeString) {
+        const date = new Date(datetimeString);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+</script>
+{% endblock %}

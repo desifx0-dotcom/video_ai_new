@@ -1,0 +1,528 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Loading State -->
+    <div id="dashboard-loading" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading your dashboard...</p>
+    </div>
+
+    <!-- Dashboard Content (hidden initially) -->
+    <div id="dashboard-content" style="display: none;">
+        {% if current_user %}
+        <!-- Welcome Section -->
+        <div class="welcome-section mb-4" style="margin-top: 30px;">
+            <h1 class="h2">Welcome back, {{ current_user.full_name or current_user.email.split('@')[0] }}! 👋</h1>
+            <p class="text-muted">{{ current_date | default('') }}</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="row g-4 mb-4">
+            <!-- Credits Card -->
+            <div class="col-md-6 col-lg-3">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted mb-2">Credits Remaining</h6>
+                                <h2 class="mb-0">{{ current_user.credits_remaining|default(0)|int }}</h2>
+                                <small class="text-success mt-2 d-block">
+                                    <i class="fas fa-arrow-up me-1"></i>
+                                    {{ current_user.credits_used_this_month|default(0) }} used this month
+                                </small>
+                            </div>
+                            <div class="stat-icon bg-primary-soft">
+                                <i class="fas fa-coins text-primary fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Videos Processed Card -->
+            <div class="col-md-6 col-lg-3">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted mb-2">Videos This Month</h6>
+                                <h2 class="mb-0">{{ current_user.videos_processed_this_month|default(0)|int }}</h2>
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar bg-info" role="progressbar" 
+                                         style="width: {{ (current_user.videos_processed_this_month|default(0) / current_user.monthly_video_limit|default(3) * 100)|round|int }}%"
+                                         aria-valuenow="{{ current_user.videos_processed_this_month|default(0)|int }}" 
+                                         aria-valuemin="0" 
+                                         aria-valuemax="{{ current_user.monthly_video_limit|default(3)|int }}">
+                                    </div>
+                                </div>
+                                <small class="text-muted mt-1 d-block">
+                                    of {{ current_user.monthly_video_limit|default(3) }} limit
+                                </small>
+                            </div>
+                            <div class="stat-icon bg-info-soft">
+                                <i class="fas fa-video text-info fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Videos Card -->
+            <div class="col-md-6 col-lg-3">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted mb-2">Total Videos</h6>
+                                <h2 class="mb-0">{{ current_user.total_videos_processed|default(0)|int }}</h2>
+                                <small class="text-muted mt-2 d-block">
+                                    <i class="far fa-clock me-1"></i>
+                                    {{ "%.1f"|format(current_user.total_processing_time|default(0)/60) }} hours processed
+                                </small>
+                            </div>
+                            <div class="stat-icon bg-success-soft">
+                                <i class="fas fa-film text-success fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Account Tier Card -->
+            <div class="col-md-6 col-lg-3">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted mb-2">Account Tier</h6>
+                                <h2 class="mb-0 text-capitalize">{{ current_user.tier|default('free') }}</h2>
+                                {% if current_user.tier == 'free' %}
+                                <a href="{{ url_for('pricing') }}" class="btn btn-sm btn-primary mt-2">
+                                    <i class="fas fa-arrow-up me-1"></i>Upgrade
+                                </a>
+                                {% else %}
+                                <small class="text-success mt-2 d-block">
+                                    <i class="fas fa-check-circle me-1"></i>Active
+                                </small>
+                                {% endif %}
+                            </div>
+                            <div class="stat-icon bg-warning-soft">
+                                <i class="fas fa-crown text-warning fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-transparent">
+                        <h5 class="mb-0">Quick Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <a href="{{ url_for('upload') }}" class="btn btn-outline-primary w-100 py-3">
+                                    <i class="fas fa-cloud-upload-alt fa-2x mb-2 d-block"></i>
+                                    Upload Video
+                                </a>
+                            </div>
+                            <div class="col-md-4">
+                                <a href="{{ url_for('history') }}" class="btn btn-outline-primary w-100 py-3">
+                                    <i class="fas fa-history fa-2x mb-2 d-block"></i>
+                                    View History
+                                </a>
+                            </div>
+                            <div class="col-md-4">
+                                <a href="{{ url_for('pricing') }}" class="btn btn-outline-primary w-100 py-3">
+                                    <i class="fas fa-rocket fa-2x mb-2 d-block"></i>
+                                    Upgrade Plan
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Videos Section -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Recent Videos</h5>
+                        <a href="{{ url_for('history') }}" class="btn btn-sm btn-link">View All</a>
+                    </div>
+                    <div class="card-body">
+                        {% if recent_videos and recent_videos|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Video</th>
+                                        <th>Status</th>
+                                        <th>Duration</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-videos-list">
+                                    {% for video in recent_videos %}
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                {% if video.thumbnail %}
+                                                <img src="{{ video.thumbnail }}" alt="Thumbnail" class="rounded me-2" width="40" height="40" style="object-fit: cover;">
+                                                {% else %}
+                                                <div class="bg-light rounded me-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                                    <i class="fas fa-video text-muted"></i>
+                                                </div>
+                                                {% endif %}
+                                                <div>
+                                                    <div class="fw-bold">{{ video.title|default(video.original_filename) }}</div>
+                                                    <small class="text-muted">{{ video.original_filename }}</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if video.status == 'completed' %}
+                                            <span class="badge bg-success">Completed</span>
+                                            {% elif video.status == 'processing' %}
+                                            <span class="badge bg-info">Processing</span>
+                                            {% elif video.status == 'failed' %}
+                                            <span class="badge bg-danger">Failed</span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">Pending</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ (video.duration/60)|round(1) }} min</td>
+                                        <td>{{ video.created_at|timeago }}</td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ url_for('view_video', video_id=video.id) }}" class="btn btn-outline-primary" title="View">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                                <a href="{{ url_for('download_video', video_id=video.id) }}" class="btn btn-outline-success" title="Download">
+                                                    <i class="fas fa-download"></i>
+                                                </a>
+                                                <button type="button" class="btn btn-outline-danger" title="Delete" 
+                                                        onclick="confirmDelete('{{ video.id }}', '{{ video.title|default(video.original_filename) }}')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="text-center py-5">
+                            <img src="{{ url_for('static', filename='images/empty-state.svg') }}" alt="No videos" class="mb-3" style="max-width: 200px;" onerror="this.style.display='none'">
+                            <h6 class="text-muted">No videos yet</h6>
+                            <p class="text-muted small">Upload your first video to get started!</p>
+                            <a href="{{ url_for('upload') }}" class="btn btn-primary mt-2">
+                                <i class="fas fa-cloud-upload-alt me-2"></i>Upload Video
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usage Tips Section -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card bg-light border-0">
+                    <div class="card-body">
+                        <h6 class="mb-3"><i class="fas fa-lightbulb text-warning me-2"></i>Pro Tips</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="d-flex">
+                                    <i class="fas fa-check-circle text-success me-2"></i>
+                                    <small>Upload videos in MP4 format for best results</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex">
+                                    <i class="fas fa-check-circle text-success me-2"></i>
+                                    <small>Videos under 10 minutes process fastest</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex">
+                                    <i class="fas fa-check-circle text-success me-2"></i>
+                                    <small>Use tags to organize your content</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Not logged in state -->
+        <div class="text-center py-5">
+            <div class="mb-4">
+                <i class="fas fa-exclamation-triangle text-warning fa-4x"></i>
+            </div>
+            <h3>Not Logged In</h3>
+            <p class="text-muted mb-4">Please login to view your dashboard.</p>
+            <a href="{{ url_for('login_page') }}" class="btn btn-primary">
+                <i class="fas fa-sign-in-alt me-2"></i>Login
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete "<span id="delete-video-title"></span>"?</p>
+                <p class="text-danger small"><i class="fas fa-exclamation-triangle me-1"></i>This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: none;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .stat-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .bg-primary-soft { background: rgba(99,102,241,0.1); }
+    .bg-info-soft { background: rgba(59,130,246,0.1); }
+    .bg-success-soft { background: rgba(16,185,129,0.1); }
+    .bg-warning-soft { background: rgba(245,158,11,0.1); }
+    
+    [data-theme="dark"] .stat-card {
+        background: #1e293b;
+        border-color: #334155;
+    }
+    [data-theme="dark"] .table-light {
+        background: #1e293b;
+        color: #e2e8f0;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Hide loading, show content
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            const loadingEl = document.getElementById('dashboard-loading');
+            const contentEl = document.getElementById('dashboard-content');
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'block';
+        }, 500);
+    });
+
+    // Delete confirmation
+    let currentVideoId = null;
+    let deleteModal = null;
+    
+    window.confirmDelete = function(videoId, videoTitle) {
+        console.log('🗑️ Delete confirmation for:', videoId, videoTitle);
+        currentVideoId = videoId;
+        document.getElementById('delete-video-title').textContent = videoTitle;
+        if (!deleteModal) {
+            deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+        }
+        deleteModal.show();
+    };
+
+    document.getElementById('confirm-delete-btn')?.addEventListener('click', function() {
+        if (!currentVideoId) return;
+        
+        // Show loading state
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
+        
+        // Get CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || 
+                         document.querySelector('input[name="csrf_token"]')?.value || '';
+        
+        // Make API call to delete video
+        fetch(`/api/v1/videos/${currentVideoId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': csrfToken,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Delete response:', data);
+            if (data.success) {
+                // Find and remove the video row
+                const rows = document.querySelectorAll('#recent-videos-list tr');
+                rows.forEach(row => {
+                    if (row.innerHTML.includes(currentVideoId)) {
+                        row.remove();
+                    }
+                });
+                showNotification('Video deleted successfully', 'success');
+            } else {
+                showNotification('Failed to delete video: ' + (data.error || 'Unknown error'), 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while deleting the video.', 'danger');
+        })
+        .finally(() => {
+            // Hide modal and reset button
+            if (deleteModal) deleteModal.hide();
+            this.disabled = false;
+            this.innerHTML = 'Delete';
+            currentVideoId = null;
+        });
+    });
+
+    // Real-time updates via WebSocket with safe error handling
+    let socket;
+    try {
+        console.log('🔌 Setting up WebSocket connection...');
+        
+        // Configure Socket.IO with safe options
+        socket = io({
+            transports: ['websocket', 'polling'], // Fallback to polling if needed
+            upgrade: true,
+            reconnectionAttempts: 3,              // Limit reconnect attempts
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 10000,
+            autoConnect: true
+        });
+        
+        socket.on('connect', function() {
+            console.log('✅ WebSocket connected');
+            {% if current_user %}
+            socket.emit('join', { room: 'user_{{ current_user.id }}' });
+            {% endif %}
+        });
+        
+        socket.on('connect_error', function(error) {
+            console.log('⚠️ WebSocket connection error (non-critical):', error);
+            // Show subtle notification instead of reloading
+            showNotification('Live updates unavailable', 'info', 3000);
+        });
+        
+        socket.on('video_processed', function(data) {
+            console.log('📹 Video processed:', data);
+            showNotification('Video processing complete!', 'success');
+            
+            // Refresh the videos section via AJAX (no page reload)
+            if (data.video_id) {
+                fetchRecentVideos();
+            }
+        });
+        
+        socket.on('disconnect', function(reason) {
+            console.log('❌ WebSocket disconnected:', reason);
+        });
+        
+        socket.on('reconnect_failed', function() {
+            console.log('❌ WebSocket reconnect failed');
+            showNotification('Live updates unavailable', 'info', 5000);
+        });
+        
+    } catch (error) {
+        console.log('⚠️ WebSocket initialization error (continuing without real-time):', error);
+    }
+    
+    function fetchRecentVideos() {
+        console.log('📥 Fetching recent videos...');
+        fetch('/api/v1/videos/recent')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Recent videos updated:', data);
+                // You can implement table update here
+                updateVideosTable(data);
+            })
+            .catch(error => {
+                console.error('Failed to fetch recent videos:', error);
+            });
+    }
+    
+    function updateVideosTable(videos) {
+        // Optional: Update the table without reloading
+        const tbody = document.getElementById('recent-videos-list');
+        if (!tbody || !videos || !videos.length) return;
+        
+        // Clear existing rows
+        tbody.innerHTML = '';
+        
+        // Add new rows (simplified - adjust based on your data structure)
+        videos.forEach(video => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${video.title || video.original_filename}</td>
+                <td><span class="badge bg-success">${video.status}</span></td>
+                <td>${Math.round(video.duration/60)} min</td>
+                <td>${new Date(video.created_at).toLocaleDateString()}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+    
+    function showNotification(message, type = 'info', duration = 5000) {
+        // Remove any existing notification
+        const existingAlert = document.querySelector('.alert.position-fixed');
+        if (existingAlert) {
+            existingAlert.remove();
+        }
+        
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, duration);
+    }
+</script>
+{% endblock %}

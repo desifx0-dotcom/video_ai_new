@@ -1,0 +1,27 @@
+# render.yaml
+services:
+  - type: web
+    name: video-ai-studio
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Will be set manually
+      - key: REDIS_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        value: 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
+      - key: GOOGLE_API_KEY
+        value: AIzaSyDb4i5im1_FdW5NcFrfa_GjGh3V5XLHdkc
+      - key: STABILITY_API_KEY
+        value: sk-RPAv8TvyJafzm08z4qSqM30RsfsrtqKGlkvQ50Cq7unQXCLl
+      - key: CORS_ORIGINS
+        value: http://localhost:3000,http://localhost:5000,https://video-ai-studio.onrender.com

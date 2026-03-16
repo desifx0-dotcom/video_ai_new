@@ -1,0 +1,91 @@
+<!-- Tier Badge Component -->
+{% macro tier_badge(tier, size='md', show_icon=true, clickable=false) %}
+    {% set colors = {
+        'free': 'secondary',
+        'starter': 'info',
+        'pro': 'warning',
+        'plus': 'primary',
+        'enterprise': 'dark'
+    } %}
+    
+    {% set icons = {
+        'free': 'fas fa-user',
+        'starter': 'fas fa-star',
+        'pro': 'fas fa-crown',
+        'plus': 'fas fa-gem',
+        'enterprise': 'fas fa-building'
+    } %}
+    
+    {% set sizes = {
+        'sm': 'badge-sm',
+        'md': 'badge-md',
+        'lg': 'badge-lg'
+    } %}
+    
+    {% set tier_name = tier|string|lower %}
+    
+    <span class="tier-badge badge bg-{{ colors.get(tier_name, 'secondary') }} {{ sizes.get(size, 'badge-md') }} 
+                {{ 'cursor-pointer' if clickable else '' }}"
+          {% if clickable %}data-bs-toggle="tooltip" title="Click to learn more about {{ tier_name|capitalize }} tier"{% endif %}>
+        {% if show_icon %}
+            <i class="{{ icons.get(tier_name, 'fas fa-question-circle') }} me-1"></i>
+        {% endif %}
+        {{ tier_name|capitalize }}
+    </span>
+{% endmacro %}
+
+<style>
+.tier-badge {
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.badge-sm {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+}
+
+.badge-md {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+}
+
+.badge-lg {
+    font-size: 0.9rem;
+    padding: 0.4rem 0.9rem;
+}
+
+.cursor-pointer {
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.cursor-pointer:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+}
+</style>
+
+<script>
+// Initialize tooltips for clickable tier badges
+document.addEventListener('DOMContentLoaded', function() {
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+    
+    // Add click handlers for clickable badges
+    document.querySelectorAll('.tier-badge.cursor-pointer').forEach(badge => {
+        badge.addEventListener('click', function() {
+            const tier = this.textContent.trim().toLowerCase();
+            showTierModal(tier);
+        });
+    });
+});
+
+function showTierModal(tier) {
+    // You can implement a modal showing tier details
+    // For now, redirect to pricing page
+    window.location.href = `/billing/pricing#${tier}`;
+}
+</script>

@@ -1,0 +1,413 @@
+<!-- Top Navigation Bar Component -->
+<nav class="navbar navbar-expand-lg">
+    <div class="container-fluid">
+        <!-- Mobile Toggle -->
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        
+        <!-- Brand -->
+        <a class="navbar-brand" href="{% if current_user and current_user.id %}/dashboard{% else %}/{% endif %}">
+            <i class="fas fa-video me-2"></i>
+            <span>Video AI Studio</span>
+        </a>
+        
+        <!-- Main Navigation -->
+        <div class="collapse navbar-collapse" id="navbarContent">
+            <ul class="navbar-nav me-auto">
+                <!-- Home - only for non-logged in users -->
+                {% if not current_user or not current_user.id %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+                        <i class="fas fa-home me-1"></i> Home
+                    </a>
+                </li>
+                {% endif %}
+                
+                <!-- Pricing - always visible -->
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'pricing' %}active{% endif %}" href="/pricing">
+                        <i class="fas fa-tags me-1"></i> Pricing
+                    </a>
+                </li>
+                
+                <!-- Documentation - always visible -->
+                <li class="nav-item">
+                    <a class="nav-link" href="/docs" target="_blank">
+                        <i class="fas fa-book me-1"></i> Documentation
+                    </a>
+                </li>
+            </ul>
+            
+            <!-- Right Side -->
+            <div class="d-flex align-items-center">
+                <!-- Theme Toggle -->
+                <div class="theme-toggle me-3">
+                    <button class="btn btn-sm btn-outline-secondary" id="themeToggle">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
+                        
+                <!-- User Info -->
+                {% if current_user and current_user.id %}
+                    <div class="user-info d-flex align-items-center">
+                        <div class="user-details me-3 text-end">
+                            <div class="user-email">{{ current_user.email }}</div>
+                            <div class="user-badges">
+                                <span class="badge tier-badge {{ current_user.tier }}">
+                                    {{ current_user.tier|title }}
+                                </span>
+                                <span class="credits-badge">
+                                    <i class="fas fa-coins me-1 text-warning"></i>
+                                    {{ current_user.credits_remaining|default(0) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="auth-buttons">
+                        <a href="{{ url_for('login_page') }}" class="btn btn-outline-primary me-2">
+                            <i class="fas fa-sign-in-alt me-1"></i> Login
+                        </a>
+                        <a href="{{ url_for('register_page') }}" class="btn btn-primary">
+                            <i class="fas fa-user-plus me-1"></i> Sign Up
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>
+
+<style>
+    /* ===== GLOBAL STYLES - APPLY TO ENTIRE PAGE ===== */
+    body {
+        transition: background-color 0.3s ease, color 0.3s ease;
+        min-height: 100vh;
+        margin: 0;
+        padding: 0;
+    }
+    
+    /* Dark Mode - Default */
+    [data-bs-theme="dark"] body {
+        background-color: #0f172a !important;
+        color: #e2e8f0 !important;
+    }
+    
+    /* Light Mode */
+    [data-bs-theme="light"] body {
+        background-color: #f8fafc !important;
+        color: #1e293b !important;
+    }
+    
+    /* Force all cards and containers to inherit theme */
+    [data-bs-theme="dark"] .card,
+    [data-bs-theme="dark"] .dashboard-container,
+    [data-bs-theme="dark"] .main-content,
+    [data-bs-theme="dark"] .container-fluid {
+        background-color: transparent;
+        color: inherit;
+    }
+    
+    [data-bs-theme="light"] .card,
+    [data-bs-theme="light"] .dashboard-container,
+    [data-bs-theme="light"] .main-content,
+    [data-bs-theme="light"] .container-fluid {
+        background-color: transparent;
+        color: inherit;
+    }
+    
+    /* ===== DARK MODE NAVBAR ===== */
+    [data-bs-theme="dark"] .navbar {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border-bottom: 1px solid #334155;
+    }
+    
+    [data-bs-theme="dark"] .navbar-brand {
+        color: #60a5fa !important;
+    }
+    
+    [data-bs-theme="dark"] .nav-link {
+        color: #cbd5e1 !important;
+    }
+    
+    [data-bs-theme="dark"] .nav-link:hover {
+        background-color: #334155;
+        color: #ffffff !important;
+    }
+    
+    [data-bs-theme="dark"] .nav-link.active {
+        background-color: #1e40af;
+        color: #ffffff !important;
+    }
+    
+    /* Dark Mode Button - NORMAL, NO GLOW */
+    [data-bs-theme="dark"] .btn-outline-secondary {
+        border-color: #4b5563;
+        color: #cbd5e1;
+        background-color: transparent;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+    
+    [data-bs-theme="dark"] .btn-outline-secondary:hover {
+        background-color: #334155;
+        border-color: #4b5563;
+        color: #ffffff;
+        box-shadow: none !important;
+    }
+    
+    [data-bs-theme="dark"] .btn-outline-secondary:focus,
+    [data-bs-theme="dark"] .btn-outline-secondary:active {
+        box-shadow: none !important;
+        outline: none !important;
+    }
+    
+    [data-bs-theme="dark"] .user-email {
+        color: #f8fafc;
+    }
+    
+    [data-bs-theme="dark"] .credits-badge {
+        background-color: #1e293b;
+        color: #fbbf24;
+        border: none;
+    }
+    
+    /* ===== LIGHT MODE NAVBAR ===== */
+    [data-bs-theme="light"] .navbar {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    [data-bs-theme="light"] .navbar-brand {
+        color: #2563eb !important;
+    }
+    
+    [data-bs-theme="light"] .nav-link {
+        color: #4b5563 !important;
+    }
+    
+    [data-bs-theme="light"] .nav-link:hover {
+        background-color: #f1f5f9;
+        color: #2563eb !important;
+    }
+    
+    [data-bs-theme="light"] .nav-link.active {
+        background-color: #e6f0ff;
+        color: #2563eb !important;
+        font-weight: 600;
+    }
+    
+    [data-bs-theme="light"] .btn-outline-secondary {
+        border-color: #d1d5db;
+        color: #4b5563;
+        background-color: transparent;
+    }
+    
+    [data-bs-theme="light"] .btn-outline-secondary:hover {
+        background-color: #f1f5f9;
+        border-color: #2563eb;
+        color: #2563eb;
+    }
+    
+    [data-bs-theme="light"] .user-email {
+        color: #1e293b;
+    }
+    
+    [data-bs-theme="light"] .credits-badge {
+        background-color: #f1f5f9;
+        color: #2563eb;
+        border: 1px solid #e2e8f0;
+    }
+    
+    [data-bs-theme="light"] .badge.tier-badge.free {
+        background-color: #f1f5f9;
+        color: #64748b;
+        border: 1px solid #e2e8f0;
+    }
+    
+    [data-bs-theme="light"] .badge.tier-badge.starter {
+        background-color: #dbeafe;
+        color: #1e40af;
+    }
+    
+    [data-bs-theme="light"] .badge.tier-badge.pro {
+        background-color: #ede9fe;
+        color: #6d28d9;
+    }
+    
+    [data-bs-theme="light"] .badge.tier-badge.plus {
+        background-color: #d1fae5;
+        color: #065f46;
+    }
+    
+    [data-bs-theme="light"] .badge.tier-badge.enterprise {
+        background-color: #fee2e2;
+        color: #991b1b;
+    }
+    
+    [data-bs-theme="light"] .btn-outline-primary {
+        border-color: #2563eb;
+        color: #2563eb;
+    }
+    
+    [data-bs-theme="light"] .btn-outline-primary:hover {
+        background-color: #2563eb;
+        color: white;
+    }
+    
+    /* ===== NAVBAR BASE STYLES ===== */
+    .navbar {
+        padding: 15px 0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    
+    .container-fluid {
+        width: 100%;
+        padding-right: 30px;
+        padding-left: 30px;
+    }
+    
+    .navbar-brand {
+        font-weight: 700;
+        font-size: 1.4rem;
+        letter-spacing: -0.5px;
+        text-decoration: none;
+        transition: color 0.3s ease;
+    }
+    
+    .navbar-brand i {
+        font-size: 1.6rem;
+    }
+    
+    .nav-link {
+        padding: 10px 18px !important;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        font-weight: 500;
+        font-size: 1.1rem;
+        text-decoration: none;
+    }
+    
+    .theme-toggle .btn {
+        padding: 8px 12px;
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    /* Remove all focus/active outlines and glows */
+    .theme-toggle .btn:focus,
+    .theme-toggle .btn:active,
+    .btn:focus,
+    .btn:active {
+        outline: none !important;
+        box-shadow: none !important;
+    }
+    
+    .user-info {
+        display: flex;
+        align-items: center;
+    }
+    
+    .user-details {
+        line-height: 1.5;
+    }
+    
+    .user-email {
+        font-weight: 500;
+        font-size: 1.2rem;
+        margin-bottom: 4px;
+        transition: color 0.3s ease;
+    }
+    
+    .user-badges {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+    }
+    
+    .badge.tier-badge {
+        font-size: .9rem;
+        padding: 4px 10px;
+        text-transform: uppercase;
+        border-radius: 20px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .credits-badge {
+        font-size: 1rem;
+        padding: 4px 10px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .auth-buttons .btn {
+        padding: 10px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        text-decoration: none;
+    }
+    
+    .auth-buttons .btn-primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        border: none;
+        color: white;
+    }
+    
+    .auth-buttons .btn-primary:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    }
+    
+    .me-3 {
+        margin-right: 1.2rem !important;
+    }
+    
+    .navbar > .container-fluid {
+        max-width: 100%;
+    }
+</style>
+
+<script>
+    // Theme toggle functionality
+    document.getElementById('themeToggle').addEventListener('click', function() {
+        const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        
+        document.documentElement.setAttribute('data-bs-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        // Update icon
+        const icon = this.querySelector('i');
+        icon.className = newTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
+    });
+    
+    // Initialize theme from localStorage
+    document.addEventListener('DOMContentLoaded', function() {
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-bs-theme', savedTheme);
+        
+        // Update toggle button icon
+        const toggleBtn = document.getElementById('themeToggle');
+        if (toggleBtn) {
+            const icon = toggleBtn.querySelector('i');
+            icon.className = savedTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
+        }
+    });
+</script>

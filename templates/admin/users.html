@@ -1,0 +1,899 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - Video AI Studio Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">User Management</h1>
+        <div class="btn-group">
+            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
+                <i class="fas fa-user-plus me-1"></i> Create User
+            </button>
+            <button class="btn btn-outline-secondary" id="exportUsersBtn">
+                <i class="fas fa-download me-1"></i> Export CSV
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="userFilters">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Search</label>
+                        <input type="text" class="form-control" id="searchQuery" placeholder="Email, name, or ID...">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Tier</label>
+                        <select class="form-select" id="tierFilter">
+                            <option value="">All Tiers</option>
+                            <option value="free">Free</option>
+                            <option value="starter">Starter</option>
+                            <option value="pro">Pro</option>
+                            <option value="plus">Plus</option>
+                            <option value="enterprise">Enterprise</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="statusFilter">
+                            <option value="">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="suspended">Suspended</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Date Range</label>
+                        <select class="form-select" id="dateRangeFilter">
+                            <option value="">All Time</option>
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month">This Month</option>
+                            <option value="year">This Year</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="button" class="btn btn-primary w-100" id="applyFiltersBtn">
+                            <i class="fas fa-filter me-1"></i> Apply Filters
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary ms-2" id="resetFiltersBtn">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Total Users</h6>
+                            <h3 class="mb-0" id="totalUsers">0</h3>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-primary rounded-circle">
+                                <i class="fas fa-users"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Active Today</h6>
+                            <h3 class="mb-0" id="activeToday">0</h3>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-success rounded-circle">
+                                <i class="fas fa-user-check"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Paid Users</h6>
+                            <h3 class="mb-0" id="paidUsers">0</h3>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-warning rounded-circle">
+                                <i class="fas fa-crown"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Avg. Revenue</h6>
+                            <h3 class="mb-0" id="avgRevenue">$0</h3>
+                        </div>
+                        <div class="avatar-sm">
+                            <span class="avatar-title bg-info rounded-circle">
+                                <i class="fas fa-chart-line"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Tier</th>
+                            <th>Status</th>
+                            <th>Videos</th>
+                            <th>Credits</th>
+                            <th>Joined</th>
+                            <th>Last Active</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Users will be loaded here via JavaScript -->
+                        <tr>
+                            <td colspan="8" class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading users...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            <nav aria-label="Users pagination">
+                <ul class="pagination justify-content-center" id="usersPagination">
+                    <li class="page-item disabled">
+                        <a class="page-link" href="#" tabindex="-1">Previous</a>
+                    </li>
+                    <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                    <li class="page-item"><a class="page-link" href="#">2</a></li>
+                    <li class="page-item"><a class="page-link" href="#">3</a></li>
+                    <li class="page-item">
+                        <a class="page-link" href="#">Next</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createUserForm">
+                    <div class="mb-3">
+                        <label class="form-label">Email Address *</label>
+                        <input type="email" class="form-control" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password *</label>
+                        <input type="password" class="form-control" name="password" required minlength="8">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Full Name</label>
+                        <input type="text" class="form-control" name="full_name">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tier *</label>
+                            <select class="form-select" name="tier" required>
+                                <option value="free">Free</option>
+                                <option value="starter">Starter</option>
+                                <option value="pro">Pro</option>
+                                <option value="plus">Plus</option>
+                                <option value="enterprise">Enterprise</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Initial Credits</label>
+                            <input type="number" class="form-control" name="credits" value="0" min="0">
+                        </div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
+                        <label class="form-check-label" for="isAdminCheck">
+                            Grant admin privileges
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="send_welcome_email" id="sendWelcomeEmail" checked>
+                        <label class="form-check-label" for="sendWelcomeEmail">
+                            Send welcome email
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createUserBtn">Create User</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="editUserModalBody">
+                <!-- Content will be loaded dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.avatar-sm {
+    width: 40px;
+    height: 40px;
+}
+
+.avatar-title {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.user-status-badge {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+}
+
+.status-active { background-color: #28a745; }
+.status-inactive { background-color: #6c757d; }
+.status-suspended { background-color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize
+        loadUsers();
+        loadUserStats();
+        
+        // Event listeners
+        document.getElementById('applyFiltersBtn').addEventListener('click', loadUsers);
+        document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+        document.getElementById('createUserBtn').addEventListener('click', createUser);
+        document.getElementById('exportUsersBtn').addEventListener('click', exportUsers);
+        
+        // Setup pagination
+        setupPagination();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadUserStats, 30000);
+        setInterval(loadUsers, 60000);
+    });
+    
+    let currentPage = 1;
+    let totalPages = 1;
+    let usersPerPage = 20;
+    
+    async function loadUsers(page = 1) {
+        currentPage = page;
+        
+        const filters = {
+            search: document.getElementById('searchQuery').value,
+            tier: document.getElementById('tierFilter').value,
+            status: document.getElementById('statusFilter').value,
+            date_range: document.getElementById('dateRangeFilter').value,
+            page: page,
+            per_page: usersPerPage
+        };
+        
+        try {
+            const response = await fetch('/api/v1/admin/users?' + new URLSearchParams(filters), {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const data = await response.json();
+            renderUsersTable(data.users);
+            updatePagination(data.total, data.pages);
+        } catch (error) {
+            console.error('Failed to load users:', error);
+            showAlert('Failed to load users. Please try again.', 'danger');
+        }
+    }
+    
+    async function loadUserStats() {
+        try {
+            const response = await fetch('/api/v1/admin/users/stats', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const stats = await response.json();
+            
+            document.getElementById('totalUsers').textContent = stats.total_users.toLocaleString();
+            document.getElementById('activeToday').textContent = stats.active_today.toLocaleString();
+            document.getElementById('paidUsers').textContent = stats.paid_users.toLocaleString();
+            document.getElementById('avgRevenue').textContent = `$${stats.avg_revenue_per_user.toFixed(2)}`;
+        } catch (error) {
+            console.error('Failed to load user stats:', error);
+        }
+    }
+    
+    function renderUsersTable(users) {
+        const tbody = document.getElementById('usersTableBody');
+        
+        if (!users || users.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center py-5">
+                        <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No users found matching your criteria.</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        tbody.innerHTML = users.map(user => `
+            <tr data-user-id="${user.id}">
+                <td>
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            ${user.avatar_url ? 
+                                `<img src="${user.avatar_url}" class="user-avatar" alt="${user.email}">` :
+                                `<div class="user-avatar bg-primary text-white d-flex align-items-center justify-content-center">
+                                    ${user.email.charAt(0).toUpperCase()}
+                                </div>`
+                            }
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h6 class="mb-0">${user.full_name || 'No name'}</h6>
+                            <small class="text-muted">${user.email}</small>
+                            ${user.is_admin ? '<span class="badge bg-danger ms-2">Admin</span>' : ''}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <span class="badge bg-${getTierColor(user.tier)}">${user.tier.charAt(0).toUpperCase() + user.tier.slice(1)}</span>
+                </td>
+                <td>
+                    <span class="user-status-badge status-${user.status}"></span>
+                    ${user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                </td>
+                <td>
+                    <div class="text-nowrap">
+                        <span class="fw-bold">${user.total_videos_processed}</span>
+                        <small class="text-muted">total</small>
+                    </div>
+                    <small class="text-muted">${user.videos_processed_this_month}/${user.monthly_video_limit} this month</small>
+                </td>
+                <td>
+                    <span class="fw-bold">${user.credits_remaining}</span>
+                    <small class="text-muted">remaining</small>
+                </td>
+                <td>
+                    <div class="text-nowrap">${new Date(user.created_at).toLocaleDateString()}</div>
+                    <small class="text-muted">${timeAgo(new Date(user.created_at))}</small>
+                </td>
+                <td>
+                    ${user.last_login ? `
+                        <div class="text-nowrap">${new Date(user.last_login).toLocaleDateString()}</div>
+                        <small class="text-muted">${timeAgo(new Date(user.last_login))}</small>
+                    ` : '<span class="text-muted">Never</span>'}
+                </td>
+                <td>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="#" onclick="editUser('${user.id}')">
+                                    <i class="fas fa-edit me-2"></i> Edit
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="#" onclick="impersonateUser('${user.id}')">
+                                    <i class="fas fa-user-secret me-2"></i> Impersonate
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="#" onclick="resetPassword('${user.id}')">
+                                    <i class="fas fa-key me-2"></i> Reset Password
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="#" onclick="addCredits('${user.id}')">
+                                    <i class="fas fa-plus-circle me-2"></i> Add Credits
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                ${user.status === 'active' ? `
+                                    <a class="dropdown-item text-warning" href="#" onclick="suspendUser('${user.id}')">
+                                        <i class="fas fa-pause me-2"></i> Suspend
+                                    </a>
+                                ` : `
+                                    <a class="dropdown-item text-success" href="#" onclick="activateUser('${user.id}')">
+                                        <i class="fas fa-play me-2"></i> Activate
+                                    </a>
+                                `}
+                            </li>
+                            <li>
+                                <a class="dropdown-item text-danger" href="#" onclick="deleteUser('${user.id}')">
+                                    <i class="fas fa-trash me-2"></i> Delete
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+    
+    function getTierColor(tier) {
+        const colors = {
+            'free': 'secondary',
+            'starter': 'info',
+            'pro': 'warning',
+            'plus': 'primary',
+            'enterprise': 'dark'
+        };
+        return colors[tier] || 'secondary';
+    }
+    
+    function timeAgo(date) {
+        const seconds = Math.floor((new Date() - date) / 1000);
+        
+        let interval = Math.floor(seconds / 31536000);
+        if (interval >= 1) return interval + " year" + (interval === 1 ? "" : "s") + " ago";
+        
+        interval = Math.floor(seconds / 2592000);
+        if (interval >= 1) return interval + " month" + (interval === 1 ? "" : "s") + " ago";
+        
+        interval = Math.floor(seconds / 86400);
+        if (interval >= 1) return interval + " day" + (interval === 1 ? "" : "s") + " ago";
+        
+        interval = Math.floor(seconds / 3600);
+        if (interval >= 1) return interval + " hour" + (interval === 1 ? "" : "s") + " ago";
+        
+        interval = Math.floor(seconds / 60);
+        if (interval >= 1) return interval + " minute" + (interval === 1 ? "" : "s") + " ago";
+        
+        return "just now";
+    }
+    
+    function setupPagination() {
+        const pagination = document.getElementById('usersPagination');
+        pagination.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            if (e.target.classList.contains('page-link')) {
+                const text = e.target.textContent.toLowerCase();
+                
+                if (text.includes('previous') && currentPage > 1) {
+                    loadUsers(currentPage - 1);
+                } else if (text.includes('next') && currentPage < totalPages) {
+                    loadUsers(currentPage + 1);
+                } else if (!isNaN(text)) {
+                    loadUsers(parseInt(text));
+                }
+            }
+        });
+    }
+    
+    function updatePagination(total, pages) {
+        totalPages = pages;
+        const pagination = document.getElementById('usersPagination');
+        
+        let html = `
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#">Previous</a>
+            </li>
+        `;
+        
+        // Show page numbers
+        const maxPagesToShow = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+        let endPage = Math.min(pages, startPage + maxPagesToShow - 1);
+        
+        if (endPage - startPage + 1 < maxPagesToShow) {
+            startPage = Math.max(1, endPage - maxPagesToShow + 1);
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            html += `
+                <li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#">${i}</a>
+                </li>
+            `;
+        }
+        
+        html += `
+            <li class="page-item ${currentPage === pages ? 'disabled' : ''}">
+                <a class="page-link" href="#">Next</a>
+            </li>
+        `;
+        
+        pagination.innerHTML = html;
+    }
+    
+    function resetFilters() {
+        document.getElementById('searchQuery').value = '';
+        document.getElementById('tierFilter').value = '';
+        document.getElementById('statusFilter').value = '';
+        document.getElementById('dateRangeFilter').value = '';
+        loadUsers(1);
+    }
+    
+    async function createUser() {
+        const form = document.getElementById('createUserForm');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+        
+        try {
+            const response = await fetch('/api/v1/admin/users', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                showAlert('User created successfully!', 'success');
+                $('#createUserModal').modal('hide');
+                form.reset();
+                loadUsers();
+                loadUserStats();
+            } else {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to create user');
+            }
+        } catch (error) {
+            console.error('Failed to create user:', error);
+            showAlert(error.message, 'danger');
+        }
+    }
+    
+    async function editUser(userId) {
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const user = await response.json();
+            
+            const modalBody = document.getElementById('editUserModalBody');
+            modalBody.innerHTML = `
+                <form id="editUserForm" data-user-id="${user.id}">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email Address</label>
+                            <input type="email" class="form-control" name="email" value="${user.email}" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Full Name</label>
+                            <input type="text" class="form-control" name="full_name" value="${user.full_name || ''}">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Tier</label>
+                            <select class="form-select" name="tier" required>
+                                <option value="free" ${user.tier === 'free' ? 'selected' : ''}>Free</option>
+                                <option value="starter" ${user.tier === 'starter' ? 'selected' : ''}>Starter</option>
+                                <option value="pro" ${user.tier === 'pro' ? 'selected' : ''}>Pro</option>
+                                <option value="plus" ${user.tier === 'plus' ? 'selected' : ''}>Plus</option>
+                                <option value="enterprise" ${user.tier === 'enterprise' ? 'selected' : ''}>Enterprise</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Credits</label>
+                            <input type="number" class="form-control" name="credits_remaining" value="${user.credits_remaining}" min="0">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Monthly Limit</label>
+                            <input type="number" class="form-control" name="monthly_video_limit" value="${user.monthly_video_limit}" min="0">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" name="status" required>
+                                <option value="active" ${user.status === 'active' ? 'selected' : ''}>Active</option>
+                                <option value="inactive" ${user.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                                <option value="suspended" ${user.status === 'suspended' ? 'selected' : ''}>Suspended</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Language</label>
+                            <input type="text" class="form-control" name="language" value="${user.language || 'en'}">
+                        </div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="is_admin" id="editIsAdminCheck" ${user.is_admin ? 'checked' : ''}>
+                        <label class="form-check-label" for="editIsAdminCheck">
+                            Admin privileges
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="email_verified" id="emailVerifiedCheck" ${user.email_verified_at ? 'checked' : ''}>
+                        <label class="form-check-label" for="emailVerifiedCheck">
+                            Email verified
+                        </label>
+                    </div>
+                </form>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveUserChanges()">Save Changes</button>
+                </div>
+            `;
+            
+            $('#editUserModal').modal('show');
+        } catch (error) {
+            console.error('Failed to load user data:', error);
+            showAlert('Failed to load user data', 'danger');
+        }
+    }
+    
+    async function saveUserChanges() {
+        const form = document.getElementById('editUserForm');
+        const userId = form.dataset.userId;
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+        
+        // Convert checkbox values
+        data.is_admin = form.elements['is_admin'].checked;
+        data.email_verified = form.elements['email_verified'].checked;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                showAlert('User updated successfully!', 'success');
+                $('#editUserModal').modal('hide');
+                loadUsers(currentPage);
+            } else {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to update user');
+            }
+        } catch (error) {
+            console.error('Failed to update user:', error);
+            showAlert(error.message, 'danger');
+        }
+    }
+    
+    async function impersonateUser(userId) {
+        if (!confirm('Are you sure you want to impersonate this user?')) return;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}/impersonate`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const { token } = await response.json();
+            
+            // Store the impersonation token and redirect
+            localStorage.setItem('impersonation_token', token);
+            localStorage.setItem('original_token', localStorage.getItem('token'));
+            localStorage.setItem('token', token);
+            
+            window.location.href = '/dashboard';
+        } catch (error) {
+            console.error('Failed to impersonate user:', error);
+            showAlert('Failed to impersonate user', 'danger');
+        }
+    }
+    
+    async function resetPassword(userId) {
+        if (!confirm('Reset password for this user? They will receive an email with instructions.')) return;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}/reset-password`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('Password reset email sent successfully!', 'success');
+            } else {
+                throw new Error('Failed to reset password');
+            }
+        } catch (error) {
+            console.error('Failed to reset password:', error);
+            showAlert('Failed to reset password', 'danger');
+        }
+    }
+    
+    async function addCredits(userId) {
+        const credits = prompt('Enter number of credits to add:', '100');
+        
+        if (!credits || isNaN(credits) || parseInt(credits) <= 0) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}/credits`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ amount: parseInt(credits) })
+            });
+            
+            if (response.ok) {
+                showAlert(`Added ${credits} credits to user!`, 'success');
+                loadUsers(currentPage);
+            } else {
+                throw new Error('Failed to add credits');
+            }
+        } catch (error) {
+            console.error('Failed to add credits:', error);
+            showAlert('Failed to add credits', 'danger');
+        }
+    }
+    
+    async function suspendUser(userId) {
+        if (!confirm('Are you sure you want to suspend this user?')) return;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}/suspend`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('User suspended successfully!', 'success');
+                loadUsers(currentPage);
+            } else {
+                throw new Error('Failed to suspend user');
+            }
+        } catch (error) {
+            console.error('Failed to suspend user:', error);
+            showAlert('Failed to suspend user', 'danger');
+        }
+    }
+    
+    async function activateUser(userId) {
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}/activate`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('User activated successfully!', 'success');
+                loadUsers(currentPage);
+            } else {
+                throw new Error('Failed to activate user');
+            }
+        } catch (error) {
+            console.error('Failed to activate user:', error);
+            showAlert('Failed to activate user', 'danger');
+        }
+    }
+    
+    async function deleteUser(userId) {
+        if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+        
+        try {
+            const response = await fetch(`/api/v1/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (response.ok) {
+                showAlert('User deleted successfully!', 'success');
+                loadUsers(currentPage);
+                loadUserStats();
+            } else {
+                throw new Error('Failed to delete user');
+            }
+        } catch (error) {
+            console.error('Failed to delete user:', error);
+            showAlert('Failed to delete user', 'danger');
+        }
+    }
+    
+    async function exportUsers() {
+        try {
+            const filters = {
+                search: document.getElementById('searchQuery').value,
+                tier: document.getElementById('tierFilter').value,
+                status: document.getElementById('statusFilter').value,
+                date_range: document.getElementById('dateRangeFilter').value
+            };
+            
+            const response = await fetch('/api/v1/admin/users/export?' + new URLSearchParams(filters), {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `users_export_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Failed to export users:', error);
+            showAlert('Failed to export users', 'danger');
+        }
+    }
+    
+    function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        alert.style.zIndex = '9999';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alert);
+        
+        setTimeout(() => alert.remove(), 5000);
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Video AI Studio</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DataTables -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --sidebar-width: 250px;
+            --navbar-height: 60px;
+            --primary-color: #4361ee;
+            --secondary-color: #3a0ca3;
+            --success-color: #4cc9f0;
+            --warning-color: #f72585;
+            --danger-color: #7209b7;
+        }
+        
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .admin-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            border-right: 1px solid #334155;
+            z-index: 1000;
+            padding-top: var(--navbar-height);
+            overflow-y: auto;
+        }
+        
+        .admin-navbar {
+            position: fixed;
+            top: 0;
+            left: var(--sidebar-width);
+            right: 0;
+            height: var(--navbar-height);
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            z-index: 999;
+            padding: 0 20px;
+        }
+        
+        .admin-content {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--navbar-height);
+            padding: 20px;
+            min-height: calc(100vh - var(--navbar-height));
+        }
+        
+        .sidebar-brand {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 20px;
+        }
+        
+        .sidebar-brand h3 {
+            color: #60a5fa;
+            font-weight: 700;
+            margin: 0;
+        }
+        
+        .sidebar-brand span {
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .sidebar-menu li {
+            margin-bottom: 5px;
+        }
+        
+        .sidebar-menu a {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: #cbd5e1;
+            text-decoration: none;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+        
+        .sidebar-menu a:hover {
+            background-color: #334155;
+            color: #ffffff;
+            border-left-color: #60a5fa;
+        }
+        
+        .sidebar-menu a.active {
+            background-color: #1e40af;
+            color: #ffffff;
+            border-left-color: #3b82f6;
+        }
+        
+        .sidebar-menu i {
+            width: 24px;
+            margin-right: 10px;
+            text-align: center;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 20px;
+            transition: transform 0.3s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+        
+        .stat-icon.users { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .stat-icon.videos { background-color: rgba(168, 85, 247, 0.2); color: #a855f7; }
+        .stat-icon.revenue { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .stat-icon.cost { background-color: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-change {
+            font-size: 0.875rem;
+            margin-top: 5px;
+        }
+        
+        .stat-change.positive { color: #22c55e; }
+        .stat-change.negative { color: #ef4444; }
+        
+        .admin-table {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .table-header {
+            padding: 20px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .table-title {
+            margin: 0;
+            font-weight: 600;
+        }
+        
+        .table-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .table-container {
+            padding: 20px;
+            overflow-x: auto;
+        }
+        
+        .dataTables_wrapper {
+            color: #cbd5e1;
+        }
+        
+        .dataTables_wrapper .dataTables_filter input {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        
+        .dataTables_wrapper .dataTables_length select {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        
+        .dataTables_wrapper table.dataTable {
+            border: 1px solid #334155;
+        }
+        
+        .dataTables_wrapper table.dataTable thead th {
+            border-bottom: 2px solid #334155;
+            background-color: #1e293b;
+            color: #cbd5e1;
+            font-weight: 600;
+        }
+        
+        .dataTables_wrapper table.dataTable tbody td {
+            border-top: 1px solid #334155;
+            background-color: #1e293b;
+            color: #cbd5e1;
+        }
+        
+        .dataTables_wrapper table.dataTable tbody tr:hover td {
+            background-color: #334155;
+        }
+        
+        .chart-container {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            margin: 0 0 20px 0;
+            font-weight: 600;
+        }
+        
+        .quick-action {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .quick-action:hover {
+            background: #334155;
+            transform: translateY(-3px);
+        }
+        
+        .quick-action i {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #60a5fa;
+        }
+        
+        .quick-action h5 {
+            margin: 0 0 5px 0;
+            font-weight: 600;
+        }
+        
+        .quick-action p {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin: 0;
+        }
+        
+        .alert-admin {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-left: 4px solid;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-admin.info { border-left-color: #60a5fa; }
+        .alert-admin.warning { border-left-color: #f59e0b; }
+        .alert-admin.danger { border-left-color: #ef4444; }
+        .alert-admin.success { border-left-color: #22c55e; }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        
+        .badge-tier {
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-tier.free { background-color: #374151; color: #9ca3af; }
+        .badge-tier.starter { background-color: #1e40af; color: #93c5fd; }
+        .badge-tier.pro { background-color: #7c3aed; color: #c4b5fd; }
+        .badge-tier.plus { background-color: #059669; color: #a7f3d0; }
+        .badge-tier.enterprise { background-color: #dc2626; color: #fca5a5; }
+        
+        .modal-admin .modal-content {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+        }
+        
+        .modal-admin .modal-header {
+            border-bottom: 1px solid #334155;
+        }
+        
+        .modal-admin .modal-footer {
+            border-top: 1px solid #334155;
+        }
+        
+        .btn-admin {
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+            border: none;
+        }
+        
+        .btn-admin-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: white;
+        }
+        
+        .btn-admin-primary:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+            transform: translateY(-2px);
+        }
+        
+        .btn-admin-secondary {
+            background: #334155;
+            color: #cbd5e1;
+        }
+        
+        .btn-admin-secondary:hover {
+            background: #475569;
+            transform: translateY(-2px);
+        }
+        
+        .btn-admin-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        .btn-admin-danger:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            transform: translateY(-2px);
+        }
+        
+        .search-box {
+            position: relative;
+            max-width: 300px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 8px 15px 8px 40px;
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #cbd5e1;
+        }
+        
+        .search-box i {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+        }
+        
+        .time-range-selector {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .time-range-btn {
+            padding: 5px 15px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .time-range-btn:hover {
+            background: #334155;
+        }
+        
+        .time-range-btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="admin-sidebar">
+        <div class="sidebar-brand">
+            <h3>Video AI Studio</h3>
+            <span>Administration</span>
+        </div>
+        
+        <ul class="sidebar-menu">
+            <li><a href="#dashboard" class="active"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+            <li><a href="#users"><i class="fas fa-users"></i> Users</a></li>
+            <li><a href="#videos"><i class="fas fa-video"></i> Videos</a></li>
+            <li><a href="#analytics"><i class="fas fa-chart-bar"></i> Analytics</a></li>
+            <li><a href="#system"><i class="fas fa-server"></i> System Health</a></li>
+            <li><a href="#billing"><i class="fas fa-credit-card"></i> Billing</a></li>
+            <li><a href="#settings"><i class="fas fa-cog"></i> Settings</a></li>
+            <li><a href="/dashboard"><i class="fas fa-arrow-left"></i> Back to App</a></li>
+        </ul>
+    </div>
+    
+    <!-- Navbar -->
+    <nav class="admin-navbar d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center">
+            <h4 class="mb-0">Admin Dashboard</h4>
+            <div class="ms-4">
+                <div class="time-range-selector">
+                    <button class="time-range-btn active">Today</button>
+                    <button class="time-range-btn">Week</button>
+                    <button class="time-range-btn">Month</button>
+                    <button class="time-range-btn">Year</button>
+                    <button class="time-range-btn">Custom</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="d-flex align-items-center">
+            <div class="search-box me-3">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search...">
+            </div>
+            
+            <div class="dropdown">
+                <button class="btn btn-admin-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-user-circle me-2"></i> Admin User
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i> Profile</a></li>
+                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i> Settings</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt me-2"></i> Logout</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="admin-content">
+        <!-- Alerts -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert-admin warning d-flex align-items-center justify-content-between">
+                    <div>
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>System Alert:</strong> Processing queue is above 100 videos. Consider scaling workers.
+                    </div>
+                    <button class="btn btn-admin-primary btn-sm">View Details</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stats Cards -->
+        <div class="row mb-4">
+            <div class="col-xl-3 col-md-6 mb-4">
+                <div class="stat-card">
+                    <div class="stat-icon users">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="stat-number">1,247</div>
+                    <div class="stat-label">Total Users</div>
+                    <div class="stat-change positive">
+                        <i class="fas fa-arrow-up me-1"></i> 12.5% this month
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-xl-3 col-md-6 mb-4">
+                <div class="stat-card">
+                    <div class="stat-icon videos">
+                        <i class="fas fa-video"></i>
+                    </div>
+                    <div class="stat-number">8,942</div>
+                    <div class="stat-label">Videos Processed</div>
+                    <div class="stat-change positive">
+                        <i class="fas fa-arrow-up me-1"></i> 18.3% this month
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-xl-3 col-md-6 mb-4">
+                <div class="stat-card">
+                    <div class="stat-icon revenue">
+                        <i class="fas fa-dollar-sign"></i>
+                    </div>
+                    <div class="stat-number">$31,490</div>
+                    <div class="stat-label">Monthly Revenue</div>
+                    <div class="stat-change positive">
+                        <i class="fas fa-arrow-up me-1"></i> 8.7% this month
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-xl-3 col-md-6 mb-4">
+                <div class="stat-card">
+                    <div class="stat-icon cost">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="stat-number">$1,385</div>
+                    <div class="stat-label">Monthly Costs</div>
+                    <div class="stat-change negative">
+                        <i class="fas fa-arrow-down me-1"></i> 3.2% this month
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Charts -->
+        <div class="row mb-4">
+            <div class="col-lg-8 mb-4">
+                <div class="chart-container">
+                    <h5 class="chart-title">Revenue & Costs (Last 30 Days)</h5>
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 mb-4">
+                <div class="chart-container">
+                    <h5 class="chart-title">User Distribution by Tier</h5>
+                    <canvas id="tierChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h4 class="mb-3">Quick Actions</h4>
+                <div class="row">
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="quick-action" onclick="window.location.href='#users?action=create'">
+                            <i class="fas fa-user-plus"></i>
+                            <h5>Add User</h5>
+                            <p>Create new user account</p>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="quick-action" onclick="window.location.href='#videos?action=bulk'">
+                            <i class="fas fa-upload"></i>
+                            <h5>Bulk Upload</h5>
+                            <p>Upload multiple videos</p>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="quick-action" onclick="showSystemAlert()">
+                            <i class="fas fa-bell"></i>
+                            <h5>Send Alert</h5>
+                            <p>Send system notification</p>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="quick-action" onclick="window.location.href='#analytics?export=true'">
+                            <i class="fas fa-download"></i>
+                            <h5>Export Data</h5>
+                            <p>Export reports and analytics</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Activity -->
+        <div class="row">
+            <div class="col-12">
+                <div class="admin-table">
+                    <div class="table-header">
+                        <h5 class="table-title">Recent Activity</h5>
+                        <div class="table-actions">
+                            <button class="btn btn-admin-secondary btn-sm">Refresh</button>
+                            <button class="btn btn-admin-primary btn-sm">Filter</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table class="table table-hover" id="activityTable">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                    <th>IP Address</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>2 minutes ago</td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar me-2">JD</div>
+                                            <div>
+                                                <div>john@example.com</div>
+                                                <small class="text-muted">Starter</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-success">Video Upload</span></td>
+                                    <td>Processed "product_demo.mp4" (3:24)</td>
+                                    <td>192.168.1.100</td>
+                                </tr>
+                                <tr>
+                                    <td>15 minutes ago</td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar me-2">SA</div>
+                                            <div>
+                                                <div>sarah@company.com</div>
+                                                <small class="text-muted">Pro</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-primary">Tier Upgrade</span></td>
+                                    <td>Upgraded from Starter to Pro</td>
+                                    <td>203.0.113.42</td>
+                                </tr>
+                                <tr>
+                                    <td>1 hour ago</td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar me-2">MA</div>
+                                            <div>
+                                                <div>mike@startup.io</div>
+                                                <small class="text-muted">Free</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-warning">Payment Failed</span></td>
+                                    <td>Payment declined for Pro subscription</td>
+                                    <td>198.51.100.23</td>
+                                </tr>
+                                <tr>
+                                    <td>3 hours ago</td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar me-2">RJ</div>
+                                            <div>
+                                                <div>raj@tech.com</div>
+                                                <small class="text-muted">Plus</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-info">Bulk Process</span></td>
+                                    <td>Processed 15 videos in batch</td>
+                                    <td>172.16.254.1</td>
+                                </tr>
+                                <tr>
+                                    <td>5 hours ago</td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar me-2">AD</div>
+                                            <div>
+                                                <div>admin@system</div>
+                                                <small class="text-muted">Admin</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-secondary">System</span></td>
+                                    <td>Performed database backup</td>
+                                    <td>127.0.0.1</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+    
+    <script>
+        // Initialize DataTable
+        $(document).ready(function() {
+            $('#activityTable').DataTable({
+                pageLength: 10,
+                order: [[0, 'desc']],
+                language: {
+                    search: "_INPUT_",
+                    searchPlaceholder: "Search activities..."
+                }
+            });
+        });
+        
+        // Initialize Charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Revenue Chart
+            const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+            new Chart(revenueCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Jan 1', 'Jan 5', 'Jan 10', 'Jan 15', 'Jan 20', 'Jan 25', 'Jan 30'],
+                    datasets: [
+                        {
+                            label: 'Revenue',
+                            data: [850, 920, 1010, 1150, 1250, 1380, 1450],
+                            borderColor: '#22c55e',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Costs',
+                            data: [42, 48, 52, 55, 60, 65, 68],
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                color: '#cbd5e1'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: function(value) {
+                                    return '$' + value;
+                                }
+                            },
+                            grid: {
+                                color: '#334155'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#94a3b8'
+                            },
+                            grid: {
+                                color: '#334155'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Tier Distribution Chart
+            const tierCtx = document.getElementById('tierChart').getContext('2d');
+            new Chart(tierCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Free', 'Starter', 'Pro', 'Plus', 'Enterprise'],
+                    datasets: [{
+                        data: [42, 28, 18, 8, 4],
+                        backgroundColor: [
+                            '#374151',
+                            '#1e40af',
+                            '#7c3aed',
+                            '#059669',
+                            '#dc2626'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                color: '#cbd5e1',
+                                padding: 20
+                            }
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Time Range Selector
+        document.querySelectorAll('.time-range-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Here you would reload data based on selected time range
+                console.log('Time range changed to:', this.textContent);
+            });
+        });
+        
+        // Quick Action Functions
+        function showSystemAlert() {
+            const modalHtml = `
+                <div class="modal fade modal-admin" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Send System Alert</h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Alert Type</label>
+                                    <select class="form-select bg-dark text-light">
+                                        <option>Info</option>
+                                        <option>Warning</option>
+                                        <option>Critical</option>
+                                        <option>Maintenance</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Title</label>
+                                    <input type="text" class="form-control bg-dark text-light" placeholder="Enter alert title">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Message</label>
+                                    <textarea class="form-control bg-dark text-light" rows="4" placeholder="Enter alert message"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Target Users</label>
+                                    <select class="form-select bg-dark text-light">
+                                        <option>All Users</option>
+                                        <option>Specific Tier</option>
+                                        <option>Specific Users</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-admin-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-admin-primary" onclick="sendAlert()">Send Alert</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const modalContainer = document.createElement('div');
+            modalContainer.innerHTML = modalHtml;
+            document.body.appendChild(modalContainer);
+            
+            const modal = new bootstrap.Modal(modalContainer.querySelector('.modal'));
+            modal.show();
+            
+            modalContainer.querySelector('.modal').addEventListener('hidden.bs.modal', function() {
+                modalContainer.remove();
+            });
+        }
+        
+        function sendAlert() {
+            alert('Alert sent successfully!');
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal-admin'));
+            modal.hide();
+        }
+        
+        // Search functionality
+        document.querySelector('.search-box input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const query = this.value.trim();
+                if (query) {
+                    console.log('Searching for:', query);
+                    // Implement search logic here
+                }
+            }
+        });
+        
+        // Update stats every 30 seconds
+        function updateStats() {
+            // This would make an API call to get updated stats
+            console.log('Updating stats...');
+        }
+        
+        setInterval(updateStats, 30000);
+    </script>
+</body>
+</html>

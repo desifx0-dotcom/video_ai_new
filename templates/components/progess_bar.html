@@ -1,0 +1,186 @@
+<!-- Progress Bar Component -->
+{% macro progress_bar(progress, status='processing', show_percentage=true, animated=true, size='md') %}
+    {% set colors = {
+        'processing': 'primary',
+        'completed': 'success',
+        'failed': 'danger',
+        'queued': 'secondary',
+        'cancelled': 'dark'
+    } %}
+    
+    {% set icons = {
+        'processing': 'fas fa-spinner fa-spin',
+        'completed': 'fas fa-check-circle',
+        'failed': 'fas fa-exclamation-circle',
+        'queued': 'fas fa-clock',
+        'cancelled': 'fas fa-ban'
+    } %}
+    
+    {% set sizes = {
+        'sm': { height: '4px', fontSize: '0.7rem' },
+        'md': { height: '8px', fontSize: '0.8rem' },
+        'lg': { height: '12px', fontSize: '0.9rem' }
+    } %}
+    
+    {% set size_config = sizes.get(size, sizes.md) %}
+    
+    <div class="progress-bar-container">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="d-flex align-items-center">
+                <i class="{{ icons.get(status, 'fas fa-question-circle') }} me-2 text-{{ colors.get(status, 'secondary') }}"></i>
+                <span class="progress-status text-{{ colors.get(status, 'secondary') }}">
+                    {{ status|capitalize }}
+                </span>
+            </div>
+            {% if show_percentage %}
+                <span class="progress-percentage fw-bold" style="font-size: {{ size_config.fontSize }}">
+                    {{ progress|round|int }}%
+                </span>
+            {% endif %}
+        </div>
+        
+        <div class="progress" style="height: {{ size_config.height }}">
+            <div class="progress-bar bg-{{ colors.get(status, 'secondary') }} 
+                        {{ 'progress-bar-striped' if animated and status == 'processing' else '' }}
+                        {{ 'progress-bar-animated' if animated and status == 'processing' else '' }}"
+                 role="progressbar" 
+                 style="width: {{ progress }}%"
+                 aria-valuenow="{{ progress }}" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+            </div>
+        </div>
+        
+        {% if status == 'processing' %}
+            <div class="progress-steps mt-2">
+                <div class="d-flex justify-content-between">
+                    <span class="step {{ 'text-primary fw-bold' if progress < 25 else 'text-muted' }}">
+                        <i class="fas fa-upload me-1"></i> Upload
+                    </span>
+                    <span class="step {{ 'text-primary fw-bold' if progress >= 25 and progress < 50 else 'text-muted' }}">
+                        <i class="fas fa-cogs me-1"></i> Process
+                    </span>
+                    <span class="step {{ 'text-primary fw-bold' if progress >= 50 and progress < 75 else 'text-muted' }}">
+                        <i class="fas fa-magic me-1"></i> AI Enhance
+                    </span>
+                    <span class="step {{ 'text-primary fw-bold' if progress >= 75 else 'text-muted' }}">
+                        <i class="fas fa-download me-1"></i> Finalize
+                    </span>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+<style>
+.progress-bar-container {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    background-color: #f8f9fa;
+}
+
+.progress-bar-striped {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 1rem 1rem;
+}
+
+@keyframes progress-bar-stripes {
+    0% { background-position: 1rem 0; }
+    100% { background-position: 0 0; }
+}
+
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+.progress-steps .step {
+    font-size: 0.75rem;
+    transition: color 0.3s ease;
+}
+
+.progress-steps .step i {
+    font-size: 0.875rem;
+}
+</style>
+
+<script>
+// Optional: Add real-time progress updates
+function updateProgressBar(containerId, progress, status) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    // Update progress bar width
+    const progressBar = container.querySelector('.progress-bar');
+    progressBar.style.width = `${progress}%`;
+    progressBar.setAttribute('aria-valuenow', progress);
+    
+    // Update percentage text
+    const percentage = container.querySelector('.progress-percentage');
+    if (percentage) {
+        percentage.textContent = `${Math.round(progress)}%`;
+    }
+    
+    // Update status
+    const statusElement = container.querySelector('.progress-status');
+    if (statusElement) {
+        statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        statusElement.className = `progress-status text-${getStatusColor(status)}`;
+    }
+    
+    // Update icon
+    const icon = container.querySelector('.progress-bar-container i');
+    if (icon) {
+        icon.className = getStatusIcon(status);
+        icon.className += ` text-${getStatusColor(status)}`;
+    }
+    
+    // Update steps highlighting
+    if (status === 'processing') {
+        const steps = container.querySelectorAll('.progress-steps .step');
+        steps.forEach((step, index) => {
+            const stepThreshold = (index + 1) * 25;
+            if (progress < stepThreshold) {
+                step.className = 'step text-muted';
+            } else {
+                step.className = 'step text-primary fw-bold';
+            }
+        });
+    }
+}
+
+function getStatusColor(status) {
+    const colors = {
+        'processing': 'primary',
+        'completed': 'success',
+        'failed': 'danger',
+        'queued': 'secondary',
+        'cancelled': 'dark'
+    };
+    return colors[status] || 'secondary';
+}
+
+function getStatusIcon(status) {
+    const icons = {
+        'processing': 'fas fa-spinner fa-spin',
+        'completed': 'fas fa-check-circle',
+        'failed': 'fas fa-exclamation-circle',
+        'queued': 'fas fa-clock',
+        'cancelled': 'fas fa-ban'
+    };
+    return icons[status] || 'fas fa-question-circle';
+}
+
+// Example usage with WebSocket updates
+// socket.on('video_progress', function(data) {
+//     updateProgressBar(`progress-${data.video_id}`, data.progress, data.status);
+// });
+</script>

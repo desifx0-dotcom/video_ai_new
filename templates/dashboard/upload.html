@@ -1,0 +1,1239 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Video - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="page-header mb-4">
+                <h1 class="h2">Upload Video</h1>
+                <p class="text-muted">Upload your video and let AI work its magic</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info d-flex align-items-center justify-content-between">
+                <div>
+                    <i class="fas fa-coins me-2 text-warning"></i>
+                    <strong>Your Credits:</strong> 
+                    <span class="badge bg-primary ms-2">{{ current_user.credits_remaining|default(0) }}</span>
+                    <small class="text-muted ms-3">Each video costs 1 credit</small>
+                </div>
+                {% if current_user.credits_remaining|default(0) < 1 %}
+                <a href="{{ url_for('pricing') }}" class="btn btn-sm btn-warning">
+                    <i class="fas fa-arrow-up me-1"></i>Get More Credits
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Credit Warning Popup - Centered White Box (FORCED WHITE) -->
+    <div id="credit-warning-popup" 
+        style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                z-index: 9999; width: 450px; max-width: 90%;">
+        <div class="card shadow-lg border-0" style="background-color: #ffffff !important; border-radius: 12px;">
+            <div class="card-body p-4" style="background-color: #ffffff !important;">
+                <div class="text-center mb-4">
+                    <div class="bg-warning bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3" style="background-color: rgba(255, 193, 7, 0.1) !important;">
+                        <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2.5rem; color: #ffc107 !important;"></i>
+                    </div>
+                    <h4 class="mb-1" style="color: #212529 !important;">Insufficient Credits</h4>
+                    <p class="text-muted small" style="color: #6c757d !important;">You need credits to upload videos</p>
+                </div>
+                
+                <div class="p-3 rounded mb-4" style="background-color: #f8f9fa !important;">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span style="color: #212529 !important;">Your Credits:</span>
+                        <span class="badge bg-danger px-3 py-2" style="background-color: #dc3545 !important;">{{ current_user.credits_remaining|default(0) }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span style="color: #212529 !important;">Cost per video:</span>
+                        <span class="badge bg-info px-3 py-2" style="background-color: #0dcaf0 !important;">1 credit</span>
+                    </div>
+                </div>
+                
+                <p class="small mb-4 text-center" style="color: #6c757d !important;">
+                    You don't have enough credits to upload this video.<br>
+                    Please upgrade your plan or purchase more credits.
+                </p>
+                
+                <div class="d-flex justify-content-center gap-3">
+                    <button type="button" class="btn btn-outline-secondary px-4" onclick="hideCreditPopup()" style="border-radius: 8px; background-color: transparent !important; color: #6c757d !important; border-color: #6c757d !important;">
+                        <i class="fas fa-times me-2"></i>Close
+                    </button>
+                    <a href="{{ url_for('pricing') }}" class="btn btn-primary px-4" style="border-radius: 8px; background-color: #0d6efd !important; border-color: #0d6efd !important; color: white !important;">
+                        <i class="fas fa-arrow-up me-2"></i>Upgrade Plan
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Upload Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Video Upload</h5>
+                </div>
+                <div class="card-body">
+                    <div id="upload-area" class="upload-area">
+                        <div class="upload-placeholder text-center py-5">
+                            <div class="upload-icon mb-3">
+                                <i class="fas fa-cloud-upload-alt fa-3x text-primary"></i>
+                            </div>
+                            <h4>Drag & Drop Your Video</h4>
+                            <p class="text-muted mb-3">or click to browse files</p>
+                            <p class="text-muted small">
+                                Supported formats: MP4, AVI, MOV, MKV, WEBM, FLV, WMV, MPEG, MPG
+                                <br>
+                                Max file size: {{ max_file_size_gb }}GB
+                            </p>
+                            <input type="file" id="video-file" class="d-none" accept="video/*">
+                            <button class="btn btn-primary mt-2" onclick="document.getElementById('video-file').click()">
+                                <i class="fas fa-upload me-2"></i>Select Video
+                            </button>
+                        </div>
+                        <div class="upload-progress d-none">
+                            <div class="progress mb-3">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <div class="upload-info">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="file-name">video.mp4</span>
+                                    <span class="file-size">0 MB</span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="upload-speed">0 MB/s</span>
+                                    <span class="time-remaining">--:--</span>
+                                </div>
+                            </div>
+                            <button class="btn btn-danger btn-sm mt-3" onclick="cancelUpload()">
+                                <i class="fas fa-times me-1"></i>Cancel Upload
+                            </button>
+                        </div>
+                        <div class="upload-preview d-none">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="video-preview mb-3">
+                                        <video id="video-preview" controls class="w-100 rounded">
+                                            <source src="" type="video/mp4">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="video-info">
+                                        <h6>Video Details</h6>
+                                        <ul class="list-unstyled">
+                                            <li><strong>Filename:</strong> <span id="preview-filename"></span></li>
+                                            <li><strong>Size:</strong> <span id="preview-size"></span></li>
+                                            <li><strong>Duration:</strong> <span id="preview-duration"></span></li>
+                                            <li><strong>Resolution:</strong> <span id="preview-resolution"></span></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-success me-2" onclick="startProcessing()">
+                                <i class="fas fa-magic me-2"></i>Start Processing
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="resetUpload()">
+                                <i class="fas fa-redo me-2"></i>Upload Another
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processing Options -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Processing Options</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Quality Selection -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Output Quality</label>
+                            <select class="form-select" id="quality-select">
+                                {% for quality in available_qualities %}
+                                <option value="{{ quality.value }}" 
+                                        {% if quality.value == default_quality %}selected{% endif %}
+                                        {% if not quality.available %}disabled{% endif %}>
+                                    {{ quality.label }}
+                                    {% if not quality.available %}({{ quality.required_tier }}+){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Higher quality = better results but larger file size
+                            </div>
+                        </div>
+
+                        <!-- Style Selection -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Video Style</label>
+                            <select class="form-select" id="style-select">
+                                <option value="">No style (original)</option>
+                                {% for style in available_styles %}
+                                <option value="{{ style.id }}"
+                                        {% if not style.available %}disabled{% endif %}>
+                                    {{ style.name }}
+                                    {% if not style.available %}({{ style.required_tier }}+){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Apply AI-powered video styles for different looks
+                            </div>
+                        </div>
+
+                        <!-- Translation -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Translate To</label>
+                            <select class="form-select" id="translation-select">
+                                <option value="">No translation</option>
+                                {% for lang in languages %}
+                                <option value="{{ lang.code }}">{{ lang.name }} ({{ lang.native }})</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Translate transcription and titles
+                            </div>
+                        </div>
+
+                        <!-- Thumbnail Options -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Thumbnail Style</label>
+                            <select class="form-select" id="thumbnail-style">
+                                <option value="default">Default</option>
+                                <option value="cinematic">Cinematic</option>
+                                <option value="bright">Bright & Vibrant</option>
+                                <option value="dark">Dark & Moody</option>
+                                <option value="text_heavy">Text Heavy</option>
+                            </select>
+                            <div class="form-text">
+                                Style for AI-generated thumbnails
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Options (Collapsible) -->
+                    <div class="mt-3">
+                        <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" 
+                                data-bs-target="#advanced-options" aria-expanded="false">
+                            <i class="fas fa-cog me-1"></i> Advanced Options
+                        </button>
+                        
+                        <div class="collapse mt-2" id="advanced-options">
+                            <div class="card card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Frame Rate</label>
+                                        <select class="form-select" id="fps-select">
+                                            <option value="original">Original</option>
+                                            <option value="24">24 fps</option>
+                                            <option value="30">30 fps</option>
+                                            <option value="60">60 fps (Pro+)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Audio Quality</label>
+                                        <select class="form-select" id="audio-quality">
+                                            <option value="original">Original</option>
+                                            <option value="128k">128 kbps</option>
+                                            <option value="192k">192 kbps</option>
+                                            <option value="256k">256 kbps (Pro+)</option>
+                                            <option value="320k">320 kbps (Plus+)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-12">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="auto-transcribe">
+                                            <label class="form-check-label" for="auto-transcribe">
+                                                Auto-transcribe (detect language)
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="generate-chapters">
+                                            <label class="form-check-label" for="generate-chapters">
+                                                Generate chapter markers (Pro+)
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="remove-silence">
+                                            <label class="form-check-label" for="remove-silence">
+                                                Remove silent parts (Experimental)
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <!-- Tier Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Your Plan: {{ current_user.tier|title }}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="tier-features">
+                        <ul class="list-unstyled mb-3">
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success me-2"></i>
+                                {{ monthly_limit }} videos/month
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success me-2"></i>
+                                Max {{ max_duration }} minutes per video
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success me-2"></i>
+                                {{ max_quality }} output quality
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success me-2"></i>
+                                {{ retention_days }} days retention
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success me-2"></i>
+                                {{ ai_thumbnails }} AI thumbnails
+                            </li>
+                        </ul>
+                        
+                        <div class="usage-stats">
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span>Monthly Usage:</span>
+                                    <span>{{ videos_processed }}/{{ monthly_limit }}</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar" role="progressbar" 
+                                         style="width: {{ (videos_processed / monthly_limit * 100)|round|int }}%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span>Credits:</span>
+                                    <span>{{ current_user.credits_remaining }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {% if current_user.tier != 'enterprise' %}
+                        <div class="upgrade-cta mt-3">
+                            <p class="small text-muted mb-2">
+                                Need more? Upgrade for better features
+                            </p>
+                            <a href="{{ url_for('pricing') }}" 
+                               class="btn btn-outline-primary btn-sm w-100">
+                                <i class="fas fa-arrow-up me-1"></i> Upgrade Plan
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processing Queue -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Recent Processing</h5>
+                </div>
+                <div class="card-body">
+                    <div id="queue-list">
+                        {% if recent_videos %}
+                            {% for video in recent_videos %}
+                            <div class="queue-item mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="queue-info">
+                                        <h6 class="mb-1">{{ video.original_filename|truncate(20) }}</h6>
+                                        <div class="d-flex align-items-center">
+                                            <small class="text-muted me-2">
+                                                {{ video.created_at|datetimeformat }}
+                                            </small>
+                                            <span class="badge bg-{{ video.status_color }}">
+                                                {{ video.status|title }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {% if video.status == 'completed' %}
+                                    <a href="{{ url_for('api.v1.routers.videos.download', video_id=video.id) }}" 
+                                       class="btn btn-sm btn-outline-success">
+                                        <i class="fas fa-download"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                                {% if video.status == 'processing' %}
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         role="progressbar" style="width: {{ video.progress }}%"></div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted text-center mb-0">No recent videos</p>
+                        {% endif %}
+                    </div>
+                    {% if recent_videos %}
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('history') }}" 
+                           class="btn btn-link btn-sm">
+                            View All Videos
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Help Card -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="fas fa-question-circle me-2"></i>Need Help?</h5>
+                </div>
+                <div class="card-body">
+                    <p class="small">
+                        <strong>Upload Tips:</strong>
+                    </p>
+                    <ul class="small text-muted mb-3">
+                        <li>For best results, use videos with clear audio</li>
+                        <li>Landscape orientation works best for most platforms</li>
+                        <li>Keep videos under 10 minutes for faster processing</li>
+                        <li>Close other bandwidth-intensive apps during upload</li>
+                    </ul>
+                    <div class="text-center">
+                        <a href="#" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-life-ring me-1"></i> Help Center
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Processing Modal -->
+<div class="modal fade" id="processing-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Processing Your Video</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="mb-3">AI is working its magic!</h5>
+                
+                <div class="processing-steps">
+                    <div class="step active">
+                        <i class="fas fa-upload text-primary me-2"></i>
+                        <span>Uploading</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-brain text-primary me-2"></i>
+                        <span>Analyzing Video</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-microphone text-primary me-2"></i>
+                        <span>Transcribing Audio</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-image text-primary me-2"></i>
+                        <span>Generating Thumbnails</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-film text-primary me-2"></i>
+                        <span>Applying Styles</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-file-export text-primary me-2"></i>
+                        <span>Finalizing Output</span>
+                        <i class="fas fa-check text-success ms-auto d-none"></i>
+                    </div>
+                </div>
+                
+                <div class="progress mt-4">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted" id="processing-time">Estimated time: 2-5 minutes</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Close (Processing will continue in background)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+<!-- <script src="{{ url_for('static', filename='js/upload.js') }}"></script> -->
+<script>
+console.log("🔥🔥🔥 UPLOAD SCRIPT IS DEFINITELY RUNNING 🔥🔥🔥");
+// alert("Script is running!");
+const serverAccessToken = '{{ access_token|safe }}';
+const serverRefreshToken = '{{ refresh_token|safe }}';
+const forcePreviewStyle = document.createElement('style');
+forcePreviewStyle.textContent = `
+    .upload-preview { display: block !important; }
+    .upload-progress { display: none !important; }
+`;
+document.head.appendChild(forcePreviewStyle);
+
+// Store them in localStorage if they exist
+if (serverAccessToken && serverAccessToken !== 'None') {
+    localStorage.setItem('access_token', serverAccessToken);
+    localStorage.setItem('refresh_token', serverRefreshToken);
+    console.log("✅ Stored server tokens in localStorage");
+} else {
+    console.warn("⚠️ No tokens received from server");
+}
+
+
+// Upload variables
+let currentUpload = null;
+let uploadProgress = 0;
+let uploadSpeed = 0;
+let uploadStartTime = null;
+let currentVideoId = null;
+let currentFile = null;
+
+// Tier restrictions
+const tierRestrictions = {
+    quality: {
+        '720p': ['free', 'starter', 'pro', 'plus', 'enterprise'],
+        '1080p': ['starter', 'pro', 'plus', 'enterprise'],
+        '4k': ['pro', 'plus', 'enterprise'],
+        '4k+hdr': ['plus', 'enterprise']
+    },
+    styles: {
+        'gaming': ['starter', 'pro', 'plus', 'enterprise'],
+        'educational': ['starter', 'pro', 'plus', 'enterprise'],
+        'professional': ['pro', 'plus', 'enterprise'],
+        'premium': ['plus', 'enterprise']
+    },
+    fps: {
+        '60': ['pro', 'plus', 'enterprise']
+    },
+    audio_quality: {
+        '256k': ['pro', 'plus', 'enterprise'],
+        '320k': ['plus', 'enterprise']
+    }
+};
+
+// Current user tier
+const userTier = '{{ current_user.tier }}';
+
+// Function to show credit warning popup
+function showCreditWarning() {
+    const popup = document.getElementById('credit-warning-popup');
+    if (popup) {
+        popup.style.display = 'block';
+        
+        // Auto-hide after 10 seconds
+        setTimeout(() => {
+            hideCreditPopup();
+        }, 10000);
+    }
+}
+
+// Function to hide credit warning popup
+window.hideCreditPopup = function() {
+    const popup = document.getElementById('credit-warning-popup');
+    if (popup) {
+        popup.style.display = 'none';
+    }
+};
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("✅ DOM CONTENT LOADED - Initializing upload");
+    
+    const fileInput = document.getElementById('video-file');
+    const uploadArea = document.getElementById('upload-area');
+    const selectBtn = document.querySelector('.btn-primary[onclick*="video-file.click()"]');
+    
+    if (!fileInput) {
+        console.error("❌ File input not found!");
+        return;
+    }
+    
+    console.log("✅ File input found");
+    
+    // File input change handler
+    fileInput.addEventListener('change', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log("📁 FILE SELECTED EVENT TRIGGERED");
+        console.log("Files:", this.files);
+        
+        if (this.files && this.files.length > 0) {
+            const file = this.files[0];
+            console.log("File name:", file.name);
+            console.log("File size:", file.size);
+            console.log("File type:", file.type);
+            
+            // 🔥 Check credits before proceeding
+            const creditsRemaining = parseInt('{{ current_user.credits_remaining|default(0) }}');
+            console.log("Credits remaining:", creditsRemaining);
+            
+            if (creditsRemaining <= 0) {
+                // Show credit warning popup
+                showCreditWarning();
+                
+                // Reset file input
+                this.value = '';
+                return;
+            }
+            
+            // Store file for later use
+            currentFile = file;
+            
+            // Show upload progress immediately
+            showUploadProgress(file);
+            
+            // Start upload
+            startUpload(file);
+        }
+    });
+
+    // If there's an inline onclick handler, we'll keep it as is
+    // The button already has onclick="document.getElementById('video-file').click()"
+    
+    // Drag and drop handlers
+    if (uploadArea) {
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                console.log("📁 File dropped:", files[0].name);
+                // Set the file input files
+                fileInput.files = files;
+                // Trigger change event
+                const event = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(event);
+            }
+        });
+    }
+    
+    // Apply tier restrictions
+    applyTierRestrictions();
+    
+    console.log("✅ Upload initialization complete");
+});
+
+function showUploadProgress(file) {
+    console.log("Showing upload progress for:", file.name);
+    
+    const uploadArea = document.getElementById('upload-area');
+    const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
+    const uploadProgressDiv = uploadArea.querySelector('.upload-progress');
+    
+    if (!uploadPlaceholder || !uploadProgressDiv) {
+        console.error("❌ Upload elements not found!");
+        return;
+    }
+    
+    // Update file info
+    const fileName = uploadProgressDiv.querySelector('.file-name');
+    const fileSize = uploadProgressDiv.querySelector('.file-size');
+    
+    if (fileName) fileName.textContent = file.name;
+    if (fileSize) fileSize.textContent = formatFileSize(file.size);
+    
+    // Show progress, hide placeholder
+    uploadPlaceholder.classList.add('d-none');
+    uploadProgressDiv.classList.remove('d-none');
+    
+    console.log("✅ Progress display updated");
+}
+
+// Update resetUpload function
+function resetUpload() {
+    console.log("Resetting upload");
+    
+    const uploadArea = document.getElementById('upload-area');
+    const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
+    const uploadProgressDiv = uploadArea.querySelector('.upload-progress');
+    const uploadPreview = uploadArea.querySelector('.upload-preview');
+    const fileInput = document.getElementById('video-file');
+    const progressBar = uploadProgressDiv?.querySelector('.progress-bar');
+    
+    if (uploadPlaceholder) uploadPlaceholder.classList.remove('d-none');
+    if (uploadProgressDiv) uploadProgressDiv.classList.add('d-none');
+    if (uploadPreview) uploadPreview.classList.add('d-none');
+    if (fileInput) fileInput.value = '';
+    if (progressBar) progressBar.style.width = '0%';
+    
+    // Clear stored data
+    if (currentFile) {
+        URL.revokeObjectURL(document.getElementById('video-preview')?.src);
+    }
+    
+    currentUpload = null;
+    uploadProgress = 0;
+    uploadSpeed = 0;
+    uploadStartTime = null;
+    currentVideoId = null;
+    currentFile = null;
+}
+
+async function ensureValidToken() {
+    console.log("🔍 ensureValidToken called");
+    
+    let accessToken = localStorage.getItem('access_token');
+    let refreshToken = localStorage.getItem('refresh_token');
+    
+    console.log("Current tokens - access:", !!accessToken, "refresh:", !!refreshToken);
+    
+    // If no access token but have refresh token, try to refresh
+    if (!accessToken && refreshToken) {
+        console.log("No access token but have refresh token, attempting refresh");
+        return await refreshAccessToken(refreshToken);
+    }
+    
+    // If no tokens at all, but user is logged in (session exists)
+    if (!accessToken && !refreshToken) {
+        console.log("No tokens found, but user might still be logged in via session");
+        
+        // Try to get new tokens from server using session
+        try {
+            const response = await fetch('/api/v1/auth/refresh-session', {
+                method: 'POST',
+                credentials: 'same-origin' // This sends the session cookie
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                localStorage.setItem('access_token', data.access_token);
+                localStorage.setItem('refresh_token', data.refresh_token);
+                console.log("✅ Got new tokens from session");
+                return data.access_token;
+            }
+        } catch (e) {
+            console.error("Failed to get tokens from session:", e);
+        }
+        
+        // If all else fails, redirect to login
+        showAlert('Session expired. Please log in again.', 'warning');
+        setTimeout(() => {
+            window.location.href = '/auth/login';
+        }, 2000);
+        return null;
+    }
+    
+    // Check if token is expired
+    try {
+        const payload = JSON.parse(atob(accessToken.split('.')[1]));
+        const exp = payload.exp * 1000;
+        const now = Date.now();
+        
+        console.log(`Token expires in ${Math.round((exp - now)/1000)} seconds`);
+        
+        // If token expires in less than 5 minutes, refresh it
+        if (exp - now < 300000) { // 5 minutes
+            console.log("Token expiring soon, refreshing...");
+            return await refreshAccessToken(refreshToken);
+        }
+    } catch (e) {
+        console.log("Could not decode token, attempting refresh");
+        return await refreshAccessToken(refreshToken);
+    }
+    
+    return accessToken;
+}
+
+// Add refresh token function
+async function refreshAccessToken(refreshToken) {
+    if (!refreshToken) {
+        showAlert('Session expired. Please log in again.', 'warning');
+        setTimeout(() => {
+            window.location.href = '/auth/login';
+        }, 2000);
+        return null;
+    }
+    
+    try {
+        const response = await fetch('/api/v1/auth/refresh', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${refreshToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('access_token', data.access_token);
+            console.log("✅ Token refreshed successfully");
+            return data.access_token;
+        } else {
+            // Refresh failed, redirect to login
+            showAlert('Session expired. Please log in again.', 'warning');
+            localStorage.clear();
+            setTimeout(() => {
+                window.location.href = '/auth/login';
+            }, 2000);
+            return null;
+        }
+    } catch (error) {
+        console.error('Error refreshing token:', error);
+        return null;
+    }
+}
+
+function startUpload(file) {
+    // CRITICAL: Prevent any default behavior that might cause redirect
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    console.log("Starting upload for:", file.name);
+    
+    // First, ensure we have a valid token
+    ensureValidToken().then(validToken => {
+        if (!validToken) {
+            console.log("No valid token, aborting upload");
+            return;
+        }
+
+        console.log("Valid token obtained, proceeding with upload");
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // Get processing options
+        const options = getProcessingOptions();
+        console.log("Processing options:", options);
+
+        // Add all form fields
+        formData.append('quality', options.quality);
+        
+        if (options.styles && options.styles.length > 0) {
+            options.styles.forEach(style => {
+                formData.append('styles', style);
+            });
+        }
+        
+        if (options.translation_language) {
+            formData.append('translation_language', options.translation_language);
+        }
+        
+        formData.append('thumbnail_style', options.thumbnail_style);
+        formData.append('fps', options.fps);
+        formData.append('audio_quality', options.audio_quality);
+        formData.append('auto_transcribe', options.auto_transcribe ? 'true' : 'false');
+        formData.append('generate_chapters', options.generate_chapters ? 'true' : 'false');
+        formData.append('remove_silence', options.remove_silence ? 'true' : 'false');
+        
+        uploadStartTime = Date.now();
+        
+        // Create xhr
+        const xhr = new XMLHttpRequest();
+        currentUpload = xhr;
+        
+        // Progress event listener
+        xhr.upload.addEventListener('progress', function(e) {
+            if (e.lengthComputable) {
+                uploadProgress = (e.loaded / e.total) * 100;
+                updateProgressBar(uploadProgress);
+                
+                const elapsedTime = (Date.now() - uploadStartTime) / 1000;
+                uploadSpeed = e.loaded / elapsedTime;
+                
+                updateUploadInfo(e.loaded, e.total, uploadSpeed);
+                console.log(`Upload progress: ${uploadProgress.toFixed(1)}%`);
+            }
+        });
+        
+        // Load event listener
+        xhr.addEventListener('load', function() {
+            console.log("Upload complete, status:", xhr.status);
+            console.log("Response:", xhr.responseText);
+            
+            if (xhr.status === 201) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    console.log("✅ Upload success:", response);
+                    
+                    // Store video ID
+                    currentVideoId = response.id;
+                    
+                    // Show preview
+                    showUploadPreview(response, currentFile);
+                    
+                } catch (e) {
+                    console.error("❌ Failed to parse response:", e);
+                    showAlert('Upload failed. Invalid server response.', 'danger');
+                    resetUpload();
+                }
+            } else if (xhr.status === 401) {
+                console.log("Token expired during upload, attempting refresh...");
+                refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
+                    if (newToken) {
+                        startUpload(file);
+                    }
+                });
+            } else if (xhr.status === 403) {
+                console.error("❌ Upload failed - insufficient credits");
+                
+                // Show credit warning popup
+                showCreditWarning();
+                
+                resetUpload();
+            
+            } else {
+                console.error("❌ Upload failed with status:", xhr.status);
+                let errorMsg = 'Upload failed. Please try again.';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.error) {
+                        errorMsg = response.error.message || errorMsg;
+                    } else if (response.msg) {
+                        errorMsg = response.msg;
+                    }
+                } catch (e) {}
+                showAlert(errorMsg, 'danger');
+                resetUpload();
+            }
+        });
+        
+        // Error event listener
+        xhr.addEventListener('error', function() {
+            console.error("❌ Upload network error");
+            showAlert('Upload error. Please check your connection.', 'danger');
+            resetUpload();
+        });
+        
+        // Open connection first
+        xhr.open('POST', '/api/v1/videos/upload');
+        
+        // Set headers (AFTER open)
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.setRequestHeader('Authorization', `Bearer ${validToken}`);
+        console.log("✅ Added Authorization header");
+        
+        // CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (csrfToken) {
+            xhr.setRequestHeader('X-CSRFToken', csrfToken);
+            console.log("✅ Added CSRF token header");
+        }
+        
+        // Send the data
+        xhr.send(formData);
+        
+    }).catch(error => {
+        console.error("Error in token validation:", error);
+        showAlert('Authentication error. Please log in again.', 'danger');
+        setTimeout(() => {
+            window.location.href = '/auth/login';
+        }, 2000);
+    });
+}
+
+function showUploadPreview(videoData, file) {
+    console.log("=".repeat(50));
+    console.log("SHOW UPLOAD PREVIEW CALLED");
+    console.log("=".repeat(50));
+    console.log("Video data:", videoData);
+    console.log("File:", file);
+    
+    const uploadProgressDiv = document.querySelector('.upload-progress');
+    const uploadPreview = document.querySelector('.upload-preview');
+    const videoPreview = document.getElementById('video-preview');
+    
+    console.log("uploadProgressDiv:", uploadProgressDiv);
+    console.log("uploadPreview:", uploadPreview);
+    console.log("videoPreview:", videoPreview);
+    
+    if (!uploadProgressDiv || !uploadPreview || !videoPreview) {
+        console.error("❌ Preview elements not found");
+        return;
+    }
+    
+    if (!file) {
+        console.error("❌ No file available for preview");
+        showAlert('Upload completed but preview unavailable.', 'warning');
+        uploadProgressDiv.classList.add('d-none');
+        return;
+    }
+    
+    // Log current classes before change
+    console.log("Before change - uploadProgressDiv classes:", uploadProgressDiv.className);
+    console.log("Before change - uploadPreview classes:", uploadPreview.className);
+    
+    // Update preview text
+    document.getElementById('preview-filename').textContent = videoData.original_filename || file.name;
+    document.getElementById('preview-size').textContent = formatFileSize(videoData.file_size || file.size);
+    document.getElementById('preview-duration').textContent = formatDuration(videoData.duration || 0);
+    
+    // 🔥 Create video preview URL
+    try {
+        // Revoke any existing URL to prevent memory leaks
+        if (videoPreview.src) {
+            URL.revokeObjectURL(videoPreview.src);
+        }
+        
+        const videoUrl = URL.createObjectURL(file);
+        videoPreview.src = videoUrl;
+        console.log("✅ Video preview URL created:", videoUrl);
+        
+        // Load video metadata to get resolution
+        videoPreview.onloadedmetadata = function() {
+            const resolution = `${videoPreview.videoWidth}x${videoPreview.videoHeight}`;
+            document.getElementById('preview-resolution').textContent = resolution;
+            console.log("✅ Video resolution:", resolution);
+        };
+        
+        videoPreview.onerror = function(e) {
+            console.error("❌ Video preview error:", e);
+            document.getElementById('preview-resolution').textContent = 'Unable to load preview';
+        };
+        
+        // Ensure video plays
+        videoPreview.load();
+        
+    } catch (e) {
+        console.error("❌ Failed to create video preview:", e);
+        document.getElementById('preview-resolution').textContent = 'Preview unavailable';
+    }
+    
+    // Hide progress, show preview
+    uploadProgressDiv.classList.add('d-none');
+    uploadPreview.classList.remove('d-none');
+    
+    // Log classes after change
+    console.log("After change - uploadProgressDiv classes:", uploadProgressDiv.className);
+    console.log("After change - uploadPreview classes:", uploadPreview.className);
+    
+    // Check if elements are visible
+    console.log("uploadProgressDiv display style:", window.getComputedStyle(uploadProgressDiv).display);
+    console.log("uploadPreview display style:", window.getComputedStyle(uploadPreview).display);
+}
+
+function cancelUpload() {
+    if (currentUpload) {
+        currentUpload.abort();
+        showAlert('Upload cancelled.', 'warning');
+        resetUpload();
+    }
+}
+
+function startProcessing() {
+    console.log("Start Processing clicked");
+    
+    if (!currentVideoId) {
+        showAlert('Please upload a video first.', 'warning');
+        return;
+    }
+    
+    // Check token before processing
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        showAlert('Please log in again.', 'warning');
+        setTimeout(() => window.location.href = '/auth/login', 2000);
+        return;
+    }
+    
+    const options = getProcessingOptions();
+    
+    // Show processing modal
+    const modal = new bootstrap.Modal(document.getElementById('processing-modal'));
+    modal.show();
+    
+    // Call API to start processing
+    fetch(`/api/v1/videos/${currentVideoId}/process`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(options)
+    })
+    .then(response => {
+        if (response.status === 401) {
+            // Token expired, try to refresh
+            return refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
+                if (newToken) {
+                    // Retry with new token
+                    return fetch(`/api/v1/videos/${currentVideoId}/process`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${newToken}`
+                        },
+                        body: JSON.stringify(options)
+                    });
+                }
+            });
+        }
+        return response;
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('✅ Processing started:', data);
+        // Rest of your progress simulation...
+    })
+    .catch(error => {
+        console.error('❌ Error starting processing:', error);
+        showAlert('Failed to start processing.', 'danger');
+        modal.hide();
+    });
+}
+
+
+function getProcessingOptions() {
+    return {
+        quality: document.getElementById('quality-select')?.value || '720p',
+        styles: document.getElementById('style-select')?.value ? [document.getElementById('style-select').value] : [],
+        translation_language: document.getElementById('translation-select')?.value || '',
+        thumbnail_style: document.getElementById('thumbnail-style')?.value || 'default',
+        fps: document.getElementById('fps-select')?.value || 'original',
+        audio_quality: document.getElementById('audio-quality')?.value || 'original',
+        auto_transcribe: document.getElementById('auto-transcribe')?.checked || false,
+        generate_chapters: document.getElementById('generate-chapters')?.checked || false,
+        remove_silence: document.getElementById('remove-silence')?.checked || false
+    };
+}
+
+
+function applyTierRestrictions() {
+    console.log("Applying tier restrictions for:", userTier);
+    
+    // Quality restrictions
+    const qualitySelect = document.getElementById('quality-select');
+    if (qualitySelect) {
+        Array.from(qualitySelect.options).forEach(option => {
+            if (option.value) {
+                const allowedTiers = tierRestrictions.quality[option.value];
+                if (allowedTiers && !allowedTiers.includes(userTier)) {
+                    option.disabled = true;
+                }
+            }
+        });
+    }
+    
+    // Style restrictions
+    const styleSelect = document.getElementById('style-select');
+    if (styleSelect) {
+        Array.from(styleSelect.options).forEach(option => {
+            if (option.value) {
+                const allowedTiers = tierRestrictions.styles[option.value];
+                if (allowedTiers && !allowedTiers.includes(userTier)) {
+                    option.disabled = true;
+                }
+            }
+        });
+    }
+}
+
+function updateProgressBar(progress) {
+    const progressBar = document.querySelector('.upload-progress .progress-bar');
+    if (progressBar) progressBar.style.width = `${progress}%`;
+}
+
+function updateUploadInfo(loaded, total, speed) {
+    const speedElement = document.querySelector('.upload-speed');
+    const timeElement = document.querySelector('.time-remaining');
+    
+    if (speedElement) {
+        speedElement.textContent = `${formatFileSize(speed)}/s`;
+    }
+    
+    if (timeElement && speed > 0) {
+        const remainingBytes = total - loaded;
+        const remainingSeconds = remainingBytes / speed;
+        timeElement.textContent = formatTime(remainingSeconds);
+    }
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '00:00';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function formatTime(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    const container = document.querySelector('.container-fluid');
+    if (container) {
+        container.insertBefore(alertDiv, container.firstChild);
+    } else {
+        document.body.insertBefore(alertDiv, document.body.firstChild);
+    }
+    
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Make functions globally available for onclick handlers
+window.cancelUpload = cancelUpload;
+window.resetUpload = resetUpload;
+window.startProcessing = startProcessing;
+
+console.log("✅ Upload script setup complete");
+</script>
+{% endblock %}

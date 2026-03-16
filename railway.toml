@@ -1,0 +1,104 @@
+# Railway.app configuration
+
+[build]
+builder = "nixpacks"
+buildCommand = "pip install -r requirements.txt"
+
+[deploy]
+startCommand = "gunicorn --bind 0.0.0.0:$PORT --workers 4 --worker-class eventlet --timeout 120 app:app"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Environment variables
+[environments.production.variables]
+FLASK_ENV = "production"
+DATABASE_PROVIDER = "firebase"
+EMAIL_PROVIDER = "sendgrid"
+
+# Services
+[[services]]
+name = "web"
+type = "web"
+port = 5000
+
+[[services]]
+name = "redis"
+type = "redis"
+plan = "starter"
+
+[[services]]
+name = "worker"
+type = "worker"
+command = "celery -A tasks.celery_app:celery worker --loglevel=info --concurrency=2"
+dependsOn = ["redis"]
+
+[[services]]
+name = "beat"
+type = "worker"
+command = "celery -A tasks.celery_app:celery beat --loglevel=info"
+dependsOn = ["redis"]
+
+# Health checks
+[[healthchecks]]
+name = "web-health"
+path = "/health"
+timeout = 5
+interval = 30
+
+[[healthchecks]]
+name = "api-health"
+path = "/api/v1/health"
+timeout = 5
+interval = 30
+
+# Scaling
+[scaling]
+min = 1
+max = 3
+targetCPU = 70
+targetMemory = 80
+cooldown = 300
+
+# Autoscaling rules
+[[scaling.rules]]
+type = "cpu"
+threshold = 70
+duration = 60
+scale = 1
+
+[[scaling.rules]]
+type = "memory"
+threshold = 80
+duration = 60
+scale = 1
+
+# Volume mounts (for temporary files)
+[[mounts]]
+name = "uploads"
+path = "/tmp/video_ai/uploads"
+size = "10GB"
+
+[[mounts]]
+name = "processing"
+path = "/tmp/video_ai/processing"
+size = "20GB"
+
+[[mounts]]
+name = "outputs"
+path = "/tmp/video_ai/outputs"
+size = "20GB"
+
+# Environment-specific configurations
+[environments.development]
+[environments.development.variables]
+FLASK_ENV = "development"
+DATABASE_PROVIDER = "firebase"
+EMAIL_PROVIDER = "console"
+
+[environments.staging]
+[environments.staging.variables]
+FLASK_ENV = "production"
+DATABASE_PROVIDER = "firebase"
+EMAIL_PROVIDER = "resend"

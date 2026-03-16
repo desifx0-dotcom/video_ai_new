@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Error - Video AI Studio</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4f46e5;
+            --secondary-color: #7c3aed;
+            --accent-color: #ec4899;
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --bg-color: #f9fafb;
+            --card-bg: #ffffff;
+            --border-color: #e5e7eb;
+            --error-color: #ef4444;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .error-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .error-header {
+            background: linear-gradient(135deg, var(--error-color), #dc2626);
+            color: white;
+            padding: 50px 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .error-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            animation: float 20s linear infinite;
+        }
+        
+        @keyframes float {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(-20px, -20px) rotate(360deg); }
+        }
+        
+        .error-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+            position: relative;
+            z-index: 1;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .error-content {
+            padding: 40px;
+        }
+        
+        .error-code {
+            font-size: 120px;
+            font-weight: 900;
+            line-height: 1;
+            color: var(--error-color);
+            opacity: 0.1;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-family: monospace;
+        }
+        
+        .error-details {
+            background: var(--bg-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border-color);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .error-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            border: 2px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--primary-color);
+            background: rgba(79, 70, 229, 0.05);
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .status-indicator::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--error-color);
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .contact-card {
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.05), rgba(124, 58, 237, 0.05));
+            border: 1px solid rgba(79, 70, 229, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .system-status {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .status-item {
+            text-align: center;
+            padding: 15px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .status-item .icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .status-item.ok .icon { color: #10b981; }
+        .status-item.error .icon { color: var(--error-color); }
+        .status-item.warning .icon { color: #f59e0b; }
+        
+        @media (max-width: 768px) {
+            .error-container {
+                margin: 20px;
+            }
+            
+            .error-header,
+            .error-content {
+                padding: 30px 20px;
+            }
+            
+            .error-actions {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-header">
+            <div class="error-code">500</div>
+            <div class="error-icon">
+                ⚠️
+            </div>
+            <h1 class="display-5 fw-bold">Internal Server Error</h1>
+            <p class="lead mb-0">Something went wrong on our end</p>
+            <div class="status-indicator mt-3">
+                System recovering
+            </div>
+        </div>
+        
+        <div class="error-content">
+            <h3 class="mb-3">We're working on it</h3>
+            <p>Our engineering team has been notified and is investigating the issue. Please try again in a few minutes.</p>
+            
+            <!-- System Status -->
+            <div class="system-status">
+                <div class="status-item ok">
+                    <div class="icon">✅</div>
+                    <div class="status-text">Database</div>
+                    <small class="text-muted">Operational</small>
+                </div>
+                <div class="status-item ok">
+                    <div class="icon">✅</div>
+                    <div class="status-text">AI Services</div>
+                    <small class="text-muted">Operational</small>
+                </div>
+                <div class="status-item error">
+                    <div class="icon">❌</div>
+                    <div class="status-text">Video Processing</div>
+                    <small class="text-muted">Investigating</small>
+                </div>
+                <div class="status-item ok">
+                    <div class="icon">✅</div>
+                    <div class="status-text">API Gateway</div>
+                    <small class="text-muted">Operational</small>
+                </div>
+            </div>
+            
+            <!-- Error Details (only in development) -->
+            {% if error_details %}
+            <div class="error-details">
+                <pre>{{ error_details }}</pre>
+            </div>
+            <small class="text-muted">This information is only visible in development mode.</small>
+            {% endif %}
+            
+            <!-- Quick Actions -->
+            <div class="error-actions">
+                <a href="/" class="btn btn-primary">
+                    <i class="fas fa-home me-2"></i>Go Home
+                </a>
+                <a href="/dashboard" class="btn btn-secondary">
+                    <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                </a>
+                <button onclick="window.location.reload()" class="btn btn-secondary">
+                    <i class="fas fa-redo me-2"></i>Reload Page
+                </button>
+                <a href="javascript:history.back()" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Go Back
+                </button>
+            </div>
+            
+            <!-- Contact & Status -->
+            <div class="contact-card">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-history me-2"></i>Recent Issues</h5>
+                        <ul class="list-unstyled">
+                            <li><small>🟢 No major incidents in past 24h</small></li>
+                            <li><small>🟡 Minor API latency - Resolved</small></li>
+                            <li><small>🟢 All systems operational</small></li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-life-ring me-2"></i>Get Help</h5>
+                        <p class="small mb-2">Check our status page for updates:</p>
+                        <a href="/status" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-external-link-alt me-1"></i>Status Page
+                        </a>
+                        <p class="small mt-3 mb-2">Or contact support:</p>
+                        <a href="mailto:support@videoaistudio.com" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-envelope me-1"></i>Email Support
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress Indicator -->
+            <div class="mt-4">
+                <div class="d-flex justify-content-between mb-2">
+                    <small>System recovery in progress</small>
+                    <small id="recovery-timer">60s</small>
+                </div>
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: 100%; background: linear-gradient(90deg, var(--error-color), var(--primary-color));">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Auto-refresh notice -->
+            <div class="alert alert-light border mt-4">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-sync-alt me-3 text-primary"></i>
+                    <div>
+                        <small class="text-muted">This page will automatically refresh when the issue is resolved.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://kit.fontawesome.com/yourkitid.js" crossorigin="anonymous"></script>
+    <script>
+        // Recovery timer
+        let recoveryTime = 60;
+        const timerElement = document.getElementById('recovery-timer');
+        
+        const timerInterval = setInterval(() => {
+            recoveryTime--;
+            timerElement.textContent = `${recoveryTime}s`;
+            
+            if (recoveryTime <= 0) {
+                clearInterval(timerInterval);
+                window.location.reload();
+            }
+        }, 1000);
+        
+        // Check system status periodically
+        async function checkSystemStatus() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'healthy') {
+                        clearInterval(timerInterval);
+                        window.location.reload();
+                    }
+                }
+            } catch (error) {
+                // Continue checking
+            }
+        }
+        
+        // Check every 10 seconds
+        setInterval(checkSystemStatus, 10000);
+        
+        // Log error for analytics
+        if (typeof gtag !== 'undefined') {
+            gtag('event', 'server_error', {
+                'event_category': 'errors',
+                'event_label': '500',
+                'value': 1
+            });
+        }
+        
+        // Add to error reporting service if available
+        if (typeof Sentry !== 'undefined') {
+            Sentry.captureMessage('User encountered 500 error');
+        }
+    </script>
+</body>
+</html>

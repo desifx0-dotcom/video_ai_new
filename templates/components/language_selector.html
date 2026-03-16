@@ -1,0 +1,133 @@
+<!-- Language Selector Component -->
+{% macro language_selector(current_language='en', languages=None, on_change_callback='changeLanguage', show_flags=true, size='md') %}
+    {% if languages is none %}
+        {% set languages = {
+            'en': {'name': 'English', 'native': 'English', 'flag': '🇺🇸'},
+            'es': {'name': 'Spanish', 'native': 'Español', 'flag': '🇪🇸'},
+            'fr': {'name': 'French', 'native': 'Français', 'flag': '🇫🇷'},
+            'de': {'name': 'German', 'native': 'Deutsch', 'flag': '🇩🇪'},
+            'zh-CN': {'name': 'Chinese', 'native': '中文', 'flag': '🇨🇳'},
+            'ja': {'name': 'Japanese', 'native': '日本語', 'flag': '🇯🇵'},
+            'ko': {'name': 'Korean', 'native': '한국어', 'flag': '🇰🇷'},
+            'ru': {'name': 'Russian', 'native': 'Русский', 'flag': '🇷🇺'},
+            'ar': {'name': 'Arabic', 'native': 'العربية', 'flag': '🇸🇦'},
+            'hi': {'name': 'Hindi', 'native': 'हिन्दी', 'flag': '🇮🇳'}
+        } %}
+    {% endif %}
+    
+    {% set sizes = {
+        'sm': 'btn-sm',
+        'md': '',
+        'lg': 'btn-lg'
+    } %}
+    
+    <div class="language-selector dropdown">
+        <button class="btn btn-outline-secondary dropdown-toggle {{ sizes.get(size, '') }}" 
+                type="button" 
+                data-bs-toggle="dropdown"
+                aria-expanded="false">
+            {% if show_flags and languages[current_language].flag %}
+                <span class="language-flag me-2">{{ languages[current_language].flag }}</span>
+            {% endif %}
+            <span class="language-name">{{ languages[current_language].native }}</span>
+        </button>
+        
+        <ul class="dropdown-menu dropdown-menu-end">
+            {% for code, lang in languages.items() %}
+                <li>
+                    <a class="dropdown-item {{ 'active' if code == current_language else '' }}" 
+                       href="#" 
+                       onclick="{{ on_change_callback }}('{{ code }}'); return false;">
+                        {% if show_flags and lang.flag %}
+                            <span class="language-flag me-2">{{ lang.flag }}</span>
+                        {% endif %}
+                        <span class="language-native">{{ lang.native }}</span>
+                        <small class="text-muted ms-2">{{ lang.name }}</small>
+                    </a>
+                </li>
+            {% endfor %}
+            
+            <li><hr class="dropdown-divider"></li>
+            <li>
+                <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#allLanguagesModal">
+                    <i class="fas fa-globe-americas me-2"></i>
+                    View all languages (100+)
+                </a>
+            </li>
+        </ul>
+    </div>
+{% endmacro %}
+
+<!-- All Languages Modal (hidden by default) -->
+<div class="modal fade" id="allLanguagesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">All Supported Languages</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row" id="allLanguagesGrid">
+                    <!-- Languages will be loaded dynamically -->
+                    <div class="col-12 text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading languages...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.language-selector .dropdown-toggle {
+    min-width: 140px;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.language-flag {
+    font-size: 1.2em;
+}
+
+.language-name {
+    flex-grow: 1;
+    text-align: left;
+}
+
+.dropdown-item.active {
+    background-color: #e7f1ff;
+    color: #0d6efd;
+}
+
+.dropdown-item.active .language-flag {
+    opacity: 1;
+}
+
+.dropdown-item:not(.active) .language-flag {
+    opacity: 0.7;
+}
+
+#allLanguagesGrid {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.language-card {
+    padding: 0.75rem;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.language-card:hover {
+    background-color: #f8f9fa;
+    border-color: #0d

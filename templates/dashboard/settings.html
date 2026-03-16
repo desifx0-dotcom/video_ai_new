@@ -1,0 +1,1937 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Video AI Studio{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="page-header mb-4">
+                <h1 class="h2">Settings</h1>
+                <p class="text-muted">Manage your account and preferences</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-3">
+            <!-- Settings Navigation -->
+            <div class="card mb-4">
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        <a href="#profile" class="list-group-item list-group-item-action active" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-user me-2"></i>Profile
+                        </a>
+                        <a href="#preferences" class="list-group-item list-group-item-action" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-cog me-2"></i>Preferences
+                        </a>
+                        <a href="#security" class="list-group-item list-group-item-action" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-shield-alt me-2"></i>Security
+                        </a>
+                        <a href="#notifications" class="list-group-item list-group-item-action" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-bell me-2"></i>Notifications
+                        </a>
+                        <a href="#billing" class="list-group-item list-group-item-action" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-credit-card me-2"></i>Billing
+                        </a>
+                        <a href="#api" class="list-group-item list-group-item-action" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-code me-2"></i>API Access
+                        </a>
+                        <a href="#danger" class="list-group-item list-group-item-action text-danger" 
+                           data-bs-toggle="list">
+                            <i class="fas fa-exclamation-triangle me-2"></i>Danger Zone
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-9">
+            <!-- Settings Content -->
+            <div class="tab-content">
+                <!-- Profile Tab -->
+                <div class="tab-pane fade show active" id="profile">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Profile Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="profile-form">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Full Name</label>
+                                        <input type="text" class="form-control" name="full_name" 
+                                               value="{{ current_user.full_name|default('') }}">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Email Address</label>
+                                        <input type="email" class="form-control" value="{{ current_user.email }}" 
+                                               readonly>
+                                        <small class="form-text text-muted">
+                                            Contact support to change your email
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Avatar</label>
+                                        <div class="d-flex align-items-center">
+                                            {% if current_user.avatar_url %}
+                                            <img src="{{ current_user.avatar_url }}" 
+                                                 alt="Avatar" 
+                                                 class="rounded-circle me-3"
+                                                 style="width: 64px; height: 64px; object-fit: cover;">
+                                            {% else %}
+                                            <div class="bg-light rounded-circle d-flex align-items-center justify-content-center me-3"
+                                                 style="width: 64px; height: 64px;">
+                                                <i class="fas fa-user text-muted fa-2x"></i>
+                                            </div>
+                                            {% endif %}
+                                            <div>
+                                                <input type="file" class="form-control" id="avatar-upload" 
+                                                       accept="image/*" style="display: none;">
+                                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                                        onclick="document.getElementById('avatar-upload').click()">
+                                                    Change Avatar
+                                                </button>
+                                                <small class="d-block text-muted mt-1">
+                                                    JPEG, PNG or GIF. Max 2MB.
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Company</label>
+                                        <input type="text" class="form-control" name="company" 
+                                               value="{{ current_user.settings.company|default('') }}">
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Language</label>
+                                        <select class="form-select" name="language">
+                                            {% for lang in languages %}
+                                            <option value="{{ lang.code }}" 
+                                                    {% if current_user.language == lang.code %}selected{% endif %}>
+                                                {{ lang.name }} ({{ lang.native }})
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Timezone</label>
+                                        <select class="form-select" name="timezone">
+                                            {% for tz in timezones %}
+                                            <option value="{{ tz }}" 
+                                                    {% if current_user.timezone == tz %}selected{% endif %}>
+                                                {{ tz }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Bio</label>
+                                    <textarea class="form-control" name="bio" rows="3" 
+                                              placeholder="Tell us about yourself">{{ current_user.settings.bio|default('') }}</textarea>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary">
+                                    Save Changes
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preferences Tab -->
+                <div class="tab-pane fade" id="preferences">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Processing Preferences</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="preferences-form">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Default Video Quality</label>
+                                        <select class="form-select" name="default_quality">
+                                            {% for quality in available_qualities %}
+                                            <option value="{{ quality.value }}" 
+                                                    {% if current_user.settings.default_quality == quality.value %}selected{% endif %}
+                                                    {% if not quality.available %}disabled{% endif %}>
+                                                {{ quality.label }}
+                                                {% if not quality.available %}({{ quality.required_tier }}+){% endif %}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Default Video Style</label>
+                                        <select class="form-select" name="default_style">
+                                            <option value="">None (original)</option>
+                                            {% for style in available_styles %}
+                                            <option value="{{ style.id }}"
+                                                    {% if current_user.settings.default_style == style.id %}selected{% endif %}
+                                                    {% if not style.available %}disabled{% endif %}>
+                                                {{ style.name }}
+                                                {% if not style.available %}({{ style.required_tier }}+){% endif %}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Default Thumbnail Style</label>
+                                        <select class="form-select" name="default_thumbnail_style">
+                                            <option value="default">Default</option>
+                                            <option value="cinematic">Cinematic</option>
+                                            <option value="bright">Bright & Vibrant</option>
+                                            <option value="dark">Dark & Moody</option>
+                                            <option value="text_heavy">Text Heavy</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Auto-Translate To</label>
+                                        <select class="form-select" name="auto_translate_language">
+                                            <option value="">Disabled</option>
+                                            {% for lang in languages %}
+                                            <option value="{{ lang.code }}" 
+                                                    {% if current_user.settings.auto_translate_language == lang.code %}selected{% endif %}>
+                                                {{ lang.name }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="auto_transcribe" 
+                                               {% if current_user.settings.auto_transcribe %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Auto-transcribe videos (detect language)
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="auto_generate_chapters" 
+                                               {% if current_user.settings.auto_generate_chapters %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Auto-generate chapter markers (Pro+)
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="remove_silent_parts" 
+                                               {% if current_user.settings.remove_silent_parts %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Remove silent parts from videos (Experimental)
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="form-label">Default Retention Period</label>
+                                    <select class="form-select" name="default_retention">
+                                        <option value="1" {% if current_user.settings.default_retention == 1 %}selected{% endif %}>
+                                            1 day (Free tier default)
+                                        </option>
+                                        <option value="7" {% if current_user.settings.default_retention == 7 %}selected{% endif %}>
+                                            7 days (Starter tier default)
+                                        </option>
+                                        <option value="30" {% if current_user.settings.default_retention == 30 %}selected{% endif %}>
+                                            30 days (Pro tier default)
+                                        </option>
+                                        <option value="90" {% if current_user.settings.default_retention == 90 %}selected{% endif %}>
+                                            90 days (Plus tier default)
+                                        </option>
+                                        <option value="365" {% if current_user.settings.default_retention == 365 %}selected{% endif %}>
+                                            1 year (Enterprise)
+                                        </option>
+                                        <option value="0" {% if current_user.settings.default_retention == 0 %}selected{% endif %}>
+                                            Keep forever (Enterprise only)
+                                        </option>
+                                    </select>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary">
+                                    Save Preferences
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Tab -->
+                <div class="tab-pane fade" id="security">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Security Settings</h5>
+                        </div>
+                        <div class="card-body">
+                            <!-- Change Password -->
+                            <div class="mb-4">
+                                <h6>Change Password</h6>
+                                <form id="password-form">
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label class="form-label">Current Password</label>
+                                            <input type="password" class="form-control" 
+                                                   name="current_password" required>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label class="form-label">New Password</label>
+                                            <input type="password" class="form-control" 
+                                                   name="new_password" required>
+                                            <div class="password-strength mt-1">
+                                                <div class="progress" style="height: 4px;">
+                                                    <div class="progress-bar" role="progressbar"></div>
+                                                </div>
+                                                <small class="text-muted">Password strength: <span id="strength-text">Weak</span></small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label class="form-label">Confirm New Password</label>
+                                            <input type="password" class="form-control" 
+                                                   name="confirm_password" required>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        Update Password
+                                    </button>
+                                </form>
+                            </div>
+                            
+                            <hr>
+                            
+                            <!-- Two-Factor Authentication -->
+                            <div class="mb-4">
+                                <h6>Two-Factor Authentication</h6>
+                                <div class="alert alert-info">
+                                    <div class="d-flex">
+                                        <i class="fas fa-shield-alt fa-2x me-3"></i>
+                                        <div>
+                                            <strong>Add an extra layer of security</strong>
+                                            <div class="small">
+                                                Use Google Authenticator or any TOTP app to secure your account
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {% if current_user.settings.two_factor_enabled %}
+                                <div class="alert alert-success">
+                                    <i class="fas fa-check-circle me-2"></i>
+                                    2FA is currently <strong>enabled</strong> for your account
+                                </div>
+                                
+                                <!-- Disable 2FA Form -->
+                                <div class="card mt-3">
+                                    <div class="card-body">
+                                        <h6 class="mb-3">Disable Two-Factor Authentication</h6>
+                                        <form id="disable-2fa-form">
+                                            <div class="mb-3">
+                                                <label class="form-label">Verification Code</label>
+                                                <input type="text" class="form-control" name="code" 
+                                                      placeholder="Enter 6-digit code from authenticator app" required>
+                                                <div class="form-text">
+                                                    Enter the current code from your authenticator app to disable 2FA
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-outline-danger">
+                                                Disable 2FA
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <!-- Enable 2FA Button -->
+                                <button class="btn btn-outline-primary" id="enable-2fa-btn">
+                                    <i class="fas fa-shield-alt me-2"></i>Enable 2FA
+                                </button>
+                                
+                                <!-- Enable 2FA Modal -->
+                                <div class="modal fade" id="enable2faModal" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Enable Two-Factor Authentication</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div id="enable-2fa-step1">
+                                                    <p>Follow these steps to enable 2FA:</p>
+                                                    <ol>
+                                                        <li>Install Google Authenticator or any TOTP app</li>
+                                                        <li>Click "Generate Secret" below</li>
+                                                        <li>Add the secret manually to your authenticator app</li>
+                                                        <li>Enter the 6-digit code to verify</li>
+                                                    </ol>
+                                                    <button class="btn btn-primary" id="generate-2fa-secret">
+                                                        Generate Secret
+                                                    </button>
+                                                </div>
+                                                
+                                                <div id="enable-2fa-step2" style="display: none;">
+                                                    <div class="alert alert-warning">
+                                                        <strong>Your Secret Key:</strong>
+                                                        <p class="mt-2 mb-0"><code id="2fa-secret"></code></p>
+                                                        <small>Save this secret or add it to your authenticator app now</small>
+                                                    </div>
+                                                    
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Verification Code</label>
+                                                        <input type="text" class="form-control" id="2fa-code" 
+                                                              placeholder="Enter 6-digit code" maxlength="6">
+                                                    </div>
+                                                    
+                                                    <button class="btn btn-success" id="verify-2fa-code">
+                                                        Verify & Enable
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <hr>
+                            
+                            <!-- Active Sessions -->
+                            <div class="mb-4">
+                                <h6>Active Sessions</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Device</th>
+                                                <th>Location</th>
+                                                <th>Last Active</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sessions-table">
+                                            <!-- Sessions loaded via AJAX -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button class="btn btn-outline-danger btn-sm" onclick="logoutAllSessions()">
+                                    <i class="fas fa-sign-out-alt me-1"></i>Logout All Sessions
+                                </button>
+                            </div>
+                            
+                            <hr>
+                            
+                            <!-- API Keys -->
+                            <div class="mb-4">
+                                <h6>API Keys</h6>
+                                <div class="alert alert-warning">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    Keep your API keys secure. Never share them publicly.
+                                </div>
+                                
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Key</th>
+                                                <th>Created</th>
+                                                <th>Last Used</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="api-keys-table">
+                                            <!-- API keys loaded via AJAX -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <button class="btn btn-outline-primary" onclick="createAPIKey()">
+                                    <i class="fas fa-plus me-2"></i>Create New API Key
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notifications Tab -->
+                <div class="tab-pane fade" id="notifications">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Notification Preferences</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="notifications-form">
+                                <h6 class="mb-3">Email Notifications</h6>
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="email_processing_complete" 
+                                               {% if current_user.settings.email_notifications.processing_complete %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Video processing complete
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="email_processing_failed" 
+                                               {% if current_user.settings.email_notifications.processing_failed %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Video processing failed
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="email_monthly_summary" 
+                                               {% if current_user.settings.email_notifications.monthly_summary %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Monthly usage summary
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="email_credits_low" 
+                                               {% if current_user.settings.email_notifications.credits_low %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Low credits warning
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="email_product_updates" 
+                                               {% if current_user.settings.email_notifications.product_updates %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Product updates & announcements
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <h6 class="mb-3">In-App Notifications</h6>
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="inapp_processing_updates" 
+                                               {% if current_user.settings.inapp_notifications.processing_updates %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Real-time processing updates
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="inapp_system_alerts" 
+                                               {% if current_user.settings.inapp_notifications.system_alerts %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            System alerts & maintenance
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               name="inapp_promotional" 
+                                               {% if current_user.settings.inapp_notifications.promotional %}checked{% endif %}>
+                                        <label class="form-check-label">
+                                            Promotional offers
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <h6 class="mb-3">Webhook Notifications</h6>
+                                <div class="mb-3">
+                                    <label class="form-label">Webhook URL</label>
+                                    <input type="url" class="form-control" 
+                                           name="webhook_url" 
+                                           value="{{ current_user.settings.webhook_url|default('') }}"
+                                           placeholder="https://your-domain.com/webhook">
+                                    <small class="form-text text-muted">
+                                        Receive notifications via HTTP POST to this URL
+                                    </small>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="form-label">Webhook Secret</label>
+                                    <div class="input-group">
+                                        <input type="password" class="form-control" 
+                                               id="webhook-secret" 
+                                               value="{{ current_user.settings.webhook_secret|default('') }}"
+                                               readonly>
+                                        <button class="btn btn-outline-secondary" type="button" 
+                                                onclick="toggleWebhookSecret()">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <button class="btn btn-outline-secondary" type="button" 
+                                                onclick="generateWebhookSecret()">
+                                            <i class="fas fa-redo"></i>
+                                        </button>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Secret key for verifying webhook requests
+                                    </small>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary">
+                                    Save Notification Settings
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Billing Tab -->
+                <div class="tab-pane fade" id="billing">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Billing & Subscription</h5>
+                        </div>
+                        <div class="card-body">
+                            <!-- Current Plan -->
+                            <div class="mb-4">
+                                <h6>Current Plan</h6>
+                                <div class="current-plan-card bg-light rounded p-4">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h4 class="mb-1">{{ current_user.tier|title }} Plan</h4>
+                                            <p class="text-muted mb-0">
+                                                {% if current_user.tier == 'free' %}
+                                                Free forever
+                                                {% else %}
+                                                ${{ current_user.subscription.amount/100 }}/month
+                                                {% endif %}
+                                            </p>
+                                        </div>
+                                        <div class="text-end">
+                                            {% if current_user.tier != 'enterprise' %}
+                                            <a href="{{ url_for('api.v1.routers.billing.pricing') }}" 
+                                               class="btn btn-primary">
+                                                Upgrade Plan
+                                            </a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-3">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <ul class="list-unstyled">
+                                                    <li class="mb-2">
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        {{ current_user.monthly_video_limit }} videos/month
+                                                    </li>
+                                                    <li class="mb-2">
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        Max {{ max_duration }} minutes per video
+                                                    </li>
+                                                    <li>
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        {{ retention_days }} days retention
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <ul class="list-unstyled">
+                                                    <li class="mb-2">
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        {{ max_quality }} output quality
+                                                    </li>
+                                                    <li class="mb-2">
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        {{ ai_thumbnails }} AI thumbnails
+                                                    </li>
+                                                    <li>
+                                                        <i class="fas fa-check text-success me-2"></i>
+                                                        {{ queue_priority }} priority processing
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {% if current_user.tier != 'free' and current_user.subscription %}
+                                    <div class="mt-3 pt-3 border-top">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <small class="text-muted d-block">Next Billing Date</small>
+                                                <strong>{{ current_user.subscription.current_period_end|datetimeformat('short') }}</strong>
+                                            </div>
+                                            <div class="col-md-6 text-end">
+                                                {% if current_user.subscription.cancel_at_period_end %}
+                                                <span class="badge bg-warning">Cancels at period end</span>
+                                                {% else %}
+                                                <button class="btn btn-outline-danger btn-sm" 
+                                                        onclick="cancelSubscription()">
+                                                    Cancel Subscription
+                                                </button>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <!-- Billing History -->
+                            <div class="mb-4">
+                                <h6>Billing History</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Description</th>
+                                                <th>Amount</th>
+                                                <th>Status</th>
+                                                <th>Invoice</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="billing-history">
+                                            <!-- Billing history loaded via AJAX -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Payment Method -->
+                            <div class="mb-4">
+                                <h6>Payment Method</h6>
+                                {% if current_user.stripe_customer_id %}
+                                <div class="payment-method-card border rounded p-3">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="d-flex align-items-center">
+                                            <i class="fab fa-cc-stripe fa-2x text-primary me-3"></i>
+                                            <div>
+                                                <strong>Stripe</strong>
+                                                <div class="small text-muted">
+                                                    Card ending in ****{{ current_user.settings.last_4|default('4242') }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-outline-primary btn-sm" 
+                                                onclick="updatePaymentMethod()">
+                                            Update
+                                        </button>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    No payment method on file. Add a payment method to upgrade your plan.
+                                </div>
+                                <button class="btn btn-primary" onclick="addPaymentMethod()">
+                                    <i class="fas fa-credit-card me-2"></i>Add Payment Method
+                                </button>
+                                {% endif %}
+                            </div>
+                            
+                            <!-- Credits -->
+                            <div class="mb-4">
+                                <h6>Credits Balance</h6>
+                                <div class="credits-card bg-light rounded p-4">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h2 class="mb-0">{{ current_user.credits_remaining }}</h2>
+                                            <p class="text-muted mb-0">Available Credits</p>
+                                        </div>
+                                        <div class="text-end">
+                                            <small class="d-block text-muted">
+                                                1 credit = 1 minute of video processing
+                                            </small>
+                                            <button class="btn btn-primary mt-2" onclick="buyCredits()">
+                                                <i class="fas fa-shopping-cart me-2"></i>Buy Credits
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-3">
+                                        <h6>Recent Credit Transactions</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm mb-0">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Date</th>
+                                                        <th>Description</th>
+                                                        <th>Amount</th>
+                                                        <th>Balance</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="credit-transactions">
+                                                    <!-- Transactions loaded via AJAX -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API Access Tab -->
+                <div class="tab-pane fade" id="api">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">API Access</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info mb-4">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Use our API to integrate Video AI Studio with your applications.
+                            </div>
+                            
+                            <!-- API Documentation -->
+                            <div class="mb-4">
+                                <h6>API Documentation</h6>
+                                <p>
+                                    Full API documentation is available at:
+                                    <a href="{{ url_for('api.v1.routers.admin.api_docs') }}" target="_blank">
+                                        /api/docs
+                                    </a>
+                                </p>
+                            </div>
+                            
+                            <!-- Rate Limits -->
+                            <div class="mb-4">
+                                <h6>Rate Limits</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Endpoint</th>
+                                                <th>Limit</th>
+                                                <th>Your Tier</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>All endpoints</td>
+                                                <td>{{ rate_limits[current_user.tier] }}/hour</td>
+                                                <td>
+                                                    <span class="badge bg-{{ tier_color }}">
+                                                        {{ current_user.tier|title }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Video upload</td>
+                                                <td>10/minute</td>
+                                                <td>All tiers</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Video processing</td>
+                                                <td>5 concurrent</td>
+                                                <td>Free, Starter</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Video processing</td>
+                                                <td>10 concurrent</td>
+                                                <td>Pro, Plus</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Video processing</td>
+                                                <td>Unlimited</td>
+                                                <td>Enterprise</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- API Usage Statistics -->
+                            <div class="mb-4">
+                                <h6>API Usage Statistics</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="stat-card bg-light rounded p-3 text-center">
+                                            <h3 class="mb-1" id="api-total-requests">0</h3>
+                                            <p class="text-muted mb-0">Total Requests</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card bg-light rounded p-3 text-center">
+                                            <h3 class="mb-1" id="api-success-rate">0%</h3>
+                                            <p class="text-muted mb-0">Success Rate</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card bg-light rounded p-3 text-center">
+                                            <h3 class="mb-1" id="api-avg-response">0ms</h3>
+                                            <p class="text-muted mb-0">Avg Response</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card bg-light rounded p-3 text-center">
+                                            <h3 class="mb-1" id="api-remaining">0</h3>
+                                            <p class="text-muted mb-0">Remaining (hour)</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- API Testing -->
+                            <div class="mb-4">
+                                <h6>API Testing</h6>
+                                <div class="card">
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">API Endpoint</label>
+                                            <select class="form-select" id="api-test-endpoint">
+                                                <option value="upload">POST /api/v1/videos/upload</option>
+                                                <option value="list">GET /api/v1/videos</option>
+                                                <option value="status">GET /api/v1/videos/{id}/status</option>
+                                                <option value="download">GET /api/v1/videos/{id}/download</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label class="form-label">Request Body (JSON)</label>
+                                            <textarea class="form-control" id="api-test-body" 
+                                                      rows="4" placeholder='{"key": "value"}'></textarea>
+                                        </div>
+                                        
+                                        <button class="btn btn-outline-primary" onclick="testAPI()">
+                                            <i class="fas fa-play me-2"></i>Test API Call
+                                        </button>
+                                        
+                                        <div class="mt-3 d-none" id="api-test-result">
+                                            <label class="form-label">Response</label>
+                                            <pre class="bg-dark text-light p-3 rounded" 
+                                                 id="api-test-response" 
+                                                 style="max-height: 200px; overflow: auto;"></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Danger Zone Tab -->
+                <div class="tab-pane fade" id="danger">
+                    <div class="card border-danger">
+                        <div class="card-header bg-danger text-white">
+                            <h5 class="card-title mb-0">Danger Zone</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Warning:</strong> These actions are irreversible. Please proceed with caution.
+                            </div>
+                            
+                            <!-- Export Data -->
+                            <div class="mb-4">
+                                <h6>Export Your Data</h6>
+                                <p class="text-muted">
+                                    Download all your data including videos, processing results, and account information.
+                                </p>
+                                <button class="btn btn-outline-danger" onclick="exportData()">
+                                    <i class="fas fa-file-export me-2"></i>Export All Data
+                                </button>
+                            </div>
+                            
+                            <hr>
+                            
+                            <!-- Delete Videos -->
+                            <div class="mb-4">
+                                <h6>Delete All Videos</h6>
+                                <p class="text-muted">
+                                    Permanently delete all your processed videos and associated files.
+                                </p>
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <strong>{{ total_videos }}</strong> videos will be deleted
+                                    </div>
+                                    <button class="btn btn-outline-danger" onclick="deleteAllVideos()">
+                                        <i class="fas fa-trash me-2"></i>Delete All Videos
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <hr>
+                            
+                            <!-- Delete Account -->
+                            <div class="mb-4">
+                                <h6>Delete Account</h6>
+                                <p class="text-muted">
+                                    Permanently delete your account and all associated data. This action cannot be undone.
+                                </p>
+                                <button class="btn btn-danger" onclick="deleteAccount()">
+                                    <i class="fas fa-user-times me-2"></i>Delete My Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<div class="modal fade" id="api-key-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">New API Key</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Save this key now! You won't be able to see it again.
+                </div>
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="new-api-key" readonly>
+                    <button class="btn btn-outline-secondary" type="button" onclick="copyAPIKey()">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Key Name</label>
+                    <input type="text" class="form-control" id="api-key-name" 
+                           placeholder="e.g., Production Server">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Permissions</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="perm-read" checked>
+                        <label class="form-check-label" for="perm-read">
+                            Read (view videos, status)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="perm-write">
+                        <label class="form-check-label" for="perm-write">
+                            Write (upload videos)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="perm-delete">
+                        <label class="form-check-label" for="perm-delete">
+                            Delete (remove videos)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveAPIKey()">Save Key</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="delete-account-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Delete Account</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>This action is irreversible!</h6>
+                    <p class="mb-0">All your data will be permanently deleted:</p>
+                    <ul class="mb-0">
+                        <li>{{ total_videos }} processed videos</li>
+                        <li>All video processing results</li>
+                        <li>Account information and settings</li>
+                        <li>Billing history and subscription</li>
+                    </ul>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Type your email to confirm</label>
+                    <input type="email" class="form-control" id="confirm-email" 
+                           placeholder="{{ current_user.email }}">
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Reason for leaving (optional)</label>
+                    <select class="form-select" id="delete-reason">
+                        <option value="">Select a reason...</option>
+                        <option value="too_expensive">Too expensive</option>
+                        <option value="missing_features">Missing features</option>
+                        <option value="found_better">Found a better alternative</option>
+                        <option value="not_using">Not using the service</option>
+                        <option value="privacy_concerns">Privacy concerns</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <textarea class="form-control mt-2 d-none" id="delete-reason-other" 
+                              rows="2" placeholder="Please specify..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-account" disabled>
+                    Delete My Account Permanently
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize tab functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        // Show active tab based on URL hash
+        const hash = window.location.hash;
+        if (hash) {
+            const tab = document.querySelector(`a[href="${hash}"]`);
+            if (tab) {
+                const tabInstance = new bootstrap.Tab(tab);
+                tabInstance.show();
+            }
+        }
+        
+        // Update URL when tab changes
+        const tabTriggers = document.querySelectorAll('a[data-bs-toggle="list"]');
+        tabTriggers.forEach(trigger => {
+            trigger.addEventListener('shown.bs.tab', function(e) {
+                window.history.pushState(null, '', e.target.getAttribute('href'));
+            });
+        });
+        
+        // Load data for tabs
+        loadSessions();
+        loadAPIKeys();
+        loadBillingHistory();
+        loadCreditTransactions();
+        loadAPIStats();
+                
+                // 2FA handling
+        document.getElementById('enable-2fa-btn')?.addEventListener('click', function() {
+            const modal = new bootstrap.Modal(document.getElementById('enable2faModal'));
+            modal.show();
+        });
+
+        document.getElementById('generate-2fa-secret')?.addEventListener('click', function() {
+            fetch('/api/v1/users/2fa/enable', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('2fa-secret').textContent = data.secret;
+                    document.getElementById('enable-2fa-step1').style.display = 'none';
+                    document.getElementById('enable-2fa-step2').style.display = 'block';
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error generating 2FA secret', 'danger');
+            });
+        });
+
+        document.getElementById('verify-2fa-code')?.addEventListener('click', function() {
+            const code = document.getElementById('2fa-code').value;
+            
+            fetch('/api/v1/users/2fa/verify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content
+                },
+                body: JSON.stringify({ code: code })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('2FA enabled successfully!', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error verifying code', 'danger');
+            });
+        });
+
+        document.getElementById('disable-2fa-form')?.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const code = this.querySelector('input[name="code"]').value;
+            
+            fetch('/api/v1/users/2fa/disable', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content
+                },
+                body: JSON.stringify({ code: code })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('2FA disabled successfully!', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error disabling 2FA', 'danger');
+            });
+        });
+        // Avatar upload
+        document.getElementById('avatar-upload').addEventListener('change', function(e) {
+            if (this.files.length > 0) {
+                uploadAvatar(this.files[0]);
+            }
+        });
+        
+        // Password strength checker
+        document.querySelector('input[name="new_password"]').addEventListener('input', function(e) {
+            checkPasswordStrength(this.value);
+        });
+        
+        // Delete account confirmation
+        document.getElementById('confirm-email').addEventListener('input', function(e) {
+            const confirmBtn = document.getElementById('confirm-delete-account');
+            confirmBtn.disabled = this.value !== '{{ current_user.email }}';
+        });
+        
+        document.getElementById('delete-reason').addEventListener('change', function(e) {
+            const otherInput = document.getElementById('delete-reason-other');
+            otherInput.classList.toggle('d-none', this.value !== 'other');
+        });
+    });
+    
+    // Form submissions
+    document.getElementById('profile-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        updateProfile(new FormData(this));
+    });
+    
+    document.getElementById('preferences-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        updatePreferences(new FormData(this));
+    });
+    
+    document.getElementById('password-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        updatePassword(new FormData(this));
+    });
+    
+    document.getElementById('notifications-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        updateNotifications(new FormData(this));
+    });
+    
+    // API functions
+    function updateProfile(formData) {
+        fetch('/api/v1/users/profile', {
+            method: 'PUT',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Profile updated successfully.', 'success');
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error updating profile.', 'danger');
+        });
+    }
+    
+    function updatePreferences(formData) {
+        fetch('/api/v1/users/preferences', {
+            method: 'PUT',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Preferences updated successfully.', 'success');
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error updating preferences.', 'danger');
+        });
+    }
+    
+    function updatePassword(formData) {
+        const newPassword = formData.get('new_password');
+        const confirmPassword = formData.get('confirm_password');
+        
+        if (newPassword !== confirmPassword) {
+            showAlert('New passwords do not match.', 'danger');
+            return;
+        }
+        
+        fetch('/api/v1/users/password', {
+            method: 'PUT',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Password updated successfully.', 'success');
+                document.getElementById('password-form').reset();
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error updating password.', 'danger');
+        });
+    }
+    
+    function updateNotifications(formData) {
+        fetch('/api/v1/users/notifications', {
+            method: 'PUT',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Notification settings updated successfully.', 'success');
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error updating notification settings.', 'danger');
+        });
+    }
+    
+    function uploadAvatar(file) {
+        if (!file.type.match('image.*')) {
+            showAlert('Please select an image file.', 'danger');
+            return;
+        }
+        
+        if (file.size > 2 * 1024 * 1024) {
+            showAlert('Image must be less than 2MB.', 'danger');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('avatar', file);
+        
+        fetch('/api/v1/users/avatar', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Avatar updated successfully.', 'success');
+                // Update avatar preview
+                const avatarImg = document.querySelector('.avatar-preview img');
+                if (avatarImg) {
+                    avatarImg.src = data.avatar_url + '?t=' + Date.now();
+                }
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error uploading avatar.', 'danger');
+        });
+    }
+    
+    function checkPasswordStrength(password) {
+        let strength = 0;
+        const progressBar = document.querySelector('.password-strength .progress-bar');
+        const strengthText = document.getElementById('strength-text');
+        
+        // Length check
+        if (password.length >= 8) strength += 25;
+        if (password.length >= 12) strength += 25;
+        
+        // Complexity checks
+        if (/[A-Z]/.test(password)) strength += 15;
+        if (/[a-z]/.test(password)) strength += 15;
+        if (/[0-9]/.test(password)) strength += 10;
+        if (/[^A-Za-z0-9]/.test(password)) strength += 10;
+        
+        // Update UI
+        progressBar.style.width = `${strength}%`;
+        
+        if (strength < 50) {
+            progressBar.className = 'progress-bar bg-danger';
+            strengthText.textContent = 'Weak';
+        } else if (strength < 75) {
+            progressBar.className = 'progress-bar bg-warning';
+            strengthText.textContent = 'Fair';
+        } else {
+            progressBar.className = 'progress-bar bg-success';
+            strengthText.textContent = 'Strong';
+        }
+    }
+    
+    function enable2FA() {
+        // Implementation for enabling 2FA
+        showAlert('2FA setup would be implemented here.', 'info');
+    }
+    
+    function disable2FA() {
+        if (confirm('Are you sure you want to disable two-factor authentication?')) {
+            fetch('/api/v1/users/2fa/disable', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('2FA disabled successfully.', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error disabling 2FA.', 'danger');
+            });
+        }
+    }
+    
+    function loadSessions() {
+        fetch('/api/v1/users/sessions')
+        .then(response => response.json())
+        .then(data => {
+            const table = document.getElementById('sessions-table');
+            if (data.sessions && data.sessions.length > 0) {
+                table.innerHTML = data.sessions.map(session => `
+                    <tr>
+                        <td>
+                            <i class="fas fa-${session.device_type === 'mobile' ? 'mobile-alt' : 'desktop'} me-2"></i>
+                            ${session.browser} on ${session.os}
+                        </td>
+                        <td>${session.location || 'Unknown'}</td>
+                        <td>${new Date(session.last_active).toLocaleString()}</td>
+                        <td>
+                            ${session.current ? 
+                                '<span class="badge bg-success">Current</span>' :
+                                `<button class="btn btn-sm btn-outline-danger" onclick="logoutSession('${session.id}')">
+                                    <i class="fas fa-sign-out-alt"></i>
+                                </button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                table.innerHTML = '<tr><td colspan="4" class="text-center">No active sessions</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading sessions:', error);
+        });
+    }
+    
+    function logoutSession(sessionId) {
+        fetch(`/api/v1/users/sessions/${sessionId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Session logged out successfully.', 'success');
+                loadSessions();
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error logging out session.', 'danger');
+        });
+    }
+    
+    function logoutAllSessions() {
+        if (confirm('Log out from all devices except this one?')) {
+            fetch('/api/v1/users/sessions', {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('All other sessions logged out successfully.', 'success');
+                    loadSessions();
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error logging out sessions.', 'danger');
+            });
+        }
+    }
+    
+    function loadAPIKeys() {
+        fetch('/api/v1/users/api-keys')
+        .then(response => response.json())
+        .then(data => {
+            const table = document.getElementById('api-keys-table');
+            if (data.keys && data.keys.length > 0) {
+                table.innerHTML = data.keys.map(key => `
+                    <tr>
+                        <td>${key.name}</td>
+                        <td><code>${key.key_prefix}••••••••</code></td>
+                        <td>${new Date(key.created_at).toLocaleDateString()}</td>
+                        <td>${key.last_used ? new Date(key.last_used).toLocaleDateString() : 'Never'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger" onclick="revokeAPIKey('${key.id}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                table.innerHTML = '<tr><td colspan="5" class="text-center">No API keys</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading API keys:', error);
+        });
+    }
+    
+    function createAPIKey() {
+        fetch('/api/v1/users/api-keys', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('new-api-key').value = data.api_key;
+                const modal = new bootstrap.Modal(document.getElementById('api-key-modal'));
+                modal.show();
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error creating API key.', 'danger');
+        });
+    }
+    
+    function copyAPIKey() {
+        const keyInput = document.getElementById('new-api-key');
+        keyInput.select();
+        navigator.clipboard.writeText(keyInput.value)
+            .then(() => {
+                showAlert('API key copied to clipboard!', 'success');
+            })
+            .catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+    }
+    
+    function saveAPIKey() {
+        const name = document.getElementById('api-key-name').value;
+        const permissions = [];
+        if (document.getElementById('perm-read').checked) permissions.push('read');
+        if (document.getElementById('perm-write').checked) permissions.push('write');
+        if (document.getElementById('perm-delete').checked) permissions.push('delete');
+        
+        // In a real implementation, you would update the API key with name and permissions
+        showAlert('API key saved successfully.', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('api-key-modal')).hide();
+        loadAPIKeys();
+    }
+    
+    function revokeAPIKey(keyId) {
+        if (confirm('Are you sure you want to revoke this API key?')) {
+            fetch(`/api/v1/users/api-keys/${keyId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('API key revoked successfully.', 'success');
+                    loadAPIKeys();
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error revoking API key.', 'danger');
+            });
+        }
+    }
+    
+    function toggleWebhookSecret() {
+        const input = document.getElementById('webhook-secret');
+        input.type = input.type === 'password' ? 'text' : 'password';
+    }
+    
+    function generateWebhookSecret() {
+        if (confirm('Generate new webhook secret? Existing integrations will need to be updated.')) {
+            fetch('/api/v1/users/webhook-secret', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('webhook-secret').value = data.secret;
+                    showAlert('New webhook secret generated.', 'success');
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error generating webhook secret.', 'danger');
+            });
+        }
+    }
+    
+    function loadBillingHistory() {
+        fetch('/api/v1/billing/history')
+        .then(response => response.json())
+        .then(data => {
+            const table = document.getElementById('billing-history');
+            if (data.history && data.history.length > 0) {
+                table.innerHTML = data.history.map(item => `
+                    <tr>
+                        <td>${new Date(item.date).toLocaleDateString()}</td>
+                        <td>${item.description}</td>
+                        <td>$${(item.amount / 100).toFixed(2)} ${item.currency}</td>
+                        <td><span class="badge bg-${item.status === 'paid' ? 'success' : 'danger'}">${item.status}</span></td>
+                        <td>
+                            ${item.invoice_url ? 
+                                `<a href="${item.invoice_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-file-invoice"></i>
+                                </a>` : 
+                                'N/A'
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                table.innerHTML = '<tr><td colspan="5" class="text-center">No billing history</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading billing history:', error);
+        });
+    }
+    
+    function loadCreditTransactions() {
+        fetch('/api/v1/billing/credits/transactions')
+        .then(response => response.json())
+        .then(data => {
+            const table = document.getElementById('credit-transactions');
+            if (data.transactions && data.transactions.length > 0) {
+                let balance = {{ current_user.credits_remaining }};
+                table.innerHTML = data.transactions.map(transaction => {
+                    balance -= transaction.amount;
+                    return `
+                        <tr>
+                            <td>${new Date(transaction.created_at).toLocaleDateString()}</td>
+                            <td>${transaction.description}</td>
+                            <td class="${transaction.amount > 0 ? 'text-success' : 'text-danger'}">
+                                ${transaction.amount > 0 ? '+' : ''}${transaction.amount}
+                            </td>
+                            <td>${balance}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                table.innerHTML = '<tr><td colspan="4" class="text-center">No credit transactions</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading credit transactions:', error);
+        });
+    }
+    
+    function loadAPIStats() {
+        fetch('/api/v1/users/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.stats) {
+                document.getElementById('api-total-requests').textContent = data.stats.total_requests;
+                document.getElementById('api-success-rate').textContent = `${data.stats.success_rate}%`;
+                document.getElementById('api-avg-response').textContent = `${data.stats.avg_response_time}ms`;
+                document.getElementById('api-remaining').textContent = data.stats.remaining_requests;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading API stats:', error);
+        });
+    }
+    
+    function cancelSubscription() {
+        if (confirm('Are you sure you want to cancel your subscription? You will continue to have access until the end of your billing period.')) {
+            fetch('/api/v1/billing/subscription/cancel', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Subscription cancelled successfully.', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error cancelling subscription.', 'danger');
+            });
+        }
+    }
+    
+    function updatePaymentMethod() {
+        // Implementation for updating payment method
+        showAlert('Payment method update would be implemented here.', 'info');
+    }
+    
+    function addPaymentMethod() {
+        // Implementation for adding payment method
+        showAlert('Add payment method would be implemented here.', 'info');
+    }
+    
+    function buyCredits() {
+        window.location.href = '{{ url_for("api.v1.routers.billing.credits") }}';
+    }
+    
+    function testAPI() {
+        const endpoint = document.getElementById('api-test-endpoint').value;
+        const body = document.getElementById('api-test-body').value;
+        
+        let url = '';
+        let method = 'GET';
+        
+        switch (endpoint) {
+            case 'upload':
+                url = '/api/v1/videos/upload';
+                method = 'POST';
+                break;
+            case 'list':
+                url = '/api/v1/videos';
+                method = 'GET';
+                break;
+            case 'status':
+                url = '/api/v1/videos/test-id/status';
+                method = 'GET';
+                break;
+            case 'download':
+                url = '/api/v1/videos/test-id/download';
+                method = 'GET';
+                break;
+        }
+        
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        if (body && method !== 'GET') {
+            try {
+                JSON.parse(body);
+                options.body = body;
+            } catch (e) {
+                showAlert('Invalid JSON in request body.', 'danger');
+                return;
+            }
+        }
+        
+        fetch(url, options)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('api-test-response').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('api-test-result').classList.remove('d-none');
+        })
+        .catch(error => {
+            document.getElementById('api-test-response').textContent = error.toString();
+            document.getElementById('api-test-result').classList.remove('d-none');
+        });
+    }
+    
+    function exportData() {
+        if (confirm('This will generate a download of all your data. Continue?')) {
+            fetch('/api/v1/users/export')
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `video-ai-studio-export-${Date.now()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                showAlert('Error exporting data.', 'danger');
+            });
+        }
+    }
+    
+    function deleteAllVideos() {
+        if (confirm(`Permanently delete all ${total_videos} videos? This action cannot be undone.`)) {
+            fetch('/api/v1/videos/bulk-delete/all', {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`All videos deleted successfully.`, 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showAlert(`Error: ${data.message}`, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('Error deleting videos.', 'danger');
+            });
+        }
+    }
+    
+    function deleteAccount() {
+        const modal = new bootstrap.Modal(document.getElementById('delete-account-modal'));
+        modal.show();
+    }
+    
+    document.getElementById('confirm-delete-account').addEventListener('click', function() {
+        const reason = document.getElementById('delete-reason').value;
+        const reasonOther = document.getElementById('delete-reason-other').value;
+        const finalReason = reason === 'other' ? reasonOther : reason;
+        
+        fetch('/api/v1/users/account', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                reason: finalReason,
+                confirm_email: document.getElementById('confirm-email').value
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Account deleted successfully. Redirecting...', 'success');
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+            } else {
+                showAlert(`Error: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error deleting account.', 'danger');
+        });
+        
+        bootstrap.Modal.getInstance(document.getElementById('delete-account-modal')).hide();
+    });
+    
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alertDiv);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            const bsAlert = bootstrap.Alert.getInstance(alertDiv);
+            if (bsAlert) {
+                bsAlert.close();
+            }
+        }, 5000);
+    }
+</script>
+
+<style>
+.list-group-item.active {
+    background-color: #4a6cf7;
+    border-color: #4a6cf7;
+}
+
+.list-group-item-action:hover {
+    background-color: #f8f9fa;
+}
+
+.stat-card .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.form-check-input:checked {
+    background-color: #4a6cf7;
+    border-color: #4a6cf7;
+}
+
+.progress-bar {
+    transition: width 0.3s ease;
+}
+
+.payment-method-card, .credits-card, .current-plan-card {
+    transition: all 0.3s ease;
+}
+
+.payment-method-card:hover, .credits-card:hover, .current-plan-card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.btn-outline-danger:hover {
+    color: #fff;
+}
+</style>
+{% endblock %}

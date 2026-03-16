@@ -1,0 +1,278 @@
+{
+  "styles": {
+    "cinematic": {
+      "name": "Cinematic",
+      "category": "cinematic",
+      "description": "Film-like look with dramatic colors and contrast",
+      "preview_image": "/static/images/styles/cinematic-preview.jpg",
+      "ffmpeg_filters": [
+        "colorchannelmixer=rr=1.2:rg=0.1:rb=-0.1:gr=0.1:gg=1.0:gb=0.1:br=-0.1:bg=0.1:bb=1.2",
+        "curves=preset=strong_contrast",
+        "unsharp=5:5:1.0:5:5:0.0"
+      ],
+      "color_grading": {
+        "brightness": 0.0,
+        "contrast": 1.2,
+        "saturation": 0.9,
+        "gamma": 1.1,
+        "hue": 0.0
+      },
+      "transitions": ["fade", "crossfade"],
+      "text_overlay": {
+        "font": "Arial",
+        "font_size": 36,
+        "color": "#FFFFFF",
+        "background": "rgba(0, 0, 0, 0.7)",
+        "position": "bottom_center"
+      },
+      "prompt_template": "Create a cinematic thumbnail for a video about: {description}. Use dramatic lighting, film grain, and a movie poster style.",
+      "negative_prompt": "bright, flat lighting, amateur, phone camera, documentary style",
+      "style_weight": 0.8,
+      "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "gaming": {
+      "name": "Gaming",
+      "category": "gaming",
+      "description": "Vibrant, high-energy style perfect for gaming content",
+      "preview_image": "/static/images/styles/gaming-preview.jpg",
+      "ffmpeg_filters": [
+        "eq=brightness=0.1:saturation=1.3",
+        "hue=h=10",
+        "unsharp=3:3:1.0:3:3:0.0"
+      ],
+      "color_grading": {
+        "brightness": 0.1,
+        "contrast": 1.1,
+        "saturation": 1.3,
+        "gamma": 1.0,
+        "hue": 10
+      },
+      "transitions": ["zoom", "slide"],
+      "text_overlay": {
+        "font": "Impact",
+        "font_size": 42,
+        "color": "#FF6B00",
+        "background": "rgba(0, 0, 0, 0.5)",
+        "position": "top_center",
+        "outline": "#000000",
+        "outline_width": 2
+      },
+      "prompt_template": "Create an energetic gaming thumbnail for: {description}. Use vibrant colors, game UI elements, and action-packed composition.",
+      "negative_prompt": "boring, muted colors, office, work, documentary",
+      "style_weight": 0.7,
+      "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "educational": {
+      "name": "Educational",
+      "category": "educational",
+      "description": "Clean, professional style for educational content",
+      "preview_image": "/static/images/styles/educational-preview.jpg",
+      "ffmpeg_filters": [
+        "eq=brightness=0.05:contrast=1.1",
+        "unsharp=2:2:0.5:2:2:0.0"
+      ],
+      "color_grading": {
+        "brightness": 0.05,
+        "contrast": 1.1,
+        "saturation": 1.0,
+        "gamma": 1.0,
+        "hue": 0.0
+      },
+      "transitions": ["fade", "wipe"],
+      "text_overlay": {
+        "font": "Helvetica",
+        "font_size": 32,
+        "color": "#2C3E50",
+        "background": "rgba(255, 255, 255, 0.9)",
+        "position": "top_left",
+        "border_radius": 5
+      },
+      "prompt_template": "Create an educational thumbnail for a video about: {description}. Use clean design, informative layout, and professional appearance.",
+      "negative_prompt": "messy, chaotic, gaming, entertainment, vlog style",
+      "style_weight": 0.6,
+      "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "vlog": {
+      "name": "Vlog",
+      "category": "social_media",
+      "description": "Casual, personal style for vlogging and social media",
+      "preview_image": "/static/images/styles/vlog-preview.jpg",
+      "ffmpeg_filters": [
+        "colorchannelmixer=rr=1.1:rg=0.1:rb=0.0:gr=0.1:gg=1.1:gb=0.0:br=0.0:bg=0.0:bb=1.0",
+        "curves=preset=lighter",
+        "hqdn3d=1.0:1.0:3:3"
+      ],
+      "color_grading": {
+        "brightness": 0.15,
+        "contrast": 1.05,
+        "saturation": 1.1,
+        "gamma": 1.05,
+        "hue": 5
+      },
+      "transitions": ["circleopen", "circleclose"],
+      "text_overlay": {
+        "font": "Comic Sans MS",
+        "font_size": 28,
+        "color": "#E74C3C",
+        "background": "rgba(255, 255, 255, 0.8)",
+        "position": "bottom_right",
+        "border_radius": 10
+      },
+      "prompt_template": "Create a vlog-style thumbnail for: {description}. Use personal touch, casual style, and engaging composition.",
+      "negative_prompt": "formal, corporate, technical, scientific, professional",
+      "style_weight": 0.5,
+      "available_tiers": ["starter", "pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "corporate": {
+      "name": "Corporate",
+      "category": "professional",
+      "description": "Professional, clean style for business and corporate videos",
+      "preview_image": "/static/images/styles/corporate-preview.jpg",
+      "ffmpeg_filters": [
+        "eq=brightness=0.0:contrast=1.15:saturation=0.9",
+        "unsharp=1:1:0.5:1:1:0.0"
+      ],
+      "color_grading": {
+        "brightness": 0.0,
+        "contrast": 1.15,
+        "saturation": 0.9,
+        "gamma": 1.0,
+        "hue": 0.0
+      },
+      "transitions": ["fade", "dissolve"],
+      "text_overlay": {
+        "font": "Arial",
+        "font_size": 30,
+        "color": "#FFFFFF",
+        "background": "rgba(44, 62, 80, 0.8)",
+        "position": "center",
+        "padding": 20
+      },
+      "prompt_template": "Create a professional corporate thumbnail for: {description}. Use clean design, business aesthetics, and trustworthy appearance.",
+      "negative_prompt": "casual, personal, vlog, gaming, entertainment",
+      "style_weight": 0.7,
+      "available_tiers": ["starter", "pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "cinematic_pro": {
+      "name": "Cinematic Pro",
+      "category": "cinematic",
+      "description": "Advanced cinematic look with film grain and color grading",
+      "preview_image": "/static/images/styles/cinematic-pro-preview.jpg",
+      "ffmpeg_filters": [
+        "colorchannelmixer=rr=1.3:rg=-0.1:rb=0.0:gr=-0.1:gg=1.1:gb=-0.1:br=0.0:bg=-0.1:bb=1.3",
+        "curves=preset=color_negative",
+        "noise=c0s=7:c0f=t+0|t+1",
+        "unsharp=7:7:1.5:7:7:0.0"
+      ],
+      "color_grading": {
+        "brightness": -0.05,
+        "contrast": 1.3,
+        "saturation": 0.8,
+        "gamma": 1.2,
+        "hue": -5
+      },
+      "transitions": ["fadeblack", "fadewhite"],
+      "text_overlay": {
+        "font": "Times New Roman",
+        "font_size": 40,
+        "color": "#F1C40F",
+        "background": "rgba(0, 0, 0, 0.6)",
+        "position": "bottom_center",
+        "letter_spacing": 2
+      },
+      "prompt_template": "Create a premium cinematic thumbnail for: {description}. Use film grain, anamorphic lens flare, and Hollywood-style composition.",
+      "negative_prompt": "digital, clean, bright, amateur, phone video",
+      "style_weight": 0.9,
+      "available_tiers": ["pro", "plus", "enterprise"],
+      "requires_gpu": true,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    },
+
+    "retro": {
+      "name": "Retro",
+      "category": "artistic",
+      "description": "Vintage 80s/90s look with VHS effects and color bleed",
+      "preview_image": "/static/images/styles/retro-preview.jpg",
+      "ffmpeg_filters": [
+        "noise=c0s=15:c0f=t",
+        "hue=h=15",
+        "eq=brightness=0.1:contrast=1.2:saturation=1.4",
+        "split[a][b];[a]pad=iw*2:ih[left];[b]hue=h=30[right];[left][right]overlay=w"
+      ],
+      "color_grading": {
+        "brightness": 0.1,
+        "contrast": 1.2,
+        "saturation": 1.4,
+        "gamma": 1.1,
+        "hue": 15
+      },
+      "transitions": ["glitch", "pixelize"],
+      "text_overlay": {
+        "font": "Courier New",
+        "font_size": 36,
+        "color": "#00FF00",
+        "background": "rgba(0, 0, 0, 0.9)",
+        "position": "center",
+        "glitch_effect": true
+      },
+      "prompt_template": "Create a retro 80s/90s thumbnail for: {description}. Use VHS effects, neon colors, and vintage aesthetics.",
+      "negative_prompt": "modern, clean, high-definition, professional",
+      "style_weight": 0.8,
+      "available_tiers": ["pro", "plus", "enterprise"],
+      "requires_gpu": false,
+      "created_by": "system",
+      "is_public": true,
+      "usage_count": 0
+    }
+  },
+
+  "categories": {
+    "cinematic": ["cinematic", "cinematic_pro"],
+    "gaming": ["gaming"],
+    "educational": ["educational"],
+    "social_media": ["vlog"],
+    "professional": ["corporate"],
+    "artistic": ["retro"]
+  },
+
+  "default_styles": {
+    "free": ["cinematic", "gaming", "educational"],
+    "starter": ["cinematic", "gaming", "educational", "vlog", "corporate"],
+    "pro": ["cinematic", "gaming", "educational", "vlog", "corporate", "cinematic_pro", "retro"],
+    "plus": ["cinematic", "gaming", "educational", "vlog", "corporate", "cinematic_pro", "retro"],
+    "enterprise": ["cinematic", "gaming", "educational", "vlog", "corporate", "cinematic_pro", "retro"]
+  },
+
+  "style_requirements": {
+    "gpu_required": ["cinematic_pro"],
+    "long_processing_time": ["cinematic_pro", "retro"],
+    "high_memory": ["cinematic_pro"]
+  }
+}
