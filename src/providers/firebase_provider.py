@@ -22,7 +22,6 @@ class FirebaseProvider:
     """Firebase database provider."""
 
     _instance = None
-    _db = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -96,6 +95,15 @@ class FirebaseProvider:
             if doc.exists:
                 data = doc.to_dict()
                 data["id"] = doc.id
+
+                # 🔥 FIX: Convert Firestore timestamps to datetime objects
+                for key, value in data.items():
+                    if hasattr(
+                        value, "timestamp"
+                    ):  # Check if it's a Firestore timestamp
+                        # Convert to Python datetime
+                        data[key] = datetime.fromtimestamp(value.timestamp())
+
                 return data
             else:
                 return None
@@ -103,28 +111,6 @@ class FirebaseProvider:
         except Exception as e:
             logger.error(f"Failed to get document {collection}/{document_id}: {str(e)}")
             raise DatabaseError(f"Failed to get document: {str(e)}")
-
-    def delete(self, collection: str, document_id: str) -> bool:
-        """
-        Delete document from Firestore.
-
-        Args:
-            collection: Collection name
-            document_id: Document ID
-
-        Returns:
-            True if successful
-        """
-        try:
-            doc_ref = self._db.collection(collection).document(document_id)
-            doc_ref.delete()
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"Failed to delete document {collection}/{document_id}: {str(e)}"
-            )
-            raise DatabaseError(f"Failed to delete document: {str(e)}")
 
     def query(
         self,
@@ -200,6 +186,15 @@ class FirebaseProvider:
                     data = doc.to_dict()
                     if data:
                         data["id"] = doc.id
+
+                        # 🔥 FIX: Convert Firestore timestamps to datetime objects
+                        for key, value in data.items():
+                            if hasattr(
+                                value, "timestamp"
+                            ):  # Check if it's a Firestore timestamp
+                                # Convert to Python datetime
+                                data[key] = datetime.fromtimestamp(value.timestamp())
+
                         results.append(data)
                 except Exception as e:
                     logger.error(f"Error processing document {doc.id}: {e}")
@@ -209,6 +204,28 @@ class FirebaseProvider:
         except Exception as e:
             logger.error(f"Failed to query collection {collection}: {str(e)}")
             return []  # Return empty list instead of raising exception
+
+    def delete(self, collection: str, document_id: str) -> bool:
+        """
+        Delete document from Firestore.
+
+        Args:
+            collection: Collection name
+            document_id: Document ID
+
+        Returns:
+            True if successful
+        """
+        try:
+            doc_ref = self._db.collection(collection).document(document_id)
+            doc_ref.delete()
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to delete document {collection}/{document_id}: {str(e)}"
+            )
+            raise DatabaseError(f"Failed to delete document: {str(e)}")
 
     def get_all(
         self,

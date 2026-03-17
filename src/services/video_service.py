@@ -239,8 +239,13 @@ class VideoService:
         retention_days = self.tier_service.get_retention_days(user.tier)
         video.schedule_deletion(retention_days)
 
-        # Start async processing
-        process_video_async.delay(video_id, user_id, options)
+        try:
+            # Start async processing
+            process_video_async.delay(video_id, user_id, options)
+        except Exception as e:
+            logger.error(f"Failed to queue video for processing: {e}")
+            # Continue without background processing for now
+            print(f"⚠️ Background processing unavailable: {e}")
 
         # Send notification about upload started (in-app only)
         try:

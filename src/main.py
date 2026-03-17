@@ -340,6 +340,7 @@ def create_app(config_class=Config):
         # Check database connection
         try:
             db = FirebaseProvider()
+            db.ping()
             # Simple query to test connection
             db.get("health_check", "test", raise_not_found=False)
             health_status["checks"]["database"] = {"status": "healthy"}
