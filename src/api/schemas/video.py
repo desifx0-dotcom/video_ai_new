@@ -2,7 +2,7 @@
 Video schemas for request/response validation.
 """
 
-from marshmallow import Schema, fields, validate, validates, ValidationError
+from marshmallow import Schema, fields, validate, validates, ValidationError, post_dump
 from datetime import datetime
 from typing import Optional, List
 
@@ -13,7 +13,9 @@ class VideoUploadSchema(Schema):
     title = fields.String(validate=validate.Length(max=255))
     description = fields.String(validate=validate.Length(max=5000))
     quality = fields.String(
-        validate=validate.OneOf(["480p", "720p", "1080p", "4k", "4k+hdr"]),
+        validate=validate.OneOf(
+            ["original", "480p", "720p", "1080p", "2K", "3K", "4k", "8k"]
+        ),  # 🔥 ADD 'original'
         missing="720p",
     )
     styles = fields.List(
@@ -26,10 +28,23 @@ class VideoUploadSchema(Schema):
         validate=validate.OneOf(["private", "unlisted", "public"]), missing="private"
     )
 
-    # 🔥 NEW FIELDS ADDED
+    # NEW FIELDS (added features)
     thumbnail_style = fields.String(
         validate=validate.OneOf(
-            ["default", "cinematic", "bright", "dark", "text_heavy"]
+            [
+                "default",
+                "cinematic",
+                "bright",
+                "dark",
+                "text_heavy",
+                "action",
+                "minimalist",
+                "vintage",
+                "cartoon",
+                "glamour",
+                "mystery",
+                "tech",
+            ]
         ),
         missing="default",
     )
@@ -40,9 +55,16 @@ class VideoUploadSchema(Schema):
         validate=validate.OneOf(["original", "128k", "192k", "256k", "320k"]),
         missing="original",
     )
+    aspect_ratio = fields.String(
+        validate=validate.OneOf(
+            ["original", "16:9", "9:16", "1:1", "4:5", "2:3", "3:2", "21:9", "5:4"]
+        ),
+        missing="original",
+    )
     auto_transcribe = fields.Boolean(missing=True)
     generate_chapters = fields.Boolean(missing=False)
     remove_silence = fields.Boolean(missing=False)
+    process_silent_video = fields.Boolean(missing=False)
 
 
 class VideoUpdateSchema(Schema):
@@ -64,17 +86,32 @@ class VideoProcessSchema(Schema):
         missing=[],
     )
     quality = fields.String(
-        validate=validate.OneOf(["480p", "720p", "1080p", "4k", "4k+hdr"]),
+        validate=validate.OneOf(
+            ["original", "480p", "720p", "1080p", "2K", "3K", "4k", "8k"]
+        ),
         missing="720p",
     )
     translation_language = fields.String(validate=validate.Length(max=10), missing="")
     regenerate_thumbnails = fields.Boolean(missing=False)
     regenerate_title = fields.Boolean(missing=False)
 
-    # NEW FIELDS ADDED to process schema as well
+    # Added features(styles)
     thumbnail_style = fields.String(
         validate=validate.OneOf(
-            ["default", "cinematic", "bright", "dark", "text_heavy"]
+            [
+                "default",
+                "cinematic",
+                "bright",
+                "dark",
+                "text_heavy",
+                "action",
+                "minimalist",
+                "vintage",
+                "cartoon",
+                "glamour",
+                "mystery",
+                "tech",
+            ]
         ),
         missing="default",
     )
@@ -85,9 +122,16 @@ class VideoProcessSchema(Schema):
         validate=validate.OneOf(["original", "128k", "192k", "256k", "320k"]),
         missing="original",
     )
+    aspect_ratio = fields.String(
+        validate=validate.OneOf(
+            ["original", "16:9", "9:16", "1:1", "4:5", "2:3", "3:2", "21:9", "5:4"]
+        ),
+        missing="original",
+    )
     auto_transcribe = fields.Boolean(missing=True)
     generate_chapters = fields.Boolean(missing=False)
     remove_silence = fields.Boolean(missing=False)
+    process_silent_video = fields.Boolean(missing=False)
 
 
 class VideoResponseSchema(Schema):
@@ -139,14 +183,35 @@ class VideoResponseSchema(Schema):
     total_cost = fields.Float()
 
     # Timestamps
-    created_at = fields.DateTime()
-    processing_started = fields.DateTime()
-    processing_completed = fields.DateTime()
-    scheduled_for_deletion = fields.DateTime()
+    created_at = fields.String(allow_none=True)
+    updated_at = fields.String(allow_none=True)
+    processing_started = fields.String(allow_none=True)
+    processing_completed = fields.String(allow_none=True)
+    scheduled_for_deletion = fields.String(allow_none=True)
 
     # Error handling
     error_message = fields.String()
     retry_count = fields.Integer()
+
+    # # custom field to handle both string and datetime
+    # @post_dump
+    # def prepare_datetime(self, data, **kwargs):
+    #     """Ensure datetime fields are properly formatted."""
+    #     for field in [
+    #         "created_at",
+    #         "updated_at",
+    #         "processing_started",
+    #         "processing_completed",
+    #         "scheduled_for_deletion",
+    #     ]:
+    #         if data.get(field) and isinstance(data[field], datetime):
+    #             data[field] = data[field].isoformat()
+    #         elif data.get(field) and isinstance(data[field], str):
+    #             # Already a string, keep as is
+    #             pass
+    #         else:
+    #             data[field] = None
+    #     return data
 
 
 class VideoListSchema(Schema):

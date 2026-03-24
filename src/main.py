@@ -102,6 +102,9 @@ def create_app(config_class=Config):
 
     # Register custom filters
     app.jinja_env.filters["timeago"] = timeago_filter
+    app.jinja_env.filters["datetimeformat"] = datetimeformat
+    app.jinja_env.filters["currency"] = currency_format
+    app.jinja_env.filters["format_duration"] = format_duration
     logger.info("✅ Registered timeago filter")
 
     # Load configuration
@@ -158,8 +161,17 @@ def create_app(config_class=Config):
     def inject_csrf_token():
         return dict(csrf_token=lambda: generate_csrf())
 
+    @app.template_filter("format_duration")
+    def format_duration_filter(seconds):
+        """Format duration in seconds to MM:SS format."""
+        if not seconds:
+            return "00:00"
+        minutes = int(seconds // 60)
+        remaining_seconds = int(seconds % 60)
+        return f"{minutes:02d}:{remaining_seconds:02d}"
+
     @app.template_filter("datetimeformat")
-    def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
+    def format_datetime(value, format="%Y-%m-%d %H:%M:%S"):
         """Format datetime for templates."""
         if value is None:
             return ""
@@ -463,7 +475,7 @@ def create_app(config_class=Config):
 
                 if user:
                     # Clear any existing session
-                    session.clear()
+                    # session.clear()
 
                     # Set session (still useful for template rendering)
                     session["user_id"] = user.id
@@ -1010,13 +1022,16 @@ def create_app(config_class=Config):
             session.clear()  # Clear session on error
             return redirect(url_for("login_page"))
 
-    # Upload page
     @app.route("/upload")
     def upload():
         """Video upload page."""
         from flask import redirect, url_for, session
         from services.user_service import UserService
         from services.video_service import VideoService
+        from services.style_service import StyleService
+        from services.thumbnail_service import ThumbnailService
+        import json
+        from pathlib import Path
 
         user_id = session.get("user_id")
         if not user_id:
@@ -1024,22 +1039,87 @@ def create_app(config_class=Config):
 
         user_service = UserService()
         video_service = VideoService()
+        style_service = StyleService()
+        thumbnail_service = ThumbnailService()
 
         user = user_service.get_user_by_id(user_id)
+        user_tier = user.tier.value if hasattr(user.tier, "value") else user.tier
+
+        # Get ALL video styles with availability info (not filtered)
+        all_video_styles = style_service.get_all_styles_with_availability(user.tier)
+
+        # Get ALL thumbnail styles with availability info (not filtered)
+        all_thumbnail_styles = thumbnail_service.get_all_thumbnail_styles(user.tier)
+
+        quality_options = [
+            {
+                "value": "original",
+                "label": "Original Quality",
+                "tiers": ["free", "starter", "pro", "plus", "enterprise"],
+            },
+            {
+                "value": "480p",
+                "label": "480p",
+                "tiers": ["free", "starter", "pro", "plus", "enterprise"],
+            },
+            {
+                "value": "720p",
+                "label": "720p HD",
+                "tiers": ["free", "starter", "pro", "plus", "enterprise"],
+            },
+            {
+                "value": "1080p",
+                "label": "1080p Full HD",
+                "tiers": ["starter", "pro", "plus", "enterprise"],
+            },
+            {
+                "value": "2K",
+                "label": "2K QHD",
+                "tiers": ["pro", "plus", "enterprise"],
+            },
+            {
+                "value": "3K",
+                "label": "3K",
+                "tiers": ["pro", "plus", "enterprise"],
+            },
+            {
+                "value": "4k",
+                "label": "4K Ultra HD",
+                "tiers": ["pro", "plus", "enterprise"],
+            },
+            {"value": "8k", "label": "8K Ultra HD", "tiers": ["plus", "enterprise"]},
+        ]
+
+        available_qualities = []
+
+        for quality in quality_options:
+            if user_tier in quality["tiers"]:
+                available_qualities.append(
+                    {
+                        "value": quality["value"],
+                        "label": quality["label"],
+                        "available": True,
+                    }
+                )
+
+        # Load all languages from config file (sorted alphabetically)
+        languages = []
+        config_path = Path(__file__).parent.parent / "config" / "languages.json"
+
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                languages = data.get("languages", [])
+                languages.sort(key=lambda x: x["name"])
+
         # Get tokens from session
         access_token = session.get("access_token")
         refresh_token = session.get("refresh_token")
-        # debug  print to verify token exist
-        print(f"🔍 Upload route - access_token exists: {bool(access_token)}")
-        print(f"🔍 Upload route - refresh_token exists: {bool(refresh_token)}")
 
         unprocessed_videos_count = video_service.get_unprocessed_count(user_id)
         processing_count = video_service.get_processing_count(user_id)
-
-        # Get user's video processing stats
         videos_processed = getattr(user, "videos_processed_this_month", 0)
 
-        # Get monthly limit based on user's tier
         monthly_limits = {
             "free": 3,
             "starter": 50,
@@ -1047,13 +1127,16 @@ def create_app(config_class=Config):
             "plus": 250,
             "enterprise": 10000,
         }
-        monthly_limit = monthly_limits.get(
-            user.tier if hasattr(user, "tier") else "free", 3
-        )
+        monthly_limit = monthly_limits.get(user_tier, 3)
 
         return render_template(
             "dashboard/upload.html",
             current_user=user,
+            available_qualities=available_qualities,
+            available_styles=all_video_styles,
+            thumbnail_styles=all_thumbnail_styles,
+            languages=languages,
+            default_quality="original",
             unprocessed_videos_count=unprocessed_videos_count,
             processing_count=processing_count,
             videos_processed=videos_processed,
@@ -1073,6 +1156,7 @@ def create_app(config_class=Config):
 
         if not user_id:
             return redirect(url_for("login_page"))
+
             # Get query parameters
         page = request.args.get("page", 1, type=int)
         search = request.args.get("search", "")
@@ -1242,7 +1326,7 @@ def create_app(config_class=Config):
         from services.tier_service import TierService
         from services.user_service import UserService
 
-        # This would normally come from session/authentication
+        # This  come from session/authentication
         user_id = request.args.get("user_id")
         tier_service = TierService()
         user_service = UserService()

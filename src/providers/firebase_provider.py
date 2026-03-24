@@ -68,7 +68,26 @@ class FirebaseProvider:
         """
         try:
             doc_ref = self._db.collection(collection).document(document_id)
-            doc_ref.set(data, merge=True)
+
+            # Convert datetime objects to Firebase timestamps
+            import datetime as dt
+            from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+
+            # Make a copy to avoid modifying the original
+            firestore_data = data.copy()
+
+            # Convert datetime objects to Firebase timestamps
+            for key, value in firestore_data.items():
+                if isinstance(value, dt.datetime):
+                    # Convert Python datetime to Firestore timestamp
+                    firestore_data[key] = value  # Firestore handles this automatically!
+                    # Actually Firestore auto-converts datetime objects, so no change needed
+                    pass
+                elif isinstance(value, dict):
+                    # Handle nested dictionaries (like settings)
+                    pass
+
+            doc_ref.set(firestore_data, merge=True)
             return True
 
         except Exception as e:
@@ -76,6 +95,25 @@ class FirebaseProvider:
                 f"Failed to save document {collection}/{document_id}: {str(e)}"
             )
             raise DatabaseError(f"Failed to save document: {str(e)}")
+
+    def _convert_timestamps(self, data):
+        """Recursively convert Firestore timestamps to datetime objects."""
+        if not data:
+            return data
+
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if hasattr(value, "timestamp"):  # Firestore timestamp
+                    data[key] = datetime.fromtimestamp(value.timestamp())
+                elif isinstance(value, (dict, list)):
+                    self._convert_timestamps(value)
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                if hasattr(item, "timestamp"):
+                    data[i] = datetime.fromtimestamp(item.timestamp())
+                elif isinstance(item, (dict, list)):
+                    self._convert_timestamps(item)
+        return data
 
     def get(self, collection: str, document_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -98,11 +136,26 @@ class FirebaseProvider:
 
                 # 🔥 FIX: Convert Firestore timestamps to datetime objects
                 for key, value in data.items():
+                    # Check if it's a Firestore timestamp object
                     if hasattr(
                         value, "timestamp"
-                    ):  # Check if it's a Firestore timestamp
+                    ):  # Firestore timestamp has timestamp() method
                         # Convert to Python datetime
                         data[key] = datetime.fromtimestamp(value.timestamp())
+                    elif isinstance(value, str) and key in [
+                        "created_at",
+                        "updated_at",
+                        "processing_started",
+                        "processing_completed",
+                        "scheduled_for_deletion",
+                    ]:
+                        # If it's already a string, try to parse it
+                        try:
+                            data[key] = datetime.fromisoformat(
+                                value.replace("Z", "+00:00")
+                            )
+                        except:
+                            pass  # Keep as string if parsing fails
 
                 return data
             else:
@@ -194,6 +247,20 @@ class FirebaseProvider:
                             ):  # Check if it's a Firestore timestamp
                                 # Convert to Python datetime
                                 data[key] = datetime.fromtimestamp(value.timestamp())
+                            elif isinstance(value, str) and key in [
+                                "created_at",
+                                "updated_at",
+                                "processing_started",
+                                "processing_completed",
+                                "scheduled_for_deletion",
+                            ]:
+                                # If it's already a string, try to parse it
+                                try:
+                                    data[key] = datetime.fromisoformat(
+                                        value.replace("Z", "+00:00")
+                                    )
+                                except:
+                                    pass  # Keep as string if parsing fails
 
                         results.append(data)
                 except Exception as e:

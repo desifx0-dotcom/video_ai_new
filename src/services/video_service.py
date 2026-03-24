@@ -97,9 +97,6 @@ class VideoService:
         content_type: str,
         options: Optional[Dict] = None,
     ) -> Tuple[Video, str]:
-        from tasks.video_tasks import process_video_async
-        from services.notification_service import NotificationService, NotificationType
-
         """
         Upload and validate a video file.
 
@@ -114,6 +111,8 @@ class VideoService:
         Returns:
             Tuple of (Video object, upload path)
         """
+        from services.notification_service import NotificationService, NotificationType
+
         options = options or {}
 
         # Get user
@@ -147,6 +146,10 @@ class VideoService:
             raise ValidationError(
                 f"Video duration ({duration:.1f}s) exceeds maximum for {user.tier.value} tier ({max_duration}s)"
             )
+        # video aspect ratios
+        if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
+            video.aspect_ratio = options["aspect_ratio"]
+            logger.info(f"Will apply aspect ratio: {options['aspect_ratio']}")
 
         # Check monthly limit
         if user.videos_processed_this_month >= user.monthly_video_limit:
@@ -181,10 +184,26 @@ class VideoService:
             video_type=VideoType.SILENT if is_silent else VideoType.SPEECH,
             original_path=str(upload_path),
             processed_tier=user.tier.value,
+            status="uploaded",
         )
+        print("🔍 FRESH VIDEO OBJECT:")
+        print(f"  created_at type: {type(video.created_at)}")
+        print(f"  created_at value: {video.created_at}")
+
+        video.created_at = video.created_at or datetime.utcnow()
+        video.updated_at = video.updated_at or datetime.utcnow()
+
+        # If they're strings, convert them
+        if isinstance(video.created_at, str):
+            try:
+                video.created_at = datetime.fromisoformat(
+                    video.created_at.replace("Z", "+00:00")
+                )
+            except:
+                video.created_at = datetime.utcnow()
 
         # Apply processing options
-        if options.get("quality"):
+        if options.get("quality") and options["quality"] != "original":
             video.output_quality = options["quality"]
         else:
             video.output_quality = self.quality_service.get_default_quality(user.tier)
@@ -230,7 +249,7 @@ class VideoService:
             "user_id": user_id,
             "status": "pending",
             "created_at": datetime.utcnow().isoformat(),
-            "send_email_notification": send_email_notification,  # Store this for later
+            "send_email_notification": send_email_notification,
         }
         if self.db:
             self.db.save("processing_jobs", job_id, job_data)
@@ -239,13 +258,25 @@ class VideoService:
         retention_days = self.tier_service.get_retention_days(user.tier)
         video.schedule_deletion(retention_days)
 
+        # Move Celery task to background WITHOUT blocking the response
         try:
-            # Start async processing
+            # Try to import celery task here to avoid circular imports
+            from tasks.video_tasks import process_video_async
+
+            # Start async processing in the background
             process_video_async.delay(video_id, user_id, options)
+            logger.info(f"✅ Video {video_id} queued for processing")
+
         except Exception as e:
             logger.error(f"Failed to queue video for processing: {e}")
-            # Continue without background processing for now
             print(f"⚠️ Background processing unavailable: {e}")
+            # Update video status to indicate it needs manual processing
+            video.status = VideoStatus.UPLOADED
+            if self.db:
+                self.db.save("videos", video_id, video.to_dict())
+
+        # print(f"✅ Video {video_id} uploaded successfully to database")
+        # print(f"⚠️ Background processing disabled - Redis not configured")
 
         # Send notification about upload started (in-app only)
         try:
@@ -261,7 +292,7 @@ class VideoService:
                 channels=[
                     NotificationChannel.IN_APP,
                     NotificationChannel.WEBSOCKET,
-                ],  # No email for this
+                ],
             )
         except Exception as e:
             logger.error(f"Failed to send upload notification: {e}")
@@ -308,6 +339,111 @@ class VideoService:
             )
 
         logger.info(f"File validation passed for {filename}")
+
+    def get_video_by_id(self, video_id: str, user_id: str = None) -> Optional[Video]:
+        """Get video by ID."""
+        if not self.db:
+            return None
+
+        video_data = self.db.get("videos", video_id)
+        if not video_data:
+            return None
+
+        # If user_id is provided, verify ownership
+        if user_id and video_data.get("user_id") != user_id:
+            return None
+
+        return self._dict_to_video(video_data)
+
+    def _dict_to_video(self, data: Dict[str, Any]) -> Video:
+        """Convert dictionary to Video entity."""
+        from core.domain.entities.video import Video, VideoStatus, VideoType
+
+        return Video(
+            id=data["id"],
+            user_id=data["user_id"],
+            original_filename=data["original_filename"],
+            file_size=data["file_size"],
+            duration=data["duration"],
+            mime_type=data.get("mime_type", "video/mp4"),
+            status=VideoStatus(data.get("status", "uploaded")),
+            video_type=VideoType(data.get("video_type", "speech")),
+            original_path=data.get("original_path"),
+            output_path=data.get("output_path"),
+            output_video_url=data.get("output_video_url"),
+            output_quality=data.get("output_quality", "720p"),
+            applied_styles=data.get("applied_styles", []),
+            title=data.get("title"),
+            description=data.get("description"),
+            transcription=data.get("transcription"),
+            tags=data.get("tags", []),
+            ai_thumbnails=data.get("ai_thumbnails", []),
+            extracted_thumbnails=data.get("extracted_thumbnails", []),
+            selected_thumbnail=data.get("selected_thumbnail"),
+            processed_tier=data.get("processed_tier", "free"),
+            processing_time=data.get("processing_time"),
+            total_cost=data.get("total_cost", 0.0),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if isinstance(data["created_at"], str)
+                else data["created_at"]
+            ),
+            updated_at=(
+                datetime.fromisoformat(data["updated_at"])
+                if isinstance(data["updated_at"], str)
+                else data["updated_at"]
+            ),
+            processing_started=(
+                datetime.fromisoformat(data["processing_started"])
+                if data.get("processing_started")
+                else None
+            ),
+            processing_completed=(
+                datetime.fromisoformat(data["processing_completed"])
+                if data.get("processing_completed")
+                else None
+            ),
+            error_message=data.get("error_message"),
+            retry_count=data.get("retry_count", 0),
+            # New fields
+            thumbnail_style=data.get("thumbnail_style", "default"),
+            fps=data.get("fps", "original"),
+            audio_quality=data.get("audio_quality", "original"),
+            auto_transcribe=data.get("auto_transcribe", True),
+            generate_chapters=data.get("generate_chapters", False),
+            remove_silence=data.get("remove_silence", False),
+        )
+
+    def process_video(
+        self, video_id: str, user_id: str, options: Dict[str, Any] = None
+    ) -> Video:
+        """Process video with given options."""
+        options = options or {}
+
+        # Get video
+        video = self.get_video_by_id(video_id)
+        if not video:
+            raise ProcessingError(f"Video not found: {video_id}")
+
+        # Update status to processing
+        video.status = "processing"
+        video.processing_started = datetime.utcnow()
+        self.update_video(video)
+
+        # TODO: Add actual processing logic here
+        # For now, simulate processing
+        import time
+
+        time.sleep(2)
+
+        # Update status to completed
+        video.status = "completed"
+        video.processing_completed = datetime.utcnow()
+        video.output_video_url = f"/processed/{video_id}/output.mp4"
+        video.output_video_size = video.file_size
+        self.update_video(video)
+
+        return video
 
     def get_unprocessed_count(self, user_id: str) -> int:
         """
@@ -411,6 +547,27 @@ class VideoService:
 
         except Exception as e:
             logger.error(f"Failed to get recent videos for user {user_id}: {e}")
+            return []
+
+    def get_user_videos(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all videos for a user."""
+        try:
+            if not self.db:
+                logger.debug(f"Database not available, returning empty list")
+                return []
+
+            # Query all videos for this user
+            videos = self.db.query(
+                "videos",
+                filters={"user_id": user_id},
+                order_by="created_at",
+                descending=True,
+            )
+
+            return list(videos) if videos else []
+
+        except Exception as e:
+            logger.error(f"Error getting user videos for {user_id}: {e}")
             return []
 
     def get_user_videos_paginated(

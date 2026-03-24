@@ -193,6 +193,17 @@ class Video:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert video to dictionary."""
+
+        def safe_isoformat(dt):
+            if dt is None:
+                return None
+            if isinstance(dt, str):
+                # If it's already a string, return as is
+                return dt
+            if hasattr(dt, "isoformat"):
+                return dt.isoformat()
+            return str(dt)  # Fallback
+
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -234,20 +245,11 @@ class Video:
             "processing_time": self.processing_time,
             "total_cost": self.total_cost,
             # Timestamps
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "processing_started": (
-                self.processing_started.isoformat() if self.processing_started else None
-            ),
-            "processing_completed": (
-                self.processing_completed.isoformat()
-                if self.processing_completed
-                else None
-            ),
-            "scheduled_for_deletion": (
-                self.scheduled_for_deletion.isoformat()
-                if self.scheduled_for_deletion
-                else None
-            ),
+            "created_at": safe_isoformat(self.created_at),
+            "updated_at": safe_isoformat(self.updated_at),
+            "processing_started": safe_isoformat(self.processing_started),
+            "processing_completed": safe_isoformat(self.processing_completed),
+            "scheduled_for_deletion": safe_isoformat(self.scheduled_for_deletion),
             # Error handling
             "error_message": self.error_message,
             "retry_count": self.retry_count,

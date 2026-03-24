@@ -9,10 +9,21 @@ from kombu import Queue, Exchange
 # Create Celery instance
 celery_app = Celery("video_ai_studio")
 
+# Get Redis URL from environment, default to mock for development
+redis_url = os.getenv("REDIS_URL", "mock://")
+celery_broker = os.getenv("CELERY_BROKER_URL", redis_url)
+celery_backend = os.getenv("CELERY_RESULT_BACKEND", redis_url)
+
+# If using mock Redis, use memory transport
+if redis_url == "mock://" or celery_broker == "mock://":
+    celery_broker = "memory://"
+    celery_backend = "memory://"
+    print("⚠️  Using memory transport for Celery (no Redis required)")
+
 # Configure Celery
 celery_app.conf.update(
-    broker_url=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
-    result_backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"),
+    broker_url=celery_broker,
+    result_backend=celery_backend,
     # Serialization
     task_serializer="json",
     accept_content=["json"],

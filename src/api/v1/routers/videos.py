@@ -74,6 +74,23 @@ def upload_video():
             options=options,
         )
 
+        # After video is created, add this debug code
+        print("=" * 50)
+        print("DEBUG - Video object attributes:")
+        print(f"created_at type: {type(video.created_at)}")
+        print(f"created_at value: {video.created_at}")
+        print(f"updated_at type: {type(video.updated_at)}")
+        print(f"updated_at value: {video.updated_at}")
+
+        # Also check the dictionary
+        video_dict = video.to_dict()
+        print("\nDEBUG - Video dict after to_dict():")
+        print(f"created_at type in dict: {type(video_dict.get('created_at'))}")
+        print(f"created_at value in dict: {video_dict.get('created_at')}")
+        print(f"updated_at type in dict: {type(video_dict.get('updated_at'))}")
+        print(f"updated_at value in dict: {video_dict.get('updated_at')}")
+        print("=" * 50)
+
         # Return video information
         response_schema = VideoResponseSchema()
         return jsonify(response_schema.dump(video.to_dict())), 201
@@ -244,7 +261,7 @@ def delete_video(video_id):
 @validate_request(VideoProcessSchema)
 @track_analytics("video.reprocess")
 def reprocess_video(video_id):
-    """Reprocess a video with new options."""
+    """Process a video (uploaded, completed, or failed)."""
     from flask import g
 
     user_id = get_jwt_identity()
@@ -256,9 +273,13 @@ def reprocess_video(video_id):
         if not video:
             raise ValidationError("Video not found", field="video_id")
 
-        # Check if video can be reprocessed
-        if video.status not in ["completed", "failed"]:
-            raise ValidationError("Video is still processing", field="video_id")
+        # 🔥 FIX: Allow processing from uploaded, completed, or failed status
+        allowed_statuses = ["uploaded", "completed", "failed"]
+        if video.status not in allowed_statuses:
+            raise ValidationError(
+                f"Video cannot be processed (current status: {video.status})",
+                field="video_id",
+            )
 
         # Update video status
         video.status = "queued"
@@ -270,7 +291,7 @@ def reprocess_video(video_id):
         db = FirebaseProvider()
         db.save("videos", video_id, video.to_dict())
 
-        # Start reprocessing
+        # Start processing
         process_video_async.delay(video_id, user_id, options)
 
         response_schema = VideoResponseSchema()
