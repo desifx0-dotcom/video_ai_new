@@ -1,354 +1,253 @@
 ﻿"""
-Credit management service.
+Credit management service with tier-based credits and transaction tracking.
 """
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-import logging
 
-from core.domain.entities.user import Tier
-from core.exceptions import ValidationError, InsufficientCreditsError
+import uuid
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List
+from enum import Enum
+
+from core.domain.entities.user import User
+from core.exceptions import InsufficientCreditsError
 from providers.firebase_provider import FirebaseProvider
 
 logger = logging.getLogger(__name__)
 
+
+class CreditOperation(str, Enum):
+    """Types of credit operations."""
+
+    TRANSCRIPTION = "transcription"
+    TITLE_GENERATION = "title_generation"
+    DESCRIPTION_GENERATION = "description_generation"
+    TAGS_GENERATION = "tags_generation"
+    THUMBNAIL_GENERATION = "thumbnail_generation"
+    AI_THUMBNAIL = "ai_thumbnail"
+    REGENERATION = "regeneration"
+    TRANSLATION = "translation"
+    STYLE_APPLICATION = "style_application"
+    REFUND = "refund"
+    BONUS = "bonus"
+    PURCHASE = "purchase"
+    VIDEO_PROCESSING = "video_processing"
+
+
 class CreditService:
-    """Credit management service."""
-    
+    """Credit management service with tier-based allocations."""
+
+    # Base credit costs per operation
+    CREDIT_COSTS = {
+        CreditOperation.TRANSCRIPTION: 1,
+        CreditOperation.TITLE_GENERATION: 1,
+        CreditOperation.DESCRIPTION_GENERATION: 1,
+        CreditOperation.TAGS_GENERATION: 1,
+        CreditOperation.THUMBNAIL_GENERATION: 2,
+        CreditOperation.AI_THUMBNAIL: 2,
+        CreditOperation.REGENERATION: 2,
+        CreditOperation.TRANSLATION: 1,
+        CreditOperation.STYLE_APPLICATION: 3,
+        CreditOperation.VIDEO_PROCESSING: 1,
+    }
+    # Monthly credits per tier
+    MONTHLY_CREDITS = {
+        "free": 3,
+        "starter": 30,
+        "pro": 75,
+        "plus": 250,
+        "enterprise": 10000,  # Effectively unlimited
+    }
+
     def __init__(self):
-        self.db = None  # Temporarily disabled for development
-    
-    def add_credits(self, user_id: str, amount: int, 
-                   description: str = "", source: str = "purchase") -> Dict[str, Any]:
-        """
-        Add credits to user account.
-        
-        Args:
-            user_id: User ID
-            amount: Number of credits to add
-            description: Transaction description
-            source: Source of credits (purchase, bonus, refund, etc.)
-        
-        Returns:
-            Transaction details
-        """
-        if amount <= 0:
-            raise ValidationError("Amount must be positive", field="amount")
-        
-        # Get user
-        from services.user_service import UserService
-        user_service = UserService()
-        user = user_service.get_user(user_id)
-        if not user:
-            raise ValidationError("User not found", field="user_id")
-        
-        # Update user credits
-        user.credits_remaining += amount
-        user.updated_at = datetime.utcnow()
-        
-        self.db.save('users', user_id, user.to_dict())
-        
-        # Create transaction record
-        transaction_id = str(uuid.uuid4())
-        transaction = {
-            'id': transaction_id,
-            'user_id': user_id,
-            'amount': amount,
-            'description': description,
-            'source': source,
-            'balance_after': user.credits_remaining,
-            'created_at': datetime.utcnow().isoformat()
-        }
-        
-        self.db.save('credit_transactions', transaction_id, transaction)
-        
-        logger.info(f"Added {amount} credits to user {user_id} ({source})")
-        
-        return {
-            'transaction_id': transaction_id,
-            'user_id': user_id,
-            'amount': amount,
-            'new_balance': user.credits_remaining,
-            'description': description,
-            'source': source
-        }
-    
-    def use_credits(self, user_id: str, amount: int, 
-                   description: str = "", video_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Use credits from user account.
-        
-        Args:
-            user_id: User ID
-            amount: Number of credits to use
-            description: Transaction description
-            video_id: Optional video ID associated with credit usage
-        
-        Returns:
-            Transaction details
-        """
-        if amount <= 0:
-            raise ValidationError("Amount must be positive", field="amount")
-        
-        # Get user
-        from services.user_service import UserService
-        user_service = UserService()
-        user = user_service.get_user(user_id)
-        if not user:
-            raise ValidationError("User not found", field="user_id")
-        
-        # Check if user has sufficient credits
-        # Unlimited tiers don't need credits
-        if user.tier not in [Tier.PLUS, Tier.ENTERPRISE]:
-            if user.credits_remaining < amount:
-                raise InsufficientCreditsError(user.credits_remaining, amount)
-        
-        # Update user credits
-        user.credits_remaining = max(0, user.credits_remaining - amount)
-        user.updated_at = datetime.utcnow()
-        
-        self.db.save('users', user_id, user.to_dict())
-        
-        # Create transaction record
-        transaction_id = str(uuid.uuid4())
-        transaction = {
-            'id': transaction_id,
-            'user_id': user_id,
-            'amount': -amount,
-            'description': description,
-            'video_id': video_id,
-            'balance_after': user.credits_remaining,
-            'created_at': datetime.utcnow().isoformat()
-        }
-        
-        self.db.save('credit_transactions', transaction_id, transaction)
-        
-        logger.info(f"Used {amount} credits from user {user_id} for {description}")
-        
-        return {
-            'transaction_id': transaction_id,
-            'user_id': user_id,
-            'amount': amount,
-            'new_balance': user.credits_remaining,
-            'description': description,
-            'video_id': video_id
-        }
-    
-    def calculate_credits_needed(self, video_duration: float, tier: Tier) -> int:
-        """
-        Calculate credits needed for video processing.
-        
-        Args:
-            video_duration: Video duration in seconds
-            tier: User tier
-        
-        Returns:
-            Number of credits needed
-        """
-        # Unlimited tiers don't need credits
-        if tier in [Tier.PLUS, Tier.ENTERPRISE]:
+        self.db = FirebaseProvider()
+        self._user_cache = {}
+
+    def get_credits(self, user_id: str) -> int:
+        """Get current credit balance for user."""
+        try:
+            user_data = self.db.get("users", user_id)
+            if user_data:
+                return user_data.get("credits_remaining", 0)
             return 0
-        
-        # Calculate based on video length (1 credit per minute, minimum 1)
-        minutes = max(1, int(video_duration) // 60)
-        
-        # Apply tier multipliers
-        tier_multipliers = {
-            Tier.FREE: 1.0,
-            Tier.STARTER: 1.0,
-            Tier.PRO: 1.0,
-            Tier.PLUS: 0.0,  # No credits needed
-            Tier.ENTERPRISE: 0.0  # No credits needed
-        }
-        
-        credits = int(minutes * tier_multipliers.get(tier, 1.0))
-        return max(1, credits)
-    
-    def get_user_balance(self, user_id: str) -> Dict[str, Any]:
-        """Get user credit balance and transaction history."""
-        # Get user
-        from services.user_service import UserService
-        user_service = UserService()
-        user = user_service.get_user(user_id)
-        if not user:
-            raise ValidationError("User not found", field="user_id")
-        
-        # Get recent transactions
-        transactions = self.db.query(
-            'credit_transactions',
-            filters={'user_id': user_id},
-            order_by='created_at',
-            descending=True,
-            limit=20
-        )
-        
-        # Calculate monthly usage
-        thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-        monthly_usage = self.db.query(
-            'credit_transactions',
-            filters={
-                'user_id': user_id,
-                'amount': {'$lt': 0},  # Negative amounts are usage
-                'created_at': {'$gte': thirty_days_ago}
+        except Exception as e:
+            logger.error(f"Failed to get credits for {user_id}: {e}")
+            return 0
+
+    def get_monthly_credits(self, tier: str) -> int:
+        """Get monthly credit allocation for tier."""
+        return self.MONTHLY_CREDITS.get(tier, 3)
+
+    def can_process(self, user_id: str, operation: str) -> bool:
+        """Check if user has enough credits for operation."""
+        credits = self.get_credits(user_id)
+        cost = self.CREDIT_COSTS.get(CreditOperation(operation), 1)
+        return credits >= cost
+
+    def use_credits(
+        self,
+        user_id: str,
+        amount: int,
+        description: str,
+        video_id: Optional[str] = None,
+        operation: Optional[str] = None,
+    ) -> bool:
+        """Use credits from user account with transaction record."""
+        try:
+            # Get current user data
+            user_data = self.db.get("users", user_id)
+            if not user_data:
+                logger.error(f"User not found: {user_id}")
+                return False
+
+            current_credits = user_data.get("credits_remaining", 0)
+
+            if current_credits < amount:
+                raise InsufficientCreditsError(current_credits, amount)
+
+            # Update credits
+            new_credits = current_credits - amount
+            user_data["credits_remaining"] = new_credits
+            user_data["updated_at"] = datetime.utcnow().isoformat()
+            self.db.save("users", user_id, user_data)
+
+            # Record transaction
+            transaction_id = str(uuid.uuid4())
+            transaction = {
+                "id": transaction_id,
+                "user_id": user_id,
+                "amount": -amount,
+                "balance_before": current_credits,
+                "balance_after": new_credits,
+                "description": description,
+                "operation": operation,
+                "video_id": video_id,
+                "created_at": datetime.utcnow().isoformat(),
             }
+            self.db.save("credit_transactions", transaction_id, transaction)
+
+            logger.info(f"Used {amount} credits for user {user_id}: {description}")
+            return True
+
+        except InsufficientCreditsError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to use credits for {user_id}: {e}")
+            return False
+
+    def add_credits(
+        self,
+        user_id: str,
+        amount: int,
+        description: str,
+        operation: Optional[str] = None,
+    ) -> bool:
+        """Add credits to user account."""
+        try:
+            user_data = self.db.get("users", user_id)
+            if not user_data:
+                logger.error(f"User not found: {user_id}")
+                return False
+
+            current_credits = user_data.get("credits_remaining", 0)
+            new_credits = current_credits + amount
+
+            user_data["credits_remaining"] = new_credits
+            user_data["updated_at"] = datetime.utcnow().isoformat()
+            self.db.save("users", user_id, user_data)
+
+            # Record transaction
+            transaction_id = str(uuid.uuid4())
+            transaction = {
+                "id": transaction_id,
+                "user_id": user_id,
+                "amount": amount,
+                "balance_before": current_credits,
+                "balance_after": new_credits,
+                "description": description,
+                "operation": operation,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            self.db.save("credit_transactions", transaction_id, transaction)
+
+            logger.info(f"Added {amount} credits to user {user_id}: {description}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to add credits to {user_id}: {e}")
+            return False
+
+    def allocate_monthly_credits(self, user_id: str, tier: str) -> bool:
+        """Allocate monthly credits to user."""
+        monthly_credits = self.get_monthly_credits(tier)
+
+        # Check if already allocated this month
+        last_allocation_key = f"last_credit_allocation_{user_id}"
+        last_allocation = self.db.get("metadata", last_allocation_key)
+
+        now = datetime.utcnow()
+        if last_allocation:
+            last_date = datetime.fromisoformat(last_allocation.get("date"))
+            if (now - last_date).days < 30:
+                return False
+
+        # Add credits
+        success = self.add_credits(
+            user_id,
+            monthly_credits,
+            f"Monthly credit allocation for {tier} tier",
+            operation=CreditOperation.BONUS,
         )
-        
-        monthly_credits_used = abs(sum(tx['amount'] for tx in monthly_usage))
-        
-        return {
-            'user_id': user_id,
-            'current_balance': user.credits_remaining,
-            'monthly_credits_used': monthly_credits_used,
-            'tier': user.tier.value,
-            'has_unlimited': user.tier in [Tier.PLUS, Tier.ENTERPRISE],
-            'recent_transactions': transactions
-        }
-    
-    def get_transaction_history(self, user_id: str, limit: int = 50, 
-                               offset: int = 0) -> List[Dict[str, Any]]:
+
+        if success:
+            # Update last allocation date
+            self.db.save(
+                "metadata",
+                last_allocation_key,
+                {"date": now.isoformat(), "tier": tier, "credits": monthly_credits},
+            )
+            logger.info(f"Allocated {monthly_credits} monthly credits to {user_id}")
+
+        return success
+
+    def get_transaction_history(
+        self, user_id: str, limit: int = 50, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         """Get credit transaction history for user."""
-        transactions = self.db.query(
-            'credit_transactions',
-            filters={'user_id': user_id},
-            order_by='created_at',
-            descending=True,
-            limit=limit,
-            offset=offset
-        )
-        
-        return transactions
-    
-    def get_purchase_packages(self) -> List[Dict[str, Any]]:
-        """Get available credit purchase packages."""
-        return [
-            {
-                'id': 'small',
-                'name': 'Small Package',
-                'credits': 100,
-                'price': 9.99,
-                'price_per_credit': 0.0999,
-                'description': 'For casual users',
-                'best_for': '1-2 videos per month'
-            },
-            {
-                'id': 'medium',
-                'name': 'Medium Package',
-                'credits': 300,
-                'price': 24.99,
-                'price_per_credit': 0.0833,
-                'description': 'For regular users',
-                'best_for': '3-5 videos per month'
-            },
-            {
-                'id': 'large',
-                'name': 'Large Package',
-                'credits': 1000,
-                'price': 79.99,
-                'price_per_credit': 0.0799,
-                'description': 'For power users',
-                'best_for': '10+ videos per month'
-            },
-            {
-                'id': 'pro',
-                'name': 'Pro Package',
-                'credits': 3000,
-                'price': 199.99,
-                'price_per_credit': 0.0666,
-                'description': 'For professionals',
-                'best_for': '30+ videos per month'
+        try:
+            transactions = self.db.query(
+                "credit_transactions",
+                filters={"user_id": user_id},
+                order_by="created_at",
+                descending=True,
+                limit=limit,
+                offset=offset,
+            )
+            return list(transactions) if transactions else []
+        except Exception as e:
+            logger.error(f"Failed to get transaction history for {user_id}: {e}")
+            return []
+
+    def get_operation_cost(self, operation: str) -> int:
+        """Get credit cost for operation."""
+        return self.CREDIT_COSTS.get(CreditOperation(operation), 1)
+
+    def track_usage(
+        self,
+        user_id: str,
+        operation: str,
+        video_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """Track usage for analytics."""
+        try:
+            usage_record = {
+                "user_id": user_id,
+                "operation": operation,
+                "video_id": video_id,
+                "timestamp": datetime.utcnow().isoformat(),
+                "metadata": metadata or {},
             }
-        ]
-    
-    def calculate_cost(self, credits: int, package_id: Optional[str] = None) -> float:
-        """
-        Calculate cost for purchasing credits.
-        
-        Args:
-            credits: Number of credits
-            package_id: Optional package ID for bulk discounts
-        
-        Returns:
-            Cost in USD
-        """
-        if package_id:
-            packages = {pkg['id']: pkg for pkg in self.get_purchase_packages()}
-            if package_id in packages:
-                return packages[package_id]['price']
-        
-        # Default pricing
-        if credits >= 3000:
-            return credits * 0.0666
-        elif credits >= 1000:
-            return credits * 0.0799
-        elif credits >= 300:
-            return credits * 0.0833
-        else:
-            return credits * 0.0999
-    
-    def refund_credits(self, transaction_id: str, reason: str = "") -> bool:
-        """
-        Refund credits from a transaction.
-        
-        Args:
-            transaction_id: Original transaction ID
-            reason: Refund reason
-        
-        Returns:
-            True if successful
-        """
-        # Get original transaction
-        transaction = self.db.get('credit_transactions', transaction_id)
-        if not transaction:
-            return False
-        
-        user_id = transaction['user_id']
-        amount = transaction['amount']
-        
-        # Only refund positive transactions (purchases)
-        if amount <= 0:
-            return False
-        
-        # Add refund transaction
-        refund_id = str(uuid.uuid4())
-        refund_transaction = {
-            'id': refund_id,
-            'user_id': user_id,
-            'amount': -amount,  # Negative to reverse original
-            'description': f"Refund: {reason}",
-            'refund_of': transaction_id,
-            'created_at': datetime.utcnow().isoformat()
-        }
-        
-        self.db.save('credit_transactions', refund_id, refund_transaction)
-        
-        # Update user balance
-        from services.user_service import UserService
-        user_service = UserService()
-        user = user_service.get_user(user_id)
-        if user:
-            user.credits_remaining = max(0, user.credits_remaining - amount)
-            user.updated_at = datetime.utcnow()
-            self.db.save('users', user_id, user.to_dict())
-        
-        logger.info(f"Refunded {amount} credits to user {user_id} ({reason})")
-        
-        return True
-    
-    def get_low_balance_users(self, threshold: int = 10) -> List[Dict[str, Any]]:
-        """Get users with low credit balance."""
-        # Get all active users
-        users = self.db.query('users', filters={'status': 'active'})
-        
-        low_balance_users = []
-        for user_data in users:
-            if user_data['tier'] in ['free', 'starter', 'pro']:
-                if user_data.get('credits_remaining', 0) <= threshold:
-                    low_balance_users.append({
-                        'user_id': user_data['id'],
-                        'email': user_data['email'],
-                        'tier': user_data['tier'],
-                        'balance': user_data.get('credits_remaining', 0),
-                        'last_login': user_data.get('last_login')
-                    })
-        
-        return low_balance_users
+            usage_id = str(uuid.uuid4())
+            self.db.save("usage_logs", usage_id, usage_record)
+        except Exception as e:
+            logger.error(f"Failed to track usage: {e}")

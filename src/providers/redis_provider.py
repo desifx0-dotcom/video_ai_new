@@ -1,32 +1,73 @@
-"""Redis provider with automatic mock fallback for development."""
+"""
+Redis provider with real Redis and mock fallback for development.
+"""
 
 import os
 import logging
 from typing import Any, Dict, Optional, List, Union
 
-# Configure logger
 logger = logging.getLogger(__name__)
 
 # Determine which provider to use
-USE_MOCK = True  # Default to safe mode
+USE_MOCK = False  #  false to use real Redis if configured and true to use mock
 
-# Check if we should use real Redis (only in production with clear intent)
-if os.getenv("FLASK_ENV") == "production" and os.getenv("REDIS_PROVIDER") == "real":
-    USE_MOCK = False
+# Check if we should use mock (only when explicitly configured)
+if os.getenv("REDIS_PROVIDER") == "mock" or os.getenv("REDIS_URL") == "mock://":
+    USE_MOCK = True
+    logger.info("✅ Using Mock Redis Provider (explicitly configured)")
+
+# Also check if we're explicitly using memory transport
+if os.getenv("REDIS_PROVIDER") == "memory" or os.getenv("REDIS_URL") == "memory://":
+    USE_MOCK = True
+    logger.info("✅ Using Memory transport (no Redis required)")
+
+# Check if we have a valid Redis URL
+redis_url = os.getenv("REDIS_URL", "")
+if not redis_url or redis_url in ["mock://", "memory://"]:
+    USE_MOCK = True
+    logger.info("✅ No valid Redis URL, using mock mode")
 
 if USE_MOCK:
     # Use mock Redis
-    from .redis_mock import MockRedisProvider
+    try:
+        from .redis_mock import MockRedisProvider
 
-    class RedisProvider(MockRedisProvider):
-        """Redis provider using mock implementation for development."""
+        class RedisProvider(MockRedisProvider):
+            """Redis provider using mock implementation for development."""
 
-        pass
+            pass
 
-    logger.info("✅ Using Mock Redis Provider (development mode)")
+        logger.info("✅ Using Mock Redis Provider (development mode)")
+    except ImportError:
+        # Create a simple mock if redis_mock doesn't exist
+        class RedisProvider:
+            """Simple mock Redis provider."""
+
+            _data = {}
+
+            def ping(self):
+                return True
+
+            def set(self, key, value, ex=None):
+                self._data[key] = value
+                return True
+
+            def get(self, key, default=None):
+                return self._data.get(key, default)
+
+            def delete(self, key):
+                if key in self._data:
+                    del self._data[key]
+                    return 1
+                return 0
+
+            def exists(self, key):
+                return key in self._data
+
+        logger.info("✅ Using Simple Mock Redis Provider")
 
 else:
-    # Use real Redis in production
+    # Use real Redis
     try:
         import redis
         from redis.exceptions import RedisError
@@ -50,6 +91,10 @@ else:
                 try:
                     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+                    # Validate URL
+                    if not redis_url or redis_url in ["mock://", "memory://"]:
+                        raise ValueError(f"Invalid Redis URL: {redis_url}")
+
                     self._client = redis.from_url(
                         redis_url,
                         decode_responses=True,
@@ -61,7 +106,7 @@ else:
 
                     # Test connection
                     self._client.ping()
-                    logger.info(f"✅ Redis connected: {redis_url}")
+                    logger.info(f"✅ Redis connected successfully")
 
                 except Exception as e:
                     logger.error(f"❌ Redis connection failed: {e}")
@@ -208,8 +253,30 @@ else:
 
     except ImportError as e:
         logger.error(f"Redis module not installed: {e}")
-        # Fallback to mock if import fails
-        from .redis_mock import MockRedisProvider
 
-        RedisProvider = MockRedisProvider
+        # Fallback to mock if import fails
+        class RedisProvider:
+            """Fallback mock Redis provider."""
+
+            _data = {}
+
+            def ping(self):
+                return True
+
+            def set(self, key, value, ex=None):
+                self._data[key] = value
+                return True
+
+            def get(self, key, default=None):
+                return self._data.get(key, default)
+
+            def delete(self, key):
+                if key in self._data:
+                    del self._data[key]
+                    return 1
+                return 0
+
+            def exists(self, key):
+                return key in self._data
+
         logger.warning("⚠️  Falling back to Mock Redis Provider")

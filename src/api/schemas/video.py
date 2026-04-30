@@ -64,6 +64,8 @@ class VideoUploadSchema(Schema):
     auto_transcribe = fields.Boolean(missing=True)
     generate_chapters = fields.Boolean(missing=False)
     remove_silence = fields.Boolean(missing=False)
+    regenerate_thumbnails = fields.Boolean(missing=False)
+    regenerate_title = fields.Boolean(missing=False)
     process_silent_video = fields.Boolean(missing=False)
 
 
@@ -171,12 +173,18 @@ class VideoResponseSchema(Schema):
 
     # NEW RESPONSE FIELDS
     thumbnail_style = fields.String()
-    fps = fields.String()
-    audio_quality = fields.String()
+    # Raw field to accept any type
+    fps = fields.String(allow_none=True, missing="original")
+    audio_quality = fields.String(allow_none=True, missing="original")
+    aspect_ratio = fields.String(allow_none=True, missing="original")
     auto_transcribe = fields.Boolean()
     generate_chapters = fields.Boolean()
     remove_silence = fields.Boolean()
 
+    # for frontend (video details section)
+    original_fps = fields.String(allow_none=True, missing="unknown")
+    original_audio_quality = fields.String(allow_none=True, missing="unknown")
+    original_aspect_ratio = fields.String(allow_none=True, missing="unknown")
     # Metadata
     processed_tier = fields.String()
     processing_time = fields.Float()
@@ -192,26 +200,6 @@ class VideoResponseSchema(Schema):
     # Error handling
     error_message = fields.String()
     retry_count = fields.Integer()
-
-    # # custom field to handle both string and datetime
-    # @post_dump
-    # def prepare_datetime(self, data, **kwargs):
-    #     """Ensure datetime fields are properly formatted."""
-    #     for field in [
-    #         "created_at",
-    #         "updated_at",
-    #         "processing_started",
-    #         "processing_completed",
-    #         "scheduled_for_deletion",
-    #     ]:
-    #         if data.get(field) and isinstance(data[field], datetime):
-    #             data[field] = data[field].isoformat()
-    #         elif data.get(field) and isinstance(data[field], str):
-    #             # Already a string, keep as is
-    #             pass
-    #         else:
-    #             data[field] = None
-    #     return data
 
 
 class VideoListSchema(Schema):
@@ -284,3 +272,32 @@ class ExportSchema(Schema):
             )
         )
     )
+
+
+class VideoRegenerateThumbnailSchema(Schema):
+    """Regenerate thumbnail request schema."""
+
+    concept = fields.String(validate=validate.Length(max=200))
+    style = fields.String(
+        validate=validate.OneOf(["default", "cinematic", "bright", "dark"])
+    )
+
+
+class VideoRegenerateMetadataSchema(Schema):
+    """Regenerate metadata request schema."""
+
+    concept = fields.String(validate=validate.Length(max=200), missing="different")
+    regenerate_title = fields.Boolean(missing=True)
+    regenerate_description = fields.Boolean(missing=True)
+    regenerate_tags = fields.Boolean(missing=True)
+
+
+class RegenerationResponseSchema(Schema):
+    """Regeneration response schema."""
+
+    success = fields.Boolean()
+    message = fields.String()
+    regenerations_remaining = fields.Integer()
+    data = fields.Dict()
+    """Schema for thumbnail regeneration."""
+    concept = fields.String(validate=validate.Length(max=200), missing="different")

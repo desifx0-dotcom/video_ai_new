@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from functools import wraps
 
 from app.middleware.auth import admin_required
 from core.exceptions import ValidationError
@@ -22,17 +23,45 @@ user_service = UserService()
 video_service = VideoService()
 billing_service = BillingService()
 tier_service = TierService()
-# db = FirebaseProvider()
 
+# Initialize database provider
 if (
     os.getenv("FLASK_ENV") == "development"
     and os.getenv("DATABASE_PROVIDER") == "memory"
 ):
-    # Use mock for development
     db = None
     print("✅ Admin using mock Firebase")
 else:
-    db = FirebaseProvider()
+    try:
+        db = FirebaseProvider()
+        print("✅ Admin using Firebase")
+    except Exception as e:
+        print(f"⚠️ Admin Firebase init failed: {e}")
+        db = None
+
+
+def admin_required_decorator(f):
+    """Decorator to ensure admin access."""
+
+    @wraps(f)
+    @jwt_required()
+    def decorated_function(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = user_service.get_user_by_id(user_id)
+
+        if not user or not getattr(user, "is_admin", False):
+            return jsonify({"error": "Admin access required"}), 403
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+# Use the decorator from middleware if available, otherwise use our fallback
+try:
+    from app.middleware.auth import admin_required
+except ImportError:
+    admin_required = admin_required_decorator
 
 
 @admin_bp.route("/dashboard", methods=["GET"])
@@ -40,31 +69,56 @@ else:
 def admin_dashboard():
     """Get admin dashboard statistics."""
     try:
+        if not db:
+            return (
+                jsonify(
+                    {
+                        "error": "Database not available",
+                        "message": "Admin dashboard requires database connection",
+                    }
+                ),
+                503,
+            )
+
         # Get user statistics
-        total_users = db.count("users")
-        active_users = db.count("users", {"is_active": True})
+        total_users = db.count("users") if db else 0
+        active_users = db.count("users", {"status": "active"}) if db else 0
         users_by_tier = {}
 
         for tier in ["free", "starter", "pro", "plus", "enterprise"]:
-            users_by_tier[tier] = db.count("users", {"tier": tier})
+            users_by_tier[tier] = db.count("users", {"tier": tier}) if db else 0
 
         # Get video statistics
-        total_videos = db.count("videos")
-        completed_videos = db.count("videos", {"status": "completed"})
-        failed_videos = db.count("videos", {"status": "failed"})
+        total_videos = db.count("videos") if db else 0
+        completed_videos = db.count("videos", {"status": "completed"}) if db else 0
+        failed_videos = db.count("videos", {"status": "failed"}) if db else 0
 
         # Get processing statistics
         videos_by_tier = {}
         for tier in ["free", "starter", "pro", "plus"]:
-            videos_by_tier[tier] = db.count("videos", {"processed_tier": tier})
+            videos_by_tier[tier] = (
+                db.count("videos", {"processed_tier": tier}) if db else 0
+            )
 
         # Get revenue statistics (would come from Stripe)
-        revenue_stats = billing_service.get_revenue_stats()
+        try:
+            revenue_stats = (
+                billing_service.get_revenue_stats() if billing_service else {"total": 0}
+            )
+        except:
+            revenue_stats = {"total": 0}
 
         # Get system metrics
-        from tasks.monitoring_tasks import check_system_health_task
+        try:
+            from tasks.monitoring_tasks import check_system_health_task
 
-        system_health = check_system_health_task.apply().get(timeout=10)
+            system_health = (
+                check_system_health_task.apply().get(timeout=5)
+                if check_system_health_task
+                else {}
+            )
+        except:
+            system_health = {"status": "unknown"}
 
         return (
             jsonify(
@@ -89,7 +143,7 @@ def admin_dashboard():
         )
 
     except Exception as e:
-        current_app.logger.error(f"Admin dashboard error: {e}")
+        current_app.logger.error(f"Admin dashboard error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -98,6 +152,9 @@ def admin_dashboard():
 def list_users():
     """List all users with pagination."""
     try:
+        if not db:
+            return jsonify({"error": "Database not available"}), 503
+
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
         search = request.args.get("search", "")
@@ -109,20 +166,23 @@ def list_users():
         if tier:
             filters["tier"] = tier
         if active_only:
-            filters["is_active"] = True
+            filters["status"] = "active"
 
         # Get users with pagination
-        users_data = db.query(
-            "users",
-            filters=filters,
-            order_by="created_at",
-            descending=True,
-            limit=per_page,
-            offset=(page - 1) * per_page,
-        )
+        try:
+            users_data = db.query(
+                "users",
+                filters=filters,
+                order_by="created_at",
+                descending=True,
+                limit=per_page,
+                offset=(page - 1) * per_page,
+            )
+        except:
+            users_data = []
 
         # Filter by search if provided
-        if search:
+        if search and users_data:
             users_data = [
                 user
                 for user in users_data
@@ -131,7 +191,7 @@ def list_users():
             ]
 
         # Get total count
-        total = db.count("users", filters)
+        total = db.count("users", filters) if db else 0
 
         return (
             jsonify(
@@ -141,7 +201,9 @@ def list_users():
                         "page": page,
                         "per_page": per_page,
                         "total": total,
-                        "total_pages": (total + per_page - 1) // per_page,
+                        "total_pages": (
+                            (total + per_page - 1) // per_page if total > 0 else 1
+                        ),
                     },
                 }
             ),
@@ -149,7 +211,7 @@ def list_users():
         )
 
     except Exception as e:
-        current_app.logger.error(f"List users error: {e}")
+        current_app.logger.error(f"List users error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -158,18 +220,36 @@ def list_users():
 def get_user(user_id):
     """Get detailed user information."""
     try:
-        user = user_service.get_user(user_id)
+        user = user_service.get_user_by_id(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
 
         # Get user's videos
-        videos = video_service.get_user_videos(user_id, limit=50)
+        videos = video_service.get_user_videos(user_id) if video_service else []
+        recent_videos = videos[:10] if videos else []
 
         # Get user's subscription info
-        subscription = billing_service.get_user_subscription(user_id)
+        try:
+            subscription = (
+                billing_service.get_user_subscription(user_id)
+                if billing_service
+                else None
+            )
+        except:
+            subscription = None
 
         # Get user's credit transactions
-        transactions = billing_service.get_user_credit_transactions(user_id)
+        try:
+            from services.credit_service import CreditService
+
+            credit_service = CreditService()
+            transactions = (
+                credit_service.get_transaction_history(user_id, limit=20)
+                if credit_service
+                else []
+            )
+        except:
+            transactions = []
 
         return (
             jsonify(
@@ -177,15 +257,29 @@ def get_user(user_id):
                     "user": user.to_dict(),
                     "videos": {
                         "total": len(videos),
-                        "recent": [v.to_dict() for v in videos[:10]],
+                        "recent": [
+                            v.to_dict() if hasattr(v, "to_dict") else v
+                            for v in recent_videos
+                        ],
                     },
-                    "subscription": subscription.to_dict() if subscription else None,
-                    "credit_transactions": [t.to_dict() for t in transactions[:20]],
+                    "subscription": (
+                        subscription.to_dict()
+                        if subscription and hasattr(subscription, "to_dict")
+                        else None
+                    ),
+                    "credit_transactions": transactions[:20],
                     "statistics": {
-                        "total_videos_processed": user.total_videos_processed,
-                        "total_processing_time": user.total_processing_time,
-                        "videos_this_month": user.videos_processed_this_month,
-                        "monthly_limit": user.monthly_video_limit,
+                        "total_videos_processed": getattr(
+                            user, "total_videos_processed", 0
+                        ),
+                        "total_processing_time": getattr(
+                            user, "total_processing_time", 0
+                        ),
+                        "videos_this_month": getattr(
+                            user, "videos_processed_this_month", 0
+                        ),
+                        "monthly_limit": getattr(user, "monthly_video_limit", 0),
+                        "credits_remaining": getattr(user, "credits_remaining", 0),
                     },
                 }
             ),
@@ -193,7 +287,7 @@ def get_user(user_id):
         )
 
     except Exception as e:
-        current_app.logger.error(f"Get user error: {e}")
+        current_app.logger.error(f"Get user error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -203,15 +297,18 @@ def update_user(user_id):
     """Update user information."""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
 
         # Validate update data
         allowed_fields = {
             "tier",
             "credits_remaining",
             "monthly_video_limit",
-            "is_active",
+            "status",
             "is_admin",
             "settings",
+            "full_name",
         }
 
         updates = {}
@@ -224,6 +321,9 @@ def update_user(user_id):
 
         # Update user
         updated_user = user_service.update_user(user_id, updates)
+
+        if not updated_user:
+            return jsonify({"error": "User not found"}), 404
 
         # Log the admin action
         current_app.logger.info(
@@ -247,7 +347,7 @@ def update_user(user_id):
         )
 
     except Exception as e:
-        current_app.logger.error(f"Update user error: {e}")
+        current_app.logger.error(f"Update user error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -257,7 +357,7 @@ def impersonate_user(user_id):
     """Generate a token to impersonate a user (for support)."""
     try:
         # Get the user
-        user = user_service.get_user(user_id)
+        user = user_service.get_user_by_id(user_id)
         if not user:
             return jsonify({"error": "User not found"}), 404
 
@@ -296,7 +396,7 @@ def impersonate_user(user_id):
         )
 
     except Exception as e:
-        current_app.logger.error(f"Impersonate user error: {e}")
+        current_app.logger.error(f"Impersonate user error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -305,6 +405,9 @@ def impersonate_user(user_id):
 def list_videos():
     """List all videos with filtering."""
     try:
+        if not db:
+            return jsonify({"error": "Database not available"}), 503
+
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
         status = request.args.get("status")
@@ -321,17 +424,20 @@ def list_videos():
             filters["user_id"] = user_id
 
         # Get videos with pagination
-        videos_data = db.query(
-            "videos",
-            filters=filters,
-            order_by="created_at",
-            descending=True,
-            limit=per_page,
-            offset=(page - 1) * per_page,
-        )
+        try:
+            videos_data = db.query(
+                "videos",
+                filters=filters,
+                order_by="created_at",
+                descending=True,
+                limit=per_page,
+                offset=(page - 1) * per_page,
+            )
+        except:
+            videos_data = []
 
         # Get total count
-        total = db.count("videos", filters)
+        total = db.count("videos", filters) if db else 0
 
         return (
             jsonify(
@@ -341,7 +447,9 @@ def list_videos():
                         "page": page,
                         "per_page": per_page,
                         "total": total,
-                        "total_pages": (total + per_page - 1) // per_page,
+                        "total_pages": (
+                            (total + per_page - 1) // per_page if total > 0 else 1
+                        ),
                     },
                 }
             ),
@@ -349,7 +457,7 @@ def list_videos():
         )
 
     except Exception as e:
-        current_app.logger.error(f"List videos error: {e}")
+        current_app.logger.error(f"List videos error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -358,15 +466,21 @@ def list_videos():
 def get_video(video_id):
     """Get detailed video information."""
     try:
+        if not db:
+            return jsonify({"error": "Database not available"}), 503
+
         video_data = db.get("videos", video_id)
         if not video_data:
             return jsonify({"error": "Video not found"}), 404
 
         # Get user information
-        user = user_service.get_user(video_data["user_id"])
+        user = user_service.get_user_by_id(video_data.get("user_id"))
 
         # Get processing job information
-        jobs = db.query("processing_jobs", {"video_id": video_id})
+        try:
+            jobs = db.query("processing_jobs", {"video_id": video_id})
+        except:
+            jobs = []
 
         return (
             jsonify(
@@ -385,7 +499,7 @@ def get_video(video_id):
         )
 
     except Exception as e:
-        current_app.logger.error(f"Get video error: {e}")
+        current_app.logger.error(f"Get video error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -394,13 +508,16 @@ def get_video(video_id):
 def reprocess_video(video_id):
     """Reprocess a video (admin override)."""
     try:
+        if not db:
+            return jsonify({"error": "Database not available"}), 503
+
         # Get video
         video_data = db.get("videos", video_id)
         if not video_data:
             return jsonify({"error": "Video not found"}), 404
 
         # Get user
-        user = user_service.get_user(video_data["user_id"])
+        user = user_service.get_user_by_id(video_data.get("user_id"))
         if not user:
             return jsonify({"error": "User not found"}), 404
 
@@ -409,7 +526,7 @@ def reprocess_video(video_id):
             duration = video_data.get("duration", 0)
             credits_needed = max(1, int(duration) // 60)
 
-            if user.credits_remaining < credits_needed:
+            if getattr(user, "credits_remaining", 0) < credits_needed:
                 # Admin override: add credits if needed
                 user_service.add_credits(user.id, credits_needed)
                 current_app.logger.info(
@@ -451,7 +568,7 @@ def reprocess_video(video_id):
         )
 
     except Exception as e:
-        current_app.logger.error(f"Reprocess video error: {e}")
+        current_app.logger.error(f"Reprocess video error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -462,8 +579,12 @@ def run_cleanup():
     try:
         days = int(request.args.get("days", 30))
 
-        # Run cleanup task
+        # Run cleanup task synchronously for admin view
+        from tasks.cleanup_tasks import cleanup_expired_data
+
         result = cleanup_expired_data(days)
+
+        current_app.logger.info(f"Admin triggered cleanup: {result}")
 
         return (
             jsonify(
@@ -473,7 +594,7 @@ def run_cleanup():
         )
 
     except Exception as e:
-        current_app.logger.error(f"Cleanup error: {e}")
+        current_app.logger.error(f"Cleanup error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -486,7 +607,7 @@ def toggle_maintenance():
         enabled = data.get("enabled", True)
         message = data.get("message", "System under maintenance")
 
-        # Update maintenance mode in Redis or database
+        # Update maintenance mode in Redis
         from providers.redis_provider import RedisProvider
 
         redis = RedisProvider()
@@ -526,7 +647,7 @@ def toggle_maintenance():
         )
 
     except Exception as e:
-        current_app.logger.error(f"Toggle maintenance error: {e}")
+        current_app.logger.error(f"Toggle maintenance error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -536,7 +657,7 @@ def get_config():
     """Get system configuration (non-sensitive)."""
     try:
         config = {
-            "tiers": tier_service.get_all_tiers(),
+            "tiers": tier_service.get_all_tiers() if tier_service else [],
             "rate_limits": current_app.config.get("RATE_LIMITS", {}),
             "feature_flags": current_app.config.get("FEATURE_FLAGS", {}),
             "max_file_sizes": current_app.config.get("FILE_SIZE_LIMITS", {}),
@@ -548,7 +669,7 @@ def get_config():
         return jsonify(config), 200
 
     except Exception as e:
-        current_app.logger.error(f"Get config error: {e}")
+        current_app.logger.error(f"Get config error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -558,6 +679,8 @@ def update_tier_config():
     """Update tier configuration."""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
 
         # Validate tier configuration
         required_fields = ["price_monthly", "videos_per_month", "max_video_length"]
@@ -576,7 +699,6 @@ def update_tier_config():
                     )
 
         # Update tier configuration
-        # This would typically save to a configuration file or database
         from core.config.settings import settings
 
         settings.set("tiers", data)
@@ -599,7 +721,7 @@ def update_tier_config():
         )
 
     except Exception as e:
-        current_app.logger.error(f"Update tier config error: {e}")
+        current_app.logger.error(f"Update tier config error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -621,135 +743,210 @@ def get_analytics():
         return jsonify(analytics), 200
 
     except Exception as e:
-        current_app.logger.error(f"Get analytics error: {e}")
+        current_app.logger.error(f"Get analytics error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
 def get_user_analytics(period):
     """Get user analytics for period."""
-    from datetime import datetime, timedelta
+    try:
+        from datetime import datetime, timedelta
 
-    end_date = datetime.utcnow()
+        end_date = datetime.utcnow()
 
-    if period == "day":
-        start_date = end_date - timedelta(days=1)
-    elif period == "week":
-        start_date = end_date - timedelta(weeks=1)
-    elif period == "month":
-        start_date = end_date - timedelta(days=30)
-    elif period == "year":
-        start_date = end_date - timedelta(days=365)
-    else:
-        start_date = end_date - timedelta(days=7)
+        if period == "day":
+            start_date = end_date - timedelta(days=1)
+        elif period == "week":
+            start_date = end_date - timedelta(weeks=1)
+        elif period == "month":
+            start_date = end_date - timedelta(days=30)
+        elif period == "year":
+            start_date = end_date - timedelta(days=365)
+        else:
+            start_date = end_date - timedelta(days=7)
 
-    # Query users created in period
-    users = db.query(
-        "users",
-        filters={
-            "created_at": {">=": start_date.isoformat(), "<=": end_date.isoformat()}
-        },
-    )
+        if not db:
+            return {
+                "total": 0,
+                "by_tier": {},
+                "period": period,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            }
 
-    # Calculate metrics
-    total = len(users)
-    by_tier = {}
-    for user in users:
-        tier = user.get("tier", "free")
-        by_tier[tier] = by_tier.get(tier, 0) + 1
+        # Query users created in period
+        users = (
+            db.query(
+                "users",
+                filters={
+                    "created_at": {
+                        ">=": start_date.isoformat(),
+                        "<=": end_date.isoformat(),
+                    }
+                },
+            )
+            or []
+        )
 
-    return {
-        "total": total,
-        "by_tier": by_tier,
-        "period": period,
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
-    }
+        # Calculate metrics
+        total = len(users)
+        by_tier = {}
+        for user in users:
+            tier = user.get("tier", "free")
+            by_tier[tier] = by_tier.get(tier, 0) + 1
+
+        return {
+            "total": total,
+            "by_tier": by_tier,
+            "period": period,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        }
+
+    except Exception as e:
+        current_app.logger.error(f"Get user analytics error: {e}", exc_info=True)
+        return {"total": 0, "by_tier": {}, "period": period, "error": str(e)}
 
 
 def get_video_analytics(period):
     """Get video analytics for period."""
-    from datetime import datetime, timedelta
+    try:
+        from datetime import datetime, timedelta
 
-    end_date = datetime.utcnow()
+        end_date = datetime.utcnow()
 
-    if period == "day":
-        start_date = end_date - timedelta(days=1)
-    elif period == "week":
-        start_date = end_date - timedelta(weeks=1)
-    elif period == "month":
-        start_date = end_date - timedelta(days=30)
-    elif period == "year":
-        start_date = end_date - timedelta(days=365)
-    else:
-        start_date = end_date - timedelta(days=7)
+        if period == "day":
+            start_date = end_date - timedelta(days=1)
+        elif period == "week":
+            start_date = end_date - timedelta(weeks=1)
+        elif period == "month":
+            start_date = end_date - timedelta(days=30)
+        elif period == "year":
+            start_date = end_date - timedelta(days=365)
+        else:
+            start_date = end_date - timedelta(days=7)
 
-    # Query videos processed in period
-    videos = db.query(
-        "videos",
-        filters={
-            "processing_completed": {
-                ">=": start_date.isoformat(),
-                "<=": end_date.isoformat(),
-            },
-            "status": "completed",
-        },
-    )
+        if not db:
+            return {
+                "total": 0,
+                "total_cost": 0,
+                "average_processing_time": 0,
+                "by_tier": {},
+                "by_type": {},
+                "period": period,
+            }
 
-    # Calculate metrics
-    total = len(videos)
-    total_cost = sum(v.get("total_cost", 0) for v in videos)
-    avg_processing_time = (
-        sum(v.get("processing_time", 0) for v in videos) / total if total > 0 else 0
-    )
+        # Query videos processed in period
+        videos = (
+            db.query(
+                "videos",
+                filters={
+                    "processing_completed": {
+                        ">=": start_date.isoformat(),
+                        "<=": end_date.isoformat(),
+                    },
+                    "status": "completed",
+                },
+            )
+            or []
+        )
 
-    by_tier = {}
-    by_type = {}
+        # Calculate metrics
+        total = len(videos)
+        total_cost = sum(v.get("total_cost", 0) for v in videos)
+        avg_processing_time = (
+            sum(v.get("processing_time", 0) for v in videos) / total if total > 0 else 0
+        )
 
-    for video in videos:
-        tier = video.get("processed_tier", "free")
-        video_type = video.get("video_type", "unknown")
+        by_tier = {}
+        by_type = {}
 
-        by_tier[tier] = by_tier.get(tier, 0) + 1
-        by_type[video_type] = by_type.get(video_type, 0) + 1
+        for video in videos:
+            tier = video.get("processed_tier", "free")
+            video_type = video.get("video_type", "unknown")
 
-    return {
-        "total": total,
-        "total_cost": total_cost,
-        "average_processing_time": avg_processing_time,
-        "by_tier": by_tier,
-        "by_type": by_type,
-        "period": period,
-    }
+            by_tier[tier] = by_tier.get(tier, 0) + 1
+            by_type[video_type] = by_type.get(video_type, 0) + 1
+
+        return {
+            "total": total,
+            "total_cost": total_cost,
+            "average_processing_time": avg_processing_time,
+            "by_tier": by_tier,
+            "by_type": by_type,
+            "period": period,
+        }
+
+    except Exception as e:
+        current_app.logger.error(f"Get video analytics error: {e}", exc_info=True)
+        return {
+            "total": 0,
+            "total_cost": 0,
+            "average_processing_time": 0,
+            "by_tier": {},
+            "by_type": {},
+            "period": period,
+            "error": str(e),
+        }
 
 
 def get_revenue_analytics(period):
     """Get revenue analytics for period."""
-    # This would typically query Stripe or billing database
-    # For now, return mock data
-    return {
-        "total_revenue": 0,
-        "recurring_revenue": 0,
-        "one_time_revenue": 0,
-        "by_tier": {},
-        "period": period,
-    }
+    try:
+        # This would typically query Stripe or billing database
+        # For now, return mock data with proper structure
+        return {
+            "total_revenue": 0,
+            "recurring_revenue": 0,
+            "one_time_revenue": 0,
+            "by_tier": {},
+            "period": period,
+            "message": "Revenue analytics will be available after Stripe integration",
+        }
+
+    except Exception as e:
+        current_app.logger.error(f"Get revenue analytics error: {e}", exc_info=True)
+        return {
+            "total_revenue": 0,
+            "recurring_revenue": 0,
+            "one_time_revenue": 0,
+            "by_tier": {},
+            "period": period,
+            "error": str(e),
+        }
 
 
 def get_system_analytics(period):
     """Get system performance analytics."""
-    from providers.redis_provider import RedisProvider
+    try:
+        from providers.redis_provider import RedisProvider
 
-    redis = RedisProvider()
+        redis = RedisProvider()
 
-    # Get system metrics from Redis
-    system_health = redis.get("system_health") or {}
-    business_metrics = redis.get("business_metrics_24h") or {}
+        # Get system metrics from Redis
+        system_health = {}
+        business_metrics = {}
 
-    return {
-        "system_health": system_health,
-        "business_metrics": business_metrics,
-        "period": period,
-    }
+        try:
+            system_health = redis.get("system_health") or {}
+            business_metrics = redis.get("business_metrics_24h") or {}
+        except:
+            pass
+
+        return {
+            "system_health": system_health,
+            "business_metrics": business_metrics,
+            "period": period,
+        }
+
+    except Exception as e:
+        current_app.logger.error(f"Get system analytics error: {e}", exc_info=True)
+        return {
+            "system_health": {},
+            "business_metrics": {},
+            "period": period,
+            "error": str(e),
+        }
 
 
 @admin_bp.route("/logs", methods=["GET"])
@@ -766,7 +963,7 @@ def get_logs():
         logs = []
 
         if os.path.exists(log_file):
-            with open(log_file, "r") as f:
+            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                 # Read last N lines efficiently
                 total_lines_wanted = lines
 
@@ -815,5 +1012,20 @@ def get_logs():
         )
 
     except Exception as e:
-        current_app.logger.error(f"Get logs error: {e}")
+        current_app.logger.error(f"Get logs error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/health", methods=["GET"])
+def health_check():
+    """Simple health check (no auth required)."""
+    return (
+        jsonify(
+            {
+                "status": "healthy",
+                "service": "video-ai-studio",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        ),
+        200,
+    )

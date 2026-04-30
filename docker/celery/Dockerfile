@@ -55,7 +55,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import redis; r = redis.Redis.from_url('${REDIS_URL}', socket_connect_timeout=1); r.ping()" || exit 1
+    CMD python -c "import redis; import os; r = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'), socket_connect_timeout=1); r.ping()" || exit 1
 
-# Run Celery worker
-CMD ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+# 🔥 FIXED: Correct syntax for CMD
+CMD ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--pool=solo", "--concurrency=1"]

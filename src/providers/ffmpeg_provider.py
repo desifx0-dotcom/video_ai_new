@@ -24,7 +24,23 @@ class FFmpegProvider:
         self.ffprobe_path = ffprobe_path or os.getenv("FFPROBE_PATH", "ffprobe")
 
         # Test FFmpeg installation
-        self._test_ffmpeg()
+        # self._test_ffmpeg()
+
+        # lazy initialization
+        self._ffmpeg_available = None
+
+    def _ensure_ffmpeg(self):
+        """Lazy test FFmpeg - only when first used."""
+        if self._ffmpeg_available is not None:
+            return
+        try:
+            subprocess.run(
+                [self.ffmpeg_path, "-version"], capture_output=True, timeout=5
+            )
+            self._ffmpeg_available = True
+        except Exception:
+            self._ffmpeg_available = False
+            raise ProcessingError("FFmpeg not found")
 
     def _test_ffmpeg(self):
         """Test FFmpeg installation."""
@@ -50,6 +66,8 @@ class FFmpegProvider:
         Returns:
             Duration in seconds
         """
+        self._ensure_ffmpeg()
+
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
 
@@ -80,15 +98,10 @@ class FFmpegProvider:
             raise ProcessingError(f"Failed to get video duration: {str(e)}")
 
     def get_video_metadata(self, video_path: str) -> Dict[str, Any]:
-        """
-        Get comprehensive video metadata.
+        """Get comprehensive video metadata."""
 
-        Args:
-            video_path: Path to video file
+        self._ensure_ffmpeg()
 
-        Returns:
-            Video metadata
-        """
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
 
@@ -98,9 +111,9 @@ class FFmpegProvider:
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=codec_type,codec_name,width,height,pix_fmt,duration,r_frame_rate,bit_rate",
+                "stream=codec_type,codec_name,width,height,bit_rate,sample_rate,channels,r_frame_rate",
                 "-show_entries",
-                "format=duration,size,bit_rate,format_name",
+                "format=duration,size,bit_rate",
                 "-of",
                 "json",
                 video_path,
@@ -123,12 +136,27 @@ class FFmpegProvider:
                 elif stream.get("codec_type") == "audio":
                     audio_stream = stream
 
-            # Calculate FPS
-            fps = 30.0  # Default
+            # Calculate FPS from r_frame_rate
+            fps = 0
             if video_stream and "r_frame_rate" in video_stream:
                 try:
                     num, den = video_stream["r_frame_rate"].split("/")
-                    fps = float(num) / float(den) if float(den) != 0 else 30.0
+                    fps = float(num) / float(den) if float(den) != 0 else 0
+                except:
+                    fps = 0
+
+            # Get audio bitrate
+            audio_bitrate = 0
+            if audio_stream and "bit_rate" in audio_stream:
+                try:
+                    audio_bitrate = int(audio_stream["bit_rate"])
+                except:
+                    audio_bitrate = 0
+
+            # If audio bitrate not in stream, try format
+            if audio_bitrate == 0 and data.get("format", {}).get("bit_rate"):
+                try:
+                    audio_bitrate = int(data["format"]["bit_rate"])
                 except:
                     pass
 
@@ -140,26 +168,27 @@ class FFmpegProvider:
                     "codec": (
                         video_stream.get("codec_name", "") if video_stream else None
                     ),
-                    "width": (
-                        int(video_stream.get("width", 0)) if video_stream else None
-                    ),
-                    "height": (
-                        int(video_stream.get("height", 0)) if video_stream else None
-                    ),
-                    "pix_fmt": (
-                        video_stream.get("pix_fmt", "") if video_stream else None
-                    ),
-                    "fps": fps,
+                    "width": int(video_stream.get("width", 0)) if video_stream else 0,
+                    "height": int(video_stream.get("height", 0)) if video_stream else 0,
+                    "fps": round(fps, 2) if fps > 0 else 0,
                     "bitrate": (
-                        int(video_stream.get("bit_rate", 0)) if video_stream else None
+                        int(video_stream.get("bit_rate", 0))
+                        if video_stream and video_stream.get("bit_rate")
+                        else 0
                     ),
                 },
                 "audio": {
                     "codec": (
                         audio_stream.get("codec_name", "") if audio_stream else None
                     ),
-                    "bitrate": (
-                        int(audio_stream.get("bit_rate", 0)) if audio_stream else None
+                    "bitrate": audio_bitrate,
+                    "sample_rate": (
+                        int(audio_stream.get("sample_rate", 0))
+                        if audio_stream and audio_stream.get("sample_rate")
+                        else 0
+                    ),
+                    "channels": (
+                        int(audio_stream.get("channels", 0)) if audio_stream else 0
                     ),
                 },
             }
@@ -181,6 +210,8 @@ class FFmpegProvider:
         Returns:
             True if successful
         """
+        self._ensure_ffmpeg()
+
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
 
@@ -226,59 +257,59 @@ class FFmpegProvider:
         """
         return self.get_video_duration(audio_path)  # FFprobe works for audio too
 
-    def extract_frame(
+    # Add this method to providers/ffmpeg_provider.py
+    def extract_frame_at_time(
         self,
         video_path: str,
         timestamp: float,
-        output_dir: str,
-        filename: str = "frame",
-    ) -> Optional[str]:
+        output_path: str,
+        width: int = 640,
+        height: int = 360,
+    ) -> bool:
         """
-        Extract frame from video at specific timestamp.
+        Extract frame at specific timestamp with resize.
 
         Args:
             video_path: Path to video file
-            timestamp: Timestamp in seconds
-            output_dir: Directory to save frame
-            filename: Base filename
+            timestamp: Time in seconds
+            output_path: Path to save the frame
+            width: Output width
+            height: Output height
 
         Returns:
-            Path to extracted frame, or None if failed
+            True if successful
         """
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
-
-        # Create output directory if it doesn't exist
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-        output_path = os.path.join(output_dir, f"{filename}.jpg")
 
         try:
             cmd = [
                 self.ffmpeg_path,
                 "-ss",
-                str(timestamp),  # Seek to position
+                str(timestamp),
                 "-i",
                 video_path,
-                "-vframes",  # vf means video filter
-                "1",  # Extract 1 frame
+                "-vf",
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+                "-vframes",
+                "1",
                 "-q:v",
-                "2",  # Quality (2-31, lower is better)
-                "-y",  # Overwrite output
+                "2",
+                "-y",
                 output_path,
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
             if result.returncode == 0 and os.path.exists(output_path):
-                return output_path
-            else:
-                logger.error(f"Frame extraction failed: {result.stderr}")
-                return None
+                return True
+
+            logger.error(f"Frame extraction failed: {result.stderr}")
+            return False
 
         except subprocess.SubprocessError as e:
             logger.error(f"Frame extraction failed: {str(e)}")
-            return None
+            return False
 
     def extract_multiple_frames(
         self, video_path: str, timestamps: List[float], output_dir: str
@@ -598,8 +629,6 @@ class FFmpegProvider:
             logger.error(f"Thumbnail grid creation failed: {str(e)}")
             return False
 
-    # In providers/ffmpeg_provider.py, add this method:
-
     def change_aspect_ratio(
         self, input_path: str, output_path: str, aspect_ratio: str
     ) -> bool:
@@ -707,10 +736,14 @@ class FFmpegProvider:
             "8k": {"width": 7680, "height": 4320, "bitrate": "16M"},
         }
 
-        # # Normalize quality string (handle variations like '480' vs '480p')
-        # normalized_quality = quality
-        # if quality == "480":
-        #     normalized_quality = "480p"
+        # Normalize quality string (handle variations like '480' vs '480p')
+        normalized_quality = quality
+        if quality == "480":
+            normalized_quality = "480p"
+        elif quality == "720":
+            normalized_quality = "720p"
+        elif quality == "1080":
+            normalized_quality = "1080p"
 
         if normalized_quality not in quality_map:
             logger.warning(f"Unknown quality: {quality}, defaulting to 720p")
@@ -820,16 +853,14 @@ class FFmpegProvider:
             logger.error(f"FPS change failed: {str(e)}")
             return False
 
-    def change_audio_quality(
-        self, input_path: str, output_path: str, bitrate: str
-    ) -> bool:
+    def apply_video_style(self, input_path: str, output_path: str, style: str) -> bool:
         """
-        Change audio quality/bitrate.
+        Apply cinematic/bright/dark/gaming style to video using FFmpeg filters.
 
         Args:
             input_path: Path to input video
             output_path: Path to output video
-            bitrate: Bitrate (original, 128k, 192k, 256k, 320k)
+            style: Style name (cinematic, bright, dark, gaming, etc.)
 
         Returns:
             True if successful
@@ -837,83 +868,234 @@ class FFmpegProvider:
         if not os.path.exists(input_path):
             raise ProcessingError(f"Input file not found: {input_path}")
 
-        if bitrate == "original":
-            import shutil
+        # Define filter chains for each style
+        style_filters = {
+            # Professional Base LUTs from portfolio sites
+            "cinematic": [
+                "eq=brightness=0.02:contrast=1.1:saturation=1.05:gamma=0.95",
+                "colorbalance=rs=0.02:gs=-0.01:bs=-0.03",
+                "colorchannelmixer=.9:.1:.1:0:.1:.9:.1:0:.1:.1:.9",
+                "curves=preset=filmstock",  # Strong film-like curve
+                "fps=24",  # Cinematic frame rate
+                "setsar=1:1",
+            ],
+            "bright": [
+                "eq=brightness=0.08:contrast=1.08:saturation=1.1",
+                "colorbalance=rs=0.02:gs=-0.01:bs=-0.02",
+                "unsharp=5:5:0.8:3:3:0.4",
+            ],
+            "dark": [
+                "eq=brightness=-0.05:contrast=1.15:saturation=1.08",
+                "colorbalance=rs=-0.03:gs=-0.02:bs=0.02",
+                "curves=preset=increase_contrast",
+            ],
+            "vibrant": [
+                "eq=saturation=1.2",
+                "colorbalance=rs=0.05:gs=0.01:bs=-0.01",
+                "unsharp=5:5:1.0:3:3:0.5",
+            ],
+            "cinematic_grade": [  # Advanced cinematic grade
+                "lut3d=file=/path/your_cube.cube",  # Replace with actual LUT path
+                "eq=gamma=0.95:contrast=1.05",
+                "colorbalance=rs=-0.02:gs=0.01:bs=0.03",
+            ],
+            "gaming": [
+                "eq=brightness=0.03:contrast=1.12:saturation=1.15:gamma=0.98",
+                "colorbalance=rs=0.08:gs=0.03:bs=-0.05",
+                "unsharp=5:5:1.2:3:3:0.6",
+            ],
+            "educational": [
+                "eq=brightness=0.01:contrast=1.05:saturation=1.02",
+                "colorbalance=rs=0.02:gs=0.01:bs=0.01",
+            ],
+            "cinematic": [
+                "eq=brightness=0.02:contrast=1.1:saturation=1.05:gamma=0.95",
+                "colorbalance=rs=0.02:gs=-0.01:bs=-0.03",
+            ],
+            "bright": ["eq=brightness=0.05:contrast=1.1:saturation=1.1"],
+            "dark": ["eq=brightness=-0.05:contrast=1.15"],
+            "vintage": [
+                "curves=preset=vintage",
+                "eq=saturation=0.8",
+                "colorbalance=rs=0.05:gs=0:bs=-0.05",
+            ],
+            "cartoon": ["edgedetect=low=0.1:high=0.3", "curves=preset=cross_process"],
+        }
 
-            shutil.copy2(input_path, output_path)
-            return True
+        # Get filters for the requested style
+        filters = style_filters.get(style, style_filters.get("cinematic"))
 
-        # Validate bitrate
-        valid_bitrates = ["128k", "192k", "256k", "320k"]
-        if bitrate not in valid_bitrates:
-            logger.warning(f"Unknown bitrate: {bitrate}, defaulting to 192k")
-            bitrate = "192k"
+        # Build filter complex string
+        filter_chain = ",".join(filters)
 
         try:
             cmd = [
                 self.ffmpeg_path,
                 "-i",
                 input_path,
+                "-vf",
+                filter_chain,
                 "-c:v",
-                "copy",  # Keep video unchanged
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
                 "-c:a",
-                "aac",
-                "-b:a",
-                bitrate,
+                "copy",
                 "-y",
                 output_path,
             ]
 
-            logger.info(f"Changing audio quality to {bitrate}")
-
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
             if result.returncode != 0:
-                logger.error(f"Audio quality change failed: {result.stderr}")
+                logger.error(f"Style application failed: {result.stderr}")
                 return False
 
-            logger.info(f"Successfully changed audio quality to {bitrate}")
+            logger.info(f"Successfully applied '{style}' style to {output_path}")
             return os.path.exists(output_path)
 
-        except subprocess.SubprocessError as e:
-            logger.error(f"Audio quality change failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Style application error: {str(e)}")
             return False
 
-    def test_ffmpeg(self) -> Dict[str, Any]:
-        """Test FFmpeg installation and capabilities."""
-        try:
-            # Get version
-            version_result = subprocess.run(
-                [self.ffmpeg_path, "-version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
+    def apply_multiple_styles(
+        self, input_path: str, output_path: str, styles: List[str]
+    ) -> bool:
+        """Apply multiple styles sequentially to a video."""
+        if not styles:
+            # No styles to apply, just copy
+            import shutil
+
+            shutil.copy2(input_path, output_path)
+            return True
+
+        current_input = input_path
+        temp_files = []
+
+        for i, style in enumerate(styles):
+            temp_output = (
+                output_path if i == len(styles) - 1 else f"{output_path}.temp_{i}.mp4"
             )
+            if i < len(styles) - 1:
+                temp_files.append(temp_output)
 
-            version_output = (
-                version_result.stdout.split("\n")[0]
-                if version_result.returncode == 0
-                else "Unknown"
-            )
+            if not self.apply_video_style(current_input, temp_output, style):
+                # Clean up temp files on failure
+                for f in temp_files:
+                    if os.path.exists(f):
+                        os.remove(f)
+                return False
 
-            # Get supported codecs
-            codecs_result = subprocess.run(
-                [self.ffmpeg_path, "-codecs"], capture_output=True, text=True, timeout=5
-            )
+            current_input = temp_output
 
-            supported_codecs = []
-            if codecs_result.returncode == 0:
-                for line in codecs_result.stdout.split("\n"):
-                    if "libx264" in line or "libx265" in line or "aac" in line:
-                        supported_codecs.append(line.strip())
+        # Clean up temporary files
+        for f in temp_files:
+            if os.path.exists(f) and f != output_path:
+                os.remove(f)
 
-            return {
-                "installed": True,
-                "version": version_output,
-                "ffmpeg_path": self.ffmpeg_path,
-                "ffprobe_path": self.ffprobe_path,
-                "supported_codecs": supported_codecs[:10],  # First 10
-            }
+        return True
 
-        except Exception as e:
-            return {"installed": False, "error": str(e)}
+        def change_audio_quality(
+            self, input_path: str, output_path: str, bitrate: str
+        ) -> bool:
+            """
+            Change audio quality/bitrate.
+
+            Args:
+                input_path: Path to input video
+                output_path: Path to output video
+                bitrate: Bitrate (original, 128k, 192k, 256k, 320k)
+
+            Returns:
+                True if successful
+            """
+            if not os.path.exists(input_path):
+                raise ProcessingError(f"Input file not found: {input_path}")
+
+            if bitrate == "original":
+                import shutil
+
+                shutil.copy2(input_path, output_path)
+                return True
+
+            # Validate bitrate
+            valid_bitrates = ["128k", "192k", "256k", "320k"]
+            if bitrate not in valid_bitrates:
+                logger.warning(f"Unknown bitrate: {bitrate}, defaulting to 192k")
+                bitrate = "192k"
+
+            try:
+                cmd = [
+                    self.ffmpeg_path,
+                    "-i",
+                    input_path,
+                    "-c:v",
+                    "copy",  # Keep video unchanged
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    bitrate,
+                    "-y",
+                    output_path,
+                ]
+
+                logger.info(f"Changing audio quality to {bitrate}")
+
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=300
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"Audio quality change failed: {result.stderr}")
+                    return False
+
+                logger.info(f"Successfully changed audio quality to {bitrate}")
+                return os.path.exists(output_path)
+
+            except subprocess.SubprocessError as e:
+                logger.error(f"Audio quality change failed: {str(e)}")
+                return False
+
+        def test_ffmpeg(self) -> Dict[str, Any]:
+            """Test FFmpeg installation and capabilities."""
+            try:
+                # Get version
+                version_result = subprocess.run(
+                    [self.ffmpeg_path, "-version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+
+                version_output = (
+                    version_result.stdout.split("\n")[0]
+                    if version_result.returncode == 0
+                    else "Unknown"
+                )
+
+                # Get supported codecs
+                codecs_result = subprocess.run(
+                    [self.ffmpeg_path, "-codecs"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+
+                supported_codecs = []
+                if codecs_result.returncode == 0:
+                    for line in codecs_result.stdout.split("\n"):
+                        if "libx264" in line or "libx265" in line or "aac" in line:
+                            supported_codecs.append(line.strip())
+
+                return {
+                    "installed": True,
+                    "version": version_output,
+                    "ffmpeg_path": self.ffmpeg_path,
+                    "ffprobe_path": self.ffprobe_path,
+                    "supported_codecs": supported_codecs[:10],  # First 10
+                }
+
+            except Exception as e:
+                return {"installed": False, "error": str(e)}

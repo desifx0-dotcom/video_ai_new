@@ -110,19 +110,24 @@ class AIModel(str, Enum):
     WHISPER_LARGE = "whisper-large"
 
     # Text Generation
-    GEMINI_FLASH = "gemini-1.5-flash"
-    GEMINI_PRO = "gemini-1.5-pro"
+    GEMINI_FLASH_LITE = "gemini-1.5-flash-lite"
+    GEMINI_PRO = "gemini-2.0-pro"
     GPT_3_5_TURBO = "gpt-3.5-turbo"
     GPT_4 = "gpt-4"
     GPT_4_TURBO = "gpt-4-turbo"
 
     # Image Generation
-    STABLE_DIFFUSION_3_5 = "sd-3.5-medium"
-    STABLE_DIFFUSION_XL = "sd-xl"
-    STABLE_DIFFUSION_3_6_TURBO = "sd-3.6-turbo"
+    STABLE_DIFFUSION_TURBO = "sdxl-turbo"  # Fast + cheap (Free/Starter)
+    STABLE_DIFFUSION_SDXL = "sdxl"  # High quality (Pro/Plus)
+    STABLE_DIFFUSION_ULTRA = "ultra"  # Best quality (Enterprise)
+
+    # Legacy aliases (for backward compatibility)
+    STABLE_DIFFUSION_3_5 = "sdxl-turbo"
+    STABLE_DIFFUSION_XL = "sdxl"
+    STABLE_DIFFUSION_3_6_TURBO = "ultra"
 
     # Vision
-    GEMINI_PRO_VISION = "gemini-1.5-pro-vision"
+    GEMINI_PRO_VISION = "gemini-2.0-flash"
     GPT_4_VISION = "gpt-4-vision"
 
 
@@ -210,10 +215,10 @@ THUMBNAIL_STEPS = {
 
 # Text generation models per tier
 TEXT_MODELS = {
-    "free": AIModel.GEMINI_FLASH,
-    "starter": AIModel.GEMINI_FLASH,
+    "free": AIModel.GEMINI_FLASH_LITE,
+    "starter": AIModel.GEMINI_FLASH_LITE,
     "pro": AIModel.GEMINI_PRO,
-    "plus": AIModel.GPT_4_TURBO,
+    "plus": AIModel.GEMINI_PRO,
     "enterprise": AIModel.GPT_4_TURBO,
 }
 

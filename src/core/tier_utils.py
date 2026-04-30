@@ -853,9 +853,6 @@ def get_languages() -> List[Dict[str, str]]:
     ]
 
 
-"""Tier utilities for determining user capabilities and limits."""
-
-
 def get_timezones() -> List[str]:
     """Get list of common timezones."""
     return [
@@ -906,27 +903,46 @@ def get_timezones() -> List[str]:
 def get_available_qualities(tier: str) -> List[Dict[str, Any]]:
     """Get available video qualities based on user tier."""
     all_qualities = [
-        {"value": "480p", "label": "480p (SD)", "available": True, "required_tier": "free"},
-        {"value": "720p", "label": "720p (HD)", "available": True, "required_tier": "free"},
-        {"value": "1080p", "label": "1080p (Full HD)", "available": True, "required_tier": "starter"},
-        {"value": "1440p", "label": "1440p (2K)", "available": False, "required_tier": "pro"},
-        {"value": "2160p", "label": "2160p (4K)", "available": False, "required_tier": "plus"},
+        {
+            "value": "480p",
+            "label": "480p (SD)",
+            "available": True,
+            "required_tier": "free",
+        },
+        {
+            "value": "720p",
+            "label": "720p (HD)",
+            "available": True,
+            "required_tier": "free",
+        },
+        {
+            "value": "1080p",
+            "label": "1080p (Full HD)",
+            "available": True,
+            "required_tier": "starter",
+        },
+        {
+            "value": "1440p",
+            "label": "1440p (2K)",
+            "available": False,
+            "required_tier": "pro",
+        },
+        {
+            "value": "2160p",
+            "label": "2160p (4K)",
+            "available": False,
+            "required_tier": "plus",
+        },
     ]
-    
-    tier_rank = {
-        "free": 0,
-        "starter": 1,
-        "pro": 2,
-        "plus": 3,
-        "enterprise": 4
-    }
-    
+
+    tier_rank = {"free": 0, "starter": 1, "pro": 2, "plus": 3, "enterprise": 4}
+
     user_rank = tier_rank.get(tier, 0)
-    
+
     for quality in all_qualities:
         required_rank = tier_rank.get(quality["required_tier"], 0)
         quality["available"] = user_rank >= required_rank
-    
+
     return all_qualities
 
 
@@ -938,106 +954,94 @@ def get_available_styles(tier: str) -> List[Dict[str, Any]]:
             "name": "Cinematic",
             "description": "Movie-like color grading and aspect ratio",
             "available": True,
-            "required_tier": "free"
+            "required_tier": "free",
         },
         {
             "id": "vintage",
             "name": "Vintage",
             "description": "Warm, retro film look with grain",
             "available": True,
-            "required_tier": "free"
+            "required_tier": "free",
         },
         {
             "id": "black_and_white",
             "name": "Black & White",
             "description": "Classic monochrome effect",
             "available": True,
-            "required_tier": "free"
+            "required_tier": "free",
         },
         {
             "id": "educational",
             "name": "Educational",
             "description": "Bright, clear visuals with text overlay support",
             "available": True,
-            "required_tier": "starter"
+            "required_tier": "starter",
         },
         {
             "id": "gaming",
             "name": "Gaming",
             "description": "High contrast, vibrant colors for gameplay",
             "available": True,
-            "required_tier": "starter"
+            "required_tier": "starter",
         },
         {
             "id": "vlog",
             "name": "Vlog",
             "description": "Natural, balanced look for personal videos",
             "available": True,
-            "required_tier": "starter"
+            "required_tier": "starter",
         },
         {
             "id": "cinematic_pro",
             "name": "Cinematic Pro",
             "description": "Advanced color grading with LUT support",
             "available": False,
-            "required_tier": "pro"
+            "required_tier": "pro",
         },
         {
             "id": "anime",
             "name": "Anime",
             "description": "Stylized filter for animated content",
             "available": False,
-            "required_tier": "pro"
+            "required_tier": "pro",
         },
         {
             "id": "music_video",
             "name": "Music Video",
             "description": "Dynamic effects and transitions",
             "available": False,
-            "required_tier": "plus"
+            "required_tier": "plus",
         },
         {
             "id": "corporate",
             "name": "Corporate",
             "description": "Professional, clean look for business",
             "available": False,
-            "required_tier": "enterprise"
+            "required_tier": "enterprise",
         },
         {
             "id": "custom_lut",
             "name": "Custom LUT",
             "description": "Upload and apply your own LUTs",
             "available": False,
-            "required_tier": "enterprise"
-        }
+            "required_tier": "enterprise",
+        },
     ]
-    
-    tier_rank = {
-        "free": 0,
-        "starter": 1,
-        "pro": 2,
-        "plus": 3,
-        "enterprise": 4
-    }
-    
+
+    tier_rank = {"free": 0, "starter": 1, "pro": 2, "plus": 3, "enterprise": 4}
+
     user_rank = tier_rank.get(tier, 0)
-    
+
     for style in all_styles:
         required_rank = tier_rank.get(style["required_tier"], 0)
         style["available"] = user_rank >= required_rank
-    
+
     return all_styles
 
 
 def get_rate_limits() -> Dict[str, int]:
     """Get API rate limits per tier."""
-    return {
-        "free": 100,
-        "starter": 500,
-        "pro": 2000,
-        "plus": 5000,
-        "enterprise": 10000
-    }
+    return {"free": 100, "starter": 500, "pro": 2000, "plus": 5000, "enterprise": 10000}
 
 
 def get_tier_color(tier: str) -> str:
@@ -1047,32 +1051,20 @@ def get_tier_color(tier: str) -> str:
         "starter": "primary",
         "pro": "success",
         "plus": "warning",
-        "enterprise": "danger"
+        "enterprise": "danger",
     }
     return colors.get(tier, "secondary")
 
 
 def get_max_duration(tier: str) -> int:
     """Get max video duration in minutes based on tier."""
-    durations = {
-        "free": 3,
-        "starter": 15,
-        "pro": 60,
-        "plus": 120,
-        "enterprise": 240
-    }
+    durations = {"free": 3, "starter": 15, "pro": 60, "plus": 120, "enterprise": 240}
     return durations.get(tier, 3)
 
 
 def get_retention_days(tier: str) -> int:
     """Get video retention period in days based on tier."""
-    retention = {
-        "free": 1,
-        "starter": 7,
-        "pro": 30,
-        "plus": 90,
-        "enterprise": 365
-    }
+    retention = {"free": 1, "starter": 7, "pro": 30, "plus": 90, "enterprise": 365}
     return retention.get(tier, 1)
 
 
@@ -1083,20 +1075,14 @@ def get_max_quality(tier: str) -> str:
         "starter": "1080p",
         "pro": "1440p",
         "plus": "2160p",
-        "enterprise": "2160p"
+        "enterprise": "2160p",
     }
     return qualities.get(tier, "720p")
 
 
 def get_ai_thumbnails_count(tier: str) -> int:
     """Get number of AI-generated thumbnails based on tier."""
-    counts = {
-        "free": 1,
-        "starter": 3,
-        "pro": 5,
-        "plus": 10,
-        "enterprise": 20
-    }
+    counts = {"free": 1, "starter": 3, "pro": 5, "plus": 10, "enterprise": 20}
     return counts.get(tier, 1)
 
 
@@ -1107,32 +1093,20 @@ def get_queue_priority(tier: str) -> str:
         "starter": "Normal",
         "pro": "High",
         "plus": "Highest",
-        "enterprise": "Real-time"
+        "enterprise": "Real-time",
     }
     return priorities.get(tier, "Normal")
 
 
 def get_monthly_video_limit(tier: str) -> int:
     """Get monthly video processing limit based on tier."""
-    limits = {
-        "free": 3,
-        "starter": 50,
-        "pro": 100,
-        "plus": 500,
-        "enterprise": 10000
-    }
+    limits = {"free": 3, "starter": 50, "pro": 100, "plus": 500, "enterprise": 10000}
     return limits.get(tier, 3)
 
 
 def get_credits_per_minute(tier: str) -> float:
     """Get credits consumed per minute of video based on tier."""
-    rates = {
-        "free": 1.0,
-        "starter": 0.8,
-        "pro": 0.5,
-        "plus": 0.3,
-        "enterprise": 0.1
-    }
+    rates = {"free": 1.0, "starter": 0.8, "pro": 0.5, "plus": 0.3, "enterprise": 0.1}
     return rates.get(tier, 1.0)
 
 
@@ -1146,9 +1120,9 @@ def can_use_feature(tier: str, feature: str) -> bool:
         "api_access": ["starter", "pro", "plus", "enterprise"],
         "priority_support": ["plus", "enterprise"],
         "white_label": ["enterprise"],
-        "sso": ["enterprise"]
+        "sso": ["enterprise"],
     }
-    
+
     allowed_tiers = features.get(feature, [])
     return tier in allowed_tiers
 
@@ -1157,23 +1131,25 @@ def get_upgrade_options(current_tier: str) -> List[Dict[str, Any]]:
     """Get available upgrade options from current tier."""
     all_tiers = ["free", "starter", "pro", "plus", "enterprise"]
     current_index = all_tiers.index(current_tier) if current_tier in all_tiers else 0
-    
+
     options = []
     for i, tier in enumerate(all_tiers):
         if i > current_index:
-            options.append({
-                "tier": tier,
-                "name": tier.capitalize(),
-                "price_monthly": get_price(tier, "monthly"),
-                "price_yearly": get_price(tier, "yearly"),
-                "video_limit": get_monthly_video_limit(tier),
-                "max_duration": get_max_duration(tier),
-                "quality": get_max_quality(tier),
-                "retention": get_retention_days(tier),
-                "ai_thumbnails": get_ai_thumbnails_count(tier),
-                "priority": get_queue_priority(tier)
-            })
-    
+            options.append(
+                {
+                    "tier": tier,
+                    "name": tier.capitalize(),
+                    "price_monthly": get_price(tier, "monthly"),
+                    "price_yearly": get_price(tier, "yearly"),
+                    "video_limit": get_monthly_video_limit(tier),
+                    "max_duration": get_max_duration(tier),
+                    "quality": get_max_quality(tier),
+                    "retention": get_retention_days(tier),
+                    "ai_thumbnails": get_ai_thumbnails_count(tier),
+                    "priority": get_queue_priority(tier),
+                }
+            )
+
     return options
 
 
@@ -1184,6 +1160,6 @@ def get_price(tier: str, interval: str = "monthly") -> float:
         "starter": {"monthly": 24, "yearly": 240},
         "pro": {"monthly": 79, "yearly": 790},
         "plus": {"monthly": 249, "yearly": 2490},
-        "enterprise": {"monthly": 999, "yearly": 9990}
+        "enterprise": {"monthly": 999, "yearly": 9990},
     }
     return prices.get(tier, {}).get(interval, 0)

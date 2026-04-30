@@ -12,14 +12,13 @@
             </div>
         </div>
     </div>
-
     <div class="row mb-4">
         <div class="col-12">
             <div class="alert alert-info d-flex align-items-center justify-content-between">
                 <div>
                     <i class="fas fa-coins me-2 text-warning"></i>
                     <strong>Your Credits:</strong> 
-                    <span class="badge bg-primary ms-2">{{ current_user.credits_remaining|default(0) }}</span>
+                    <span class="fw-bold fs-3 text-primary ms-2">{{ current_user.credits_remaining|default(0) }}</span>
                     <small class="text-muted ms-3">Each video costs 1 credit</small>
                 </div>
                 {% if current_user.credits_remaining|default(0) < 1 %}
@@ -135,6 +134,9 @@
                                             <li><strong>Size:</strong> <span id="preview-size"></span></li>
                                             <li><strong>Duration:</strong> <span id="preview-duration"></span></li>
                                             <li><strong>Resolution:</strong> <span id="preview-resolution"></span></li>
+                                            <li><strong>Frame Rate (FPS):</strong> <span id="preview-fps">--</span></li>
+                                            <li><strong>Audio Quality:</strong> <span id="preview-audio-quality">--</span></li>
+                                            <li><strong>Aspect Ratio:</strong> <span id="preview-aspect-ratio">--</span></li>
                                         </ul>
                                     </div>
                                 </div>
@@ -212,26 +214,33 @@
                             </div>
                         </div>
 
-                        <!-- Thumbnail Style Selection - Will be updated based on video style -->
+                        <!-- Thumbnail Style Selection -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Thumbnail Style</label>
                             <select class="form-select" id="thumbnail-style">
-                                <option value="default">Default (Auto-match video style)</option>
+                                <!-- "Original" option at the top - ALWAYS shown regardless of tier -->
+                                <option value="default">Original (No style applied)</option>
+                                
+                                <!-- Dynamically load styles from backend, but filter out duplicates -->
+                                {% set seen_styles = [] %}
                                 {% for style in thumbnail_styles %}
-                                <option value="{{ style.id }}" 
-                                        data-video-match="{{ style.video_style_match }}"
-                                        {% if not style.available %}disabled{% endif %}>
-                                    {{ style.name }}
-                                    {% if not style.available %}({{ style.required_tier }}+){% endif %}
-                                </option>
+                                    {% if style.id != 'default' and style.id not in seen_styles %}
+                                        {% set _ = seen_styles.append(style.id) %}
+                                        <option value="{{ style.id }}"
+                                                data-video-match="{{ style.video_style_match }}"
+                                                {% if not style.available %}disabled{% endif %}>
+                                            {{ style.name }}
+                                            {% if not style.available %}({{ style.required_tier }}+){% endif %}
+                                        </option>
+                                    {% endif %}
                                 {% endfor %}
                             </select>
                             <div class="form-text">
-                                <span id="thumbnail-hint">Style for AI-generated thumbnails (recommended to match video style)</span>
+                                <span id="thumbnail-hint">Select a style for thumbnails. "Original" keeps the raw extracted frames.</span>
                             </div>
                         </div>
 
-                        <!-- Translation -->
+                        <!-- Translation Section -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Translate To</label>
                             <select class="form-select" id="translation-select">
@@ -240,8 +249,9 @@
                                 <option value="{{ lang.code }}">{{ lang.name }} ({{ lang.native }})</option>
                                 {% endfor %}
                             </select>
-                            <div class="form-text">
-                                Translate transcription and titles
+                            <div class="form-text" id="translation-info">
+                                <i class="fas fa-language me-1"></i>
+                                <span id="source-language-hint">Will translate titles, descriptions, and captions</span>
                             </div>
                         </div>
                     </div>
@@ -252,7 +262,7 @@
                                 data-bs-target="#advanced-options" aria-expanded="false">
                             <i class="fas fa-cog me-1"></i> Advanced Options
                         </button>
-                        
+
                         <div class="collapse mt-2" id="advanced-options">
                             <div class="card card-body">
                                 <div class="row">
@@ -263,7 +273,9 @@
                                             <option value="original">Original</option>
                                             <option value="24">24 fps</option>
                                             <option value="30">30 fps</option>
-                                            <option value="60">60 fps (Pro+)</option>
+                                            <option value="60" {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}>
+                                                60 fps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
+                                            </option>
                                         </select>
                                         <div class="form-text small text-muted">
                                             Adjust output frame rate. Higher = smoother motion
@@ -277,8 +289,12 @@
                                             <option value="original">Original</option>
                                             <option value="128k">128 kbps</option>
                                             <option value="192k">192 kbps</option>
-                                            <option value="256k">256 kbps (Pro+)</option>
-                                            <option value="320k">320 kbps (Plus+)</option>
+                                            <option value="256k" {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}>
+                                                256 kbps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
+                                            </option>
+                                            <option value="320k" {% if current_user.tier not in ['plus', 'enterprise'] %}disabled{% endif %}>
+                                                320 kbps {% if current_user.tier not in ['plus', 'enterprise'] %}(Plus+){% endif %}
+                                            </option>
                                         </select>
                                         <div class="form-text small text-muted">
                                             Higher bitrate = better audio quality
@@ -291,17 +307,20 @@
                                             <input class="form-check-input" type="checkbox" id="generate-chapters">
                                             <label class="form-check-label" for="generate-chapters">
                                                 Generate chapter markers
+                                                <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7rem;">Pro+</span>
                                             </label>
                                             <div class="form-text small text-muted">
-                                                Automatically detect and create video chapters (Pro+)
+                                                Automatically detect and create video chapters
                                             </div>
                                         </div>
 
                                         <!-- Process Silent Video -->
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="process-silent-video">
+                                                  <!-- {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}> -->
                                             <label class="form-check-label" for="process-silent-video">
                                                 Process silent video
+                                                <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7rem;">Pro+</span>
                                             </label>
                                             <div class="form-text small text-muted">
                                                 For videos without speech - uses visual analysis to generate content
@@ -309,8 +328,18 @@
                                         </div>
                                     </div>
                                 </div>
+                                
+                                <!-- Show upgrade message for Free tier users -->
+                                {% if current_user.tier in ['free', 'starter'] %}
+                                <div class="alert alert-info mt-3 mb-0 py-2">
+                                    <i class="fas fa-arrow-up me-2"></i>
+                                    <small>Upgrade to <strong>Pro</strong> to unlock advanced options like silent video processing, chapter markers, and higher frame rates.</small>
+                                    <a href="{{ url_for('pricing') }}" class="alert-link ms-2">Upgrade now →</a>
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -434,6 +463,7 @@
                 </div>
             </div>
 
+
             <!-- Help Card -->
             <div class="card mt-4">
                 <div class="card-header">
@@ -465,23 +495,53 @@
 
 
 {% block extra_js %}
+
 <style>
+/* ===== VIDEO PREVIEW STYLES ===== */
 .video-preview video {
     max-width: 100%;
     height: auto;
-    max-height: 300px; /* Limit height */
+    max-height: 300px;
     width: 100%;
     object-fit: contain;
+    background: #000;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .upload-preview .row {
     display: flex;
     flex-wrap: wrap;
+    gap: 20px;
 }
 
+/* Center and adjust loading section */
+.processing-animation {
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 10px 0;
+}
+
+/* Push the spinner down */
+.processing-animation .spinner-border,
+.processing-animation .processing-spinner {
+    margin-bottom: 20px;
+    display: inline-block;
+}
+
+/* Adjust title spacing */
+.processing-title {
+    margin-top: 10px;
+    margin-bottom: 8px;
+}
+
+/* Optional: Add more breathing room */
+.processing-subtitle {
+    margin-bottom: 0;
+}
 .upload-preview .col-md-6 {
-    flex: 0 0 50%;
-    max-width: 50%;
+    flex: 0 0 calc(50% - 10px);
+    max-width: calc(50% - 10px);
 }
 
 @media (max-width: 768px) {
@@ -489,22 +549,508 @@
         flex: 0 0 100%;
         max-width: 100%;
     }
-}#video-preview {
+}
+
+#video-preview {
     max-height: 300px;
     width: 100%;
     object-fit: contain;
     background-color: #000;
-    border-radius: 8px;
-  }
-  
-  /* Optional: Style the video container */
-  .video-preview {
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.video-preview {
     position: relative;
-    background-color: #1a1a1a;
-    border-radius: 8px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 12px;
     overflow: hidden;
     margin-bottom: 15px;
-  }
+    padding: 8px;
+}
+
+/* ===== PROCESSING MODAL STYLES - PROFESSIONAL DESIGN ===== */
+.processing-modal-content {
+    border: none;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.processing-modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 24px;
+    border-bottom: none;
+}
+
+.processing-modal-header .modal-title {
+    font-weight: 700;
+    font-size: 1.5rem;
+    letter-spacing: -0.5px;
+}
+
+.processing-modal-body {
+    padding: 32px 24px;
+    background: var(--bg-primary);
+}
+
+/* Processing Animation */
+.processing-animation {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.processing-spinner {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto;
+    position: relative;
+}
+
+.processing-spinner svg {
+    animation: rotate 2s linear infinite;
+    width: 100%;
+    height: 100%;
+}
+
+.processing-spinner circle {
+    stroke: #667eea;
+    stroke-dasharray: 150;
+    stroke-dashoffset: 75;
+    animation: dash 1.5s ease-in-out infinite;
+}
+
+@keyframes rotate {
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes dash {
+    0% { stroke-dashoffset: 150; }
+    50% { stroke-dashoffset: 50; }
+    100% { stroke-dashoffset: 150; }
+}
+
+.processing-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 20px;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.processing-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0;
+}
+
+/* Processing Steps */
+.processing-steps {
+    margin: 32px 0;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.step.active {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border-color: #667eea;
+}
+
+.step.completed {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: #10b981;
+}
+
+.step-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    margin-right: 12px;
+    transition: all 0.3s ease;
+}
+
+.step.active .step-icon {
+    background: #667eea;
+    color: white;
+}
+
+.step.completed .step-icon {
+    background: #10b981;
+    color: white;
+}
+
+.step-icon i {
+    font-size: 1rem;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.step-description {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.step-status {
+    width: 24px;
+    text-align: center;
+}
+
+.step-status i {
+    font-size: 1rem;
+}
+
+.step.active .step-status i {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Progress Bar */
+.processing-progress {
+    margin: 24px 0;
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.progress-bar-custom {
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Processing Info */
+.processing-info {
+    text-align: center;
+    margin-top: 24px;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+}
+
+.processing-time {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.processing-time i {
+    margin-right: 6px;
+    color: #667eea;
+}
+
+.processing-tip {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.processing-tip i {
+    color: #f59e0b;
+}
+
+/* Modal Footer */
+.processing-modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+}
+
+.processing-modal-footer .btn {
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.processing-modal-footer .btn-secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.processing-modal-footer .btn-secondary:hover {
+    background: var(--border-color);
+    transform: translateY(-1px);
+}
+
+/* Success Animation */
+.processing-success {
+    text-align: center;
+    padding: 20px;
+}
+
+.success-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 20px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: scaleIn 0.5s ease-out;
+}
+
+.success-icon i {
+    font-size: 40px;
+    color: white;
+}
+
+/* ===== THUMBNAIL GALLERY STYLES ===== */
+.thumbnail-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.thumbnail-card {
+    position: relative;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.thumbnail-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+    border-color: var(--brand-color);
+}
+
+.thumbnail-card.selected {
+    border-color: #10b981;
+    box-shadow: 0 0 0 2px #10b981;
+}
+
+.thumbnail-image {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #1a1a2e;
+}
+
+.thumbnail-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.thumbnail-card:hover .thumbnail-overlay {
+    opacity: 1;
+}
+
+.thumbnail-actions {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.thumbnail-card:hover .thumbnail-actions {
+    opacity: 1;
+}
+
+.thumbnail-actions .btn-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    border: none;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.thumbnail-actions .btn-icon:hover {
+    background: var(--brand-color);
+    transform: scale(1.05);
+}
+
+.thumbnail-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+}
+
+.thumbnail-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 12px;
+}
+
+.pagination-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: var(--brand-color);
+    color: white;
+    border-color: var(--brand-color);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.thumbnail-counter {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.regenerate-thumbnail-btn {
+    margin-top: 16px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.regenerate-thumbnail-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Disabled controls styling */
+select:disabled,
+input:disabled {
+    background-color: var(--bg-secondary);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Tooltip for disabled controls */
+.control-disabled-tooltip {
+    position: relative;
+    cursor: help;
+}
+
+.control-disabled-tooltip:hover::after {
+    content: "Upgrade to Pro to unlock this feature";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
+}
+
+@keyframes scaleIn {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .processing-modal-body {
+    background: #1e293b;
+}
+
+[data-theme="dark"] .step {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .processing-info {
+    background: #0f172a;
+}
+
 </style>
 
 <!-- <script src="{{ url_for('static', filename='js/upload.js') }}"></script> -->
@@ -512,6 +1058,8 @@
 console.log("🔥🔥🔥 UPLOAD SCRIPT IS DEFINITELY RUNNING 🔥🔥🔥");
 console.log("Initial state - progress classes:", document.querySelector('.upload-progress')?.className);
 console.log("Initial state - preview classes:", document.querySelector('.upload-preview')?.className);
+window.previewShown = false;
+window.originalVideoInfo = null;
 // alert("Script is running!");
 const serverAccessToken = '{{ access_token|safe }}';
 const serverRefreshToken = '{{ refresh_token|safe }}';
@@ -546,7 +1094,8 @@ const tierRestrictions = {
         '720p': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         '1080p': ['starter', 'pro', 'plus', 'enterprise'],
         '4k': ['pro', 'plus', 'enterprise'],
-        '4k+hdr': ['plus', 'enterprise']
+        '4k+hdr': ['plus', 'enterprise'],
+        '8k+hdr': ['plus', 'enterprise'],
     },
     styles: {
         'cinematic': ['free', 'starter', 'pro', 'plus', 'enterprise'],
@@ -566,9 +1115,14 @@ const tierRestrictions = {
         'futuristic': ['plus', 'enterprise']
     },
     fps: {
+        '24': ['free', 'starter' , 'pro' , 'plus', 'enterprise'],
+        '24': ['starter' , 'pro' , 'plus', 'enterprise'],
+        '30': ['pro' , 'plus', 'enterprise'],
         '60': ['pro', 'plus', 'enterprise']
     },
     audio_quality: {
+        '128k': ['free', 'stater', 'pro', 'plus', 'enterprise'],
+        '192k': ['stater', 'pro', 'plus', 'enterprise'],
         '256k': ['pro', 'plus', 'enterprise'],
         '320k': ['plus', 'enterprise']
     }
@@ -864,7 +1418,7 @@ async function refreshAccessToken(refreshToken) {
 
 
 function showProcessingModal() {
-    // Create modal if it doesn't exist
+    // Check if modal already exists
     let modal = document.getElementById('processing-modal');
     
     if (!modal) {
@@ -874,17 +1428,19 @@ function showProcessingModal() {
         modal.setAttribute('tabindex', '-1');
         modal.setAttribute('aria-hidden', 'true');
         modal.innerHTML = `
-            <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">Processing Your Video</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="modal-body text-center">
-                        <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                            <span class="visually-hidden">Loading...</span>
+                    <div class="modal-body">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <h5 class="mb-3">AI is working its magic!</h5>
                         </div>
-                        <h5 class="mb-3">AI is working its magic!</h5>
                         
                         <div class="processing-steps">
                             <div class="step active">
@@ -923,7 +1479,7 @@ function showProcessingModal() {
                             <div class="progress-bar progress-bar-striped progress-bar-animated" 
                                  role="progressbar" style="width: 0%"></div>
                         </div>
-                        <div class="mt-2">
+                        <div class="mt-2 text-center">
                             <small class="text-muted" id="processing-time">Estimated time: 2-5 minutes</small>
                         </div>
                     </div>
@@ -938,10 +1494,27 @@ function showProcessingModal() {
         document.body.appendChild(modal);
     }
     
+    // Reset steps and progress
+    const steps = modal.querySelectorAll('.step');
+    steps.forEach((step, index) => {
+        if (index === 0) {
+            step.classList.add('active');
+            step.classList.remove('completed');
+        } else {
+            step.classList.remove('active', 'completed');
+        }
+        const checkIcon = step.querySelector('.fa-check');
+        if (checkIcon) checkIcon.classList.add('d-none');
+    });
+    
+    const progressBar = modal.querySelector('.progress-bar');
+    if (progressBar) progressBar.style.width = '0%';
+    
     // Show the modal
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
 }
+
 
 function startUpload(file) {
     if (event) {
@@ -968,12 +1541,16 @@ function startUpload(file) {
         // Add all form fields
         formData.append('quality', options.quality);
         
-        if (options.styles && options.styles.length > 0) {
+        // In startUpload function, when appending styles:
+        if (options.styles && Array.isArray(options.styles) && options.styles.length > 0) {
             options.styles.forEach(style => {
                 formData.append('styles', style);
             });
+        } else {
+            // Ensure the field is not sent at all, or send empty
+            // Don't send 'styles' field if empty to avoid validation issues
         }
-        
+
         if (options.translation_language) {
             formData.append('translation_language', options.translation_language);
         }
@@ -1002,24 +1579,12 @@ function startUpload(file) {
                 
                 updateUploadInfo(e.loaded, e.total, uploadSpeed);
                 console.log(`Upload progress: ${uploadProgress.toFixed(1)}%`);
-                
-                if (uploadProgress >= 100) {
-                    console.log("📤 Upload complete (client-side), showing preview now");
-                    const tempResponse = {
-                        id: 'temp-' + Date.now(),
-                        original_filename: currentFile ? currentFile.name : 'video.mp4',
-                        file_size: currentFile ? currentFile.size : 0,
-                        duration: 0
-                    };
-                    if (currentFile) {
-                        showUploadPreview(tempResponse, currentFile);
-                    }
-                }
-            }
+              }
         });
         
         xhr.onreadystatechange = function() {
             console.log("XHR readyState:", xhr.readyState, "status:", xhr.status);
+            
             if (xhr.readyState === 4) {
                 console.log("✅ XHR completed with status:", xhr.status);
                 console.log("Response:", xhr.responseText);
@@ -1027,21 +1592,21 @@ function startUpload(file) {
                 if (xhr.status === 201) {
                     try {
                         const response = JSON.parse(xhr.responseText);
-                        console.log("✅ Upload success:", response);
+                        console.log("✅ Upload success with real data:", response);
                         
-                        // 🔥 CRITICAL: Store video ID
+                        // 🔥 STORE VIDEO ID
                         currentVideoId = response.id;
                         console.log("✅ Video ID stored:", currentVideoId);
                         
-                        const previewDiv = document.querySelector('.upload-preview');
-                        const previewVisible = previewDiv && previewDiv.style.display !== 'none' && !previewDiv.classList.contains('d-none');
-                        
-                        if (previewVisible && currentFile) {
-                            console.log("Preview already showing, updating with real data");
-                            document.getElementById('preview-filename').textContent = response.original_filename;
-                            document.getElementById('preview-size').textContent = formatFileSize(response.file_size);
-                            document.getElementById('preview-duration').textContent = formatDuration(response.duration);
-                        } else {
+                        // 🔥 CRITICAL FIX: ALWAYS call showUploadPreview with REAL data
+                        // This will overwrite the temp preview with real values
+                        if (currentFile) {
+                            console.log("🔄 Updating preview with REAL server data");
+                            console.log("   FPS from server:", response.original_fps);
+                            console.log("   Audio from server:", response.original_audio_quality);
+                            console.log("   Aspect from server:", response.original_aspect_ratio);
+                            
+                            // Force update the preview with real data
                             showUploadPreview(response, currentFile);
                         }
                         
@@ -1079,7 +1644,7 @@ function startUpload(file) {
                 }
             }
         };
-        
+
         xhr.open('POST', '/api/v1/videos/upload');
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
         xhr.setRequestHeader('Authorization', `Bearer ${validToken}`);
@@ -1110,13 +1675,13 @@ function cancelUpload() {
 
 function startProcessing() {
     console.log("Start Processing clicked");
-    console.log("Current Video ID:", currentVideoId);
     
     if (!currentVideoId) {
         showAlert('Please upload a video first.', 'warning');
         return;
     }
     
+    // Check token before processing
     const token = localStorage.getItem('access_token');
     if (!token) {
         showAlert('Please log in again.', 'warning');
@@ -1124,11 +1689,34 @@ function startProcessing() {
         return;
     }
     
-    const options = getProcessingOptions();
+    // const options = getProcessingOptions();
+    let options = getProcessingOptions();
+    
+    //Ensure styles is always an array
+    if (!options.styles || options.styles === '') {
+        options.styles = [];
+    }
+    if (typeof options.styles === 'string') {
+        options.styles = options.styles ? [options.styles] : [];
+    }
+
     console.log("Processing options being sent:", options);
+    // check what HTML elements are selected
+    console.log("🔍 UI Element Values:");
+    console.log(`  Quality: ${document.getElementById('quality-select')?.value}`);
+    console.log(`  Style: ${document.getElementById('style-select')?.value}`);
+    console.log(`  Aspect Ratio: ${document.getElementById('aspect-ratio-select')?.value}`);
+    console.log(`  Thumbnail Style: ${document.getElementById('thumbnail-style')?.value}`);
+    console.log(`  FPS: ${document.getElementById('fps-select')?.value}`);
+    console.log(`  Audio Quality: ${document.getElementById('audio-quality')?.value}`);
     
+    // Show processing modal
     showProcessingModal();
+
+    // SETUP WEBSOCKET FIRST (this will fall back to polling)
+    setupWebSocket(currentVideoId)
     
+    // Call API to start processing
     fetch(`/api/v1/videos/${currentVideoId}/process`, {
         method: 'POST',
         headers: {
@@ -1139,8 +1727,10 @@ function startProcessing() {
     })
     .then(response => {
         if (response.status === 401) {
+            // Token expired, try to refresh
             return refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
                 if (newToken) {
+                    // Retry with new token
                     return fetch(`/api/v1/videos/${currentVideoId}/process`, {
                         method: 'POST',
                         headers: {
@@ -1156,31 +1746,261 @@ function startProcessing() {
     })
     .then(response => {
         if (!response) return;
-        return response.text().then(text => {
-            console.log("Response text:", text);
-            try {
-                const data = JSON.parse(text);
-                return data;
-            } catch(e) {
-                console.error("Failed to parse JSON:", e);
-                throw new Error(`Server returned: ${text.substring(0, 200)}`);
-            }});
-
+        
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}`);
         }
         return response.json();
     })
     .then(data => {
         console.log('✅ Processing started:', data);
-        updateProcessingProgress();
+        
+        // Poll for processing status and redirect to results when done
+        startPolling(currentVideoId);
     })
     .catch(error => {
         console.error('❌ Error starting processing:', error);
         showAlert('Failed to start processing. Please try again.', 'danger');
+        // Hide modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('processing-modal'));
         if (modal) modal.hide();
+        // Clean up WebSocket on error
+        if (processingSocket) {
+            processingSocket.disconnect();
+            processingSocket = null;
+        }
+        pollingActive = false;
     });
+}
+
+// WebSocket connection with polling fallback
+let processingSocket = null;
+let pollingInterval = null;
+let pollingActive = false;
+
+function setupWebSocket(videoId) {
+    console.log('🔌 Setting up WebSocket connection...');
+    
+    try {
+        const token = localStorage.getItem('access_token');
+        const socket = io({
+            path: '/socket.io',
+            transports: ['websocket', 'polling'],
+            query: { token: token },
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000
+        });
+        
+        socket.on('connect', () => {
+            console.log('✅ WebSocket connected');
+            // Subscribe to video updates
+            socket.emit('subscribe_video', { video_id: videoId });
+        });
+        
+        socket.on('progress_update', (data) => {
+            console.log(`📊 WebSocket progress: ${data.progress}% - ${data.step}`);
+            updateProcessingModal(data.progress, data.step);
+            
+            if (data.progress >= 100) {
+                handleProcessingComplete();
+            }
+        });
+        
+        socket.on('video_completed', (data) => {
+            console.log('✅ Video completed via WebSocket');
+            handleProcessingComplete();
+        });
+        
+        socket.on('video_failed', (data) => {
+            console.error('❌ Video failed:', data.error_message);
+            handleProcessingFailed(data.error_message);
+        });
+        
+        socket.on('disconnect', (reason) => {
+            console.log('🔌 WebSocket disconnected:', reason);
+            // Fall back to polling
+            startPolling(videoId);
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.warn('WebSocket connection error, falling back to polling:', error);
+            startPolling(videoId);
+        });
+        
+        processingSocket = socket;
+        
+    } catch (error) {
+        console.warn('WebSocket setup failed, using polling:', error);
+        startPolling(videoId);
+    }
+}
+
+function startPolling(videoId) {
+    if (pollingActive) return;
+    pollingActive = true;
+    
+    console.log('🔄 Starting polling fallback for video:', videoId);
+    
+    let attempts = 0;
+    let delay = 5000; // Start with 5 seconds (slower to avoid rate limiting)
+    const maxDelay = 30000;
+    const maxAttempts = 60; // 5 minutes max with 5-30 second intervals
+    
+    function poll() {
+        attempts++;
+        
+        fetch(`/api/v1/videos/${videoId}/status`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        })
+        .then(async response => {
+            if (response.status === 429) {
+                // Rate limited - increase delay significantly
+                console.warn('Rate limited, increasing delay to', delay * 2);
+                delay = Math.min(delay * 2, maxDelay);
+                setTimeout(poll, delay);
+                return;
+            }
+            
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return;
+            
+            console.log(`Poll ${attempts}: ${data.status} - ${data.progress}%`);
+            updateProcessingModal(data.progress, data.current_step);
+            
+            if (data.status === 'completed') {
+                handleProcessingComplete();
+            } else if (data.status === 'failed') {
+                handleProcessingFailed(data.error);
+            } else if (attempts < maxAttempts) {
+                // Adjust delay based on progress
+                if (data.progress > 80) delay = 3000;
+                else if (data.progress > 50) delay = 5000;
+                else delay = Math.min(delay + 1000, maxDelay);
+                
+                setTimeout(poll, delay);
+            } else {
+                handleTimeout();
+            }
+        })
+        .catch(error => {
+            console.error('Polling error:', error);
+            if (attempts < maxAttempts) {
+                delay = Math.min(delay * 1.5, maxDelay);
+                setTimeout(poll, delay);
+            } else {
+                handleTimeout();
+            }
+        });
+    }
+    
+    setTimeout(poll, delay);
+}
+
+function updateProcessingModal(progress, step) {
+    const progressBar = document.querySelector('#processing-modal .progress-bar');
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+    }
+    
+    // Update current step display
+    const stepText = document.getElementById('current-step');
+    if (stepText && step) {
+        const stepDisplay = step.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        stepText.textContent = stepDisplay;
+    }
+    
+    // Update active step in the steps list
+    const steps = document.querySelectorAll('.processing-steps .step');
+    const stepMap = {
+        'uploading': 0, 'analyzing': 1, 'transcribing': 2,
+        'generating_thumbnails': 3, 'applying_styles': 4, 'finalizing': 5
+    };
+    
+    const stepIndex = stepMap[step];
+    if (stepIndex !== undefined && steps[stepIndex]) {
+        steps.forEach((s, idx) => {
+            if (idx < stepIndex) {
+                s.classList.add('completed');
+                s.classList.remove('active');
+                const checkIcon = s.querySelector('.fa-check');
+                if (checkIcon) checkIcon.classList.remove('d-none');
+            } else if (idx === stepIndex) {
+                s.classList.add('active');
+                s.classList.remove('completed');
+            }
+        });
+    }
+}
+
+function handleProcessingComplete() {
+    // Clean up
+    if (processingSocket) {
+        processingSocket.disconnect();
+        processingSocket = null;
+    }
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+    pollingActive = false;
+    
+    const modalBody = document.querySelector('#processing-modal .modal-body');
+    if (modalBody) {
+        modalBody.innerHTML = `
+            <div class="text-center">
+                <i class="fas fa-check-circle text-success fa-4x mb-3"></i>
+                <h5>Processing Complete!</h5>
+                <p>Your video is ready to view.</p>
+            </div>
+        `;
+    }
+    
+    setTimeout(() => {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('processing-modal'));
+        if (modal) modal.hide();
+        window.location.href = `/results/${currentVideoId}`;
+    }, 1500);
+}
+
+function handleProcessingFailed(error) {
+    if (processingSocket) processingSocket.disconnect();
+    pollingActive = false;
+    
+    const modalBody = document.querySelector('#processing-modal .modal-body');
+    if (modalBody) {
+        modalBody.innerHTML = `
+            <div class="text-center">
+                <i class="fas fa-exclamation-triangle text-danger fa-4x mb-3"></i>
+                <h5>Processing Failed</h5>
+                <p class="text-muted">${error || 'An error occurred during processing'}</p>
+                <button class="btn btn-primary mt-3" onclick="location.reload()">Try Again</button>
+            </div>
+        `;
+    }
+    showAlert('Video processing failed. Please try again.', 'danger');
+}
+
+function handleTimeout() {
+    if (processingSocket) processingSocket.disconnect();
+    pollingActive = false;
+    
+    const modalBody = document.querySelector('#processing-modal .modal-body');
+    if (modalBody) {
+        modalBody.innerHTML = `
+            <div class="text-center">
+                <i class="fas fa-clock text-warning fa-4x mb-3"></i>
+                <h5>Still Processing</h5>
+                <p>Your video is still being processed. You can check the history page later.</p>
+                <a href="/history" class="btn btn-primary mt-3">Go to History</a>
+            </div>
+        `;
+    }
 }
 
 function updateProcessingProgress() {
@@ -1210,10 +2030,20 @@ function getProcessingOptions() {
     const qualitySelect = document.getElementById('quality-select');
     let qualityValue = qualitySelect?.value || '720p';
     
-    // If quality is not selected or empty, use original
-    if (!qualityValue || qualityValue === '') {
-        qualityValue = 'original';
+    // Get the selected style(s)
+    const styleSelect = document.getElementById('style-select');
+    let styles = [];
+    
+    if (styleSelect && styleSelect.value && styleSelect.value !== '') {
+        styles = [styleSelect.value];
     }
+    
+    // Get aspect ratio
+    const aspectRatioSelect = document.getElementById('aspect-ratio-select');
+    let aspectRatio = aspectRatioSelect?.value || 'original';
+    
+    // Get thumbnail style
+    let thumbnailStyle = document.getElementById('thumbnail-style')?.value || 'default';
     
     // Map display values to schema values if needed
     const qualityMap = {
@@ -1221,96 +2051,124 @@ function getProcessingOptions() {
         '720p': '720p',
         '1080p': '1080p',
         '4k': '4k',
-        '8k': '4k'  // Map 8k to 4k if not supported
+        '8k': '4k'
     };
     
-    return {
+    const options = {
         quality: qualityMap[qualityValue] || qualityValue,
-        styles: document.getElementById('style-select')?.value ? [document.getElementById('style-select').value] : [],
+        styles: styles,  // ← This must be an array
         translation_language: document.getElementById('translation-select')?.value || '',
-        thumbnail_style: document.getElementById('thumbnail-style')?.value || 'default',
+        thumbnail_style: thumbnailStyle,
         fps: document.getElementById('fps-select')?.value || 'original',
         audio_quality: document.getElementById('audio-quality')?.value || 'original',
-        aspect_ratio: document.getElementById('aspect-ratio-select')?.value || 'original',
+        aspect_ratio: aspectRatio,  // ← Make sure this is included
         auto_transcribe: document.getElementById('auto-transcribe')?.checked || false,
         generate_chapters: document.getElementById('generate-chapters')?.checked || false,
         remove_silence: document.getElementById('remove-silence')?.checked || false,
         process_silent_video: document.getElementById('process-silent-video')?.checked || false
     };
+    
+    console.log("📦 Final processing options:", options);
+    return options;
 }
 
 function applyTierRestrictions() {
     console.log("Applying tier restrictions for:", userTier);
-    alert("called tier restricitons")
     
-    //Quality restrictions - DO NOT DISABLE QUALITY OPTIONS
+    // Normalize tier value
+    let actualTier = String(userTier).toLowerCase();
+    if (actualTier.includes('.')) {
+        actualTier = actualTier.split('.')[1];
+    }
+    console.log("✅ Actual tier (for restriction checks):", actualTier);
+    
+    // Quality restrictions
     const qualitySelect = document.getElementById('quality-select');
-    const styleSelect = document.getElementById('style-select');
-    const fpsSelect = document.getElementById('fps-select');
-    const audioSelect = document.getElementById('audio-quality');
-    const thumbnailSelect = document.getElementById('thumbnail-style');
-
     if (qualitySelect) {
-        console.log("Quality options available:");
-        for (let i = 0; i < styleSelect.options.length; i++) {
-            const opt = styleSelect.options[i];
-            if (opt.value) {
-                console.log(`  - ${opt.value}: ${opt.text}`);
-            }}
-        Array.from(qualitySelect.options).forEach(option => {
-        console.log(`  Option ${option.index}: value="${option.value}" text="${option.text}" disabled=${option.disabled}`);
+        for (let i = 0; i < qualitySelect.options.length; i++) {
+            const option = qualitySelect.options[i];
             if (option.value) {
                 const allowedTiers = tierRestrictions.quality[option.value];
-                if (allowedTiers && !allowedTiers.includes(userTier)) {
+                if (allowedTiers && !allowedTiers.includes(actualTier)) {
                     option.disabled = true;
-                    console.log(`  ${option.value} - requires ${allowedTiers[0]}+`);
+                    option.title = `Available on ${allowedTiers[0]}+`;
+                    console.log(`  ${option.value} - disabled (requires ${allowedTiers[0]}+)`);
                 } else {
-                    console.log(`  ${option.value} - available`);
+                    option.disabled = false;
+                    console.log(`  ${option.value} - enabled`);
                 }
-                // option.disabled = false;  // Ensure they are enabled
+            } else {
+                option.disabled = false;
             }
-        });
-        //ENSURE ALL QUALITY OPTIONS ARE ENABLED
-        for (let i = 0; i < qualitySelect.options.length; i++) {
-            qualitySelect.options[i].disabled = false;
         }
     }
     
+    // Style restrictions - FIX THIS SECTION
+    const styleSelect = document.getElementById('style-select');
     if (styleSelect) {
-        Array.from(styleSelect.options).forEach(option => {
+        let enabledCount = 0;
+        let disabledCount = 0;
+        
+        for (let i = 0; i < styleSelect.options.length; i++) {
+            const option = styleSelect.options[i];
             if (option.value) {
                 const allowedTiers = tierRestrictions.styles[option.value];
-                if (allowedTiers && !allowedTiers.includes(userTier)) {
+                if (allowedTiers && allowedTiers.includes(actualTier)) {
+                    option.disabled = false;
+                    enabledCount++;
+                } else if (allowedTiers) {
                     option.disabled = true;
-                    console.log(`  Disabled style: ${option.value}`);
+                    option.title = `Available on ${allowedTiers[0]}+`;
+                    disabledCount++;
                 } else {
                     option.disabled = false;
+                    enabledCount++;
                 }
+            } else {
+                option.disabled = false;  // "No style" option always available
             }
-        });
-    }}
-
-    if (fpsSelect) {
-        Array.from(fpsSelect.options).forEach(option => {
-            if (option.value) {
-                const allowedTiers = tierRestrictions.fps[option.value];
-                if (allowedTiers && !allowedTiers.includes(userTier)) {
-                    option.disabled = true;
-                }
-            }
-        });
+        }
+        console.log(`Styles: ${enabledCount} enabled, ${disabledCount} disabled`);
     }
     
-    if (audioSelect) {
-        Array.from(audioSelect.options).forEach(option => {
-            if (option.value) {
-                const allowedTiers = tierRestrictions.audio_quality[option.value];
-                if (allowedTiers && !allowedTiers.includes(userTier)) {
+    // FPS restrictions
+    const fpsSelect = document.getElementById('fps-select');
+    if (fpsSelect) {
+        for (let i = 0; i < fpsSelect.options.length; i++) {
+            const option = fpsSelect.options[i];
+            if (option.value === 'original') {
+                option.disabled = false;
+            } else {
+                const allowedTiers = tierRestrictions.fps[option.value];
+                if (allowedTiers && allowedTiers.includes(actualTier)) {
+                    option.disabled = false;
+                } else {
                     option.disabled = true;
+                    option.title = `Available on Pro+`;
                 }
             }
-        });
+        }
     }
+
+    // Audio quality restrictions
+    const audioSelect = document.getElementById('audio-quality');
+    if (audioSelect) {
+        for (let i = 0; i < audioSelect.options.length; i++) {
+            const option = audioSelect.options[i];
+            if (option.value === 'original') {
+                option.disabled = false;
+            } else {
+                const allowedTiers = tierRestrictions.audio_quality[option.value];
+                if (allowedTiers && allowedTiers.includes(actualTier)) {
+                    option.disabled = false;
+                } else {
+                    option.disabled = true;
+                    option.title = `Available on ${option.value === '256k' ? 'Pro' : 'Plus'}+`;
+                }
+            }
+        }
+    }
+}
 
 function updateProgressBar(progress) {
     const progressBar = document.querySelector('.upload-progress .progress-bar');
@@ -1435,7 +2293,12 @@ function getQualityLabelFromResolution(width, height) {
 
 // showUploadPreview function
 function showUploadPreview(videoData, file) {
-    console.log("showUploadPreview called");
+    console.log("=".repeat(50));
+    console.log("📹 showUploadPreview CALLED");
+    console.log("=".repeat(50));
+    console.log("videoData.original_fps:", videoData.original_fps);
+    console.log("videoData.original_audio_quality:", videoData.original_audio_quality);
+    console.log("videoData.original_aspect_ratio:", videoData.original_aspect_ratio);
     
     const progressDiv = document.querySelector('.upload-progress');
     const previewDiv = document.querySelector('.upload-preview');
@@ -1451,74 +2314,555 @@ function showUploadPreview(videoData, file) {
         return;
     }
     
-    // filename and size from server response
-    document.getElementById('preview-filename').textContent = videoData.original_filename || file.name;
-    document.getElementById('preview-size').textContent = formatFileSize(videoData.file_size || file.size);
+    // ALWAYS UPDATE filename and size (even if called second time)
+    const filenameEl = document.getElementById('preview-filename');
+    if (filenameEl) {
+        filenameEl.textContent = videoData.original_filename || file.name;
+        console.log("✅ Set filename to:", filenameEl.textContent);
+    }
     
-    // Create video URL for preview
-    const videoUrl = URL.createObjectURL(file);
-    videoPreview.src = videoUrl;
+    const sizeEl = document.getElementById('preview-size');
+    if (sizeEl) {
+        sizeEl.textContent = formatFileSize(videoData.file_size || file.size);
+        console.log("✅ Set size to:", sizeEl.textContent);
+    }
     
-    // Store original resolution globally
-    let originalWidth = 0;
-    let originalHeight = 0;
-    let originalQuality = "";
+    // ALWAYS UPDATE FPS
+    const fpsEl = document.getElementById('preview-fps');
+    if (fpsEl) {
+        // Check if we have real data from server
+        let fpsValue = videoData.original_fps;
+        if (!fpsValue || fpsValue === 'unknown') {
+            // Try other possible field names
+            fpsValue = videoData.fps_display || videoData.original_fps_display || 'unknown';
+        }
+        fpsEl.textContent = fpsValue;
+        console.log("✅ Set FPS to:", fpsValue);
+    }
     
-    // Listen for metadata load
-    videoPreview.onloadedmetadata = function() {
-        // Get duration and resolution
-        const duration = videoPreview.duration;
-        originalWidth = videoPreview.videoWidth;
-        originalHeight = videoPreview.videoHeight;
-        
-        // 🔥 Convert resolution to quality label
-        originalQuality = getQualityLabelFromResolution(originalWidth, originalHeight);
-        const originalResolution = `${originalWidth}x${originalHeight}`;
-        
-        // Update duration display
-        document.getElementById('preview-duration').textContent = formatDuration(duration);
-        
-        // 🔥 Show resolution as quality in video details
-        document.getElementById('preview-resolution').textContent = `${originalQuality} (${originalResolution})`;
-        
-        // 🔥 Update the Original Quality option text with quality label
-        const originalOption = document.getElementById('original-quality-option');
-        if (originalOption) {
-            originalOption.textContent = `Original (${originalQuality})`;
-            originalOption.setAttribute('data-original-resolution', originalResolution);
-            originalOption.setAttribute('data-original-quality', originalQuality);
-            originalOption.setAttribute('data-original-width', originalWidth);
-            originalOption.setAttribute('data-original-height', originalHeight);
+    // ALWAYS UPDATE Audio Quality
+    const audioEl = document.getElementById('preview-audio-quality');
+    if (audioEl) {
+        let audioValue = videoData.original_audio_quality;
+        if (!audioValue || audioValue === 'unknown') {
+            audioValue = videoData.audio_quality_display || 'unknown';
+        }
+        audioEl.textContent = audioValue;
+        console.log("✅ Set Audio Quality to:", audioValue);
+    }
+    
+    // ALWAYS UPDATE Aspect Ratio
+    const aspectEl = document.getElementById('preview-aspect-ratio');
+    if (aspectEl) {
+        let aspectValue = videoData.original_aspect_ratio;
+        if (!aspectValue || aspectValue === 'unknown') {
+            aspectValue = videoData.aspect_ratio_display || 'unknown';
+        }
+        aspectEl.textContent = aspectValue;
+        console.log("✅ Set Aspect Ratio to:", aspectValue);
+    }
+    
+    // Duration and Resolution
+    const resolutionEl = document.getElementById('preview-resolution');
+    const durationEl = document.getElementById('preview-duration');
+    
+    // Always update duration if available in response
+    if (videoData.duration && durationEl) {
+        durationEl.textContent = formatDuration(videoData.duration);
+        console.log("✅ Set duration from response:", formatDuration(videoData.duration));
+    }
+    
+    // Create video preview URL (only if not already showing the same file)
+    try {
+        if (videoPreview.src && videoPreview.src !== '') {
+            URL.revokeObjectURL(videoPreview.src);
         }
         
-        // 🔥 Store original video info for processing
-        window.originalVideoInfo = {
-            width: originalWidth,
-            height: originalHeight,
-            quality: originalQuality,
-            resolution: originalResolution
+        const videoUrl = URL.createObjectURL(file);
+        videoPreview.src = videoUrl;
+        console.log("✅ Video preview URL created");
+        
+        videoPreview.onloadedmetadata = function() {
+            console.log("🎬 Video metadata loaded");
+            console.log("   Duration:", videoPreview.duration);
+            console.log("   Resolution:", videoPreview.videoWidth, "x", videoPreview.videoHeight);
+            
+            if (durationEl && !videoData.duration) {
+                durationEl.textContent = formatDuration(videoPreview.duration);
+            }
+            
+            if (resolutionEl) {
+                const resolution = `${videoPreview.videoWidth}x${videoPreview.videoHeight}`;
+                resolutionEl.textContent = resolution;
+                console.log("✅ Set resolution to:", resolution);
+            }
         };
         
-        console.log("✅ Video metadata loaded - Duration:", duration, "Quality:", originalQuality, "Resolution:", originalResolution);
-        
-        // If server provided duration but it was 0, update it
-        if (videoData.duration === 0 || !videoData.duration) {
-            videoData.duration = duration;
-        }
-    };
+        videoPreview.onerror = function(e) {
+            console.error("❌ Video preview error:", e);
+            if (durationEl && !videoData.duration) {
+                durationEl.textContent = formatDuration(videoData.duration || 0);
+            }
+            if (resolutionEl && resolutionEl.textContent === 'unknown') {
+                resolutionEl.textContent = videoData.original_resolution || 'unknown';
+            }
+        };
+
+    } catch (e) {
+        console.error("❌ Failed to create video preview:", e);
+        if (durationEl) durationEl.textContent = formatDuration(videoData.duration || 0);
+        if (resolutionEl) resolutionEl.textContent = videoData.original_resolution || 'unknown';
+    }
     
-    videoPreview.onerror = function(e) {
-        console.error("❌ Video preview error:", e);
-        document.getElementById('preview-duration').textContent = formatDuration(videoData.duration || 0);
-        document.getElementById('preview-resolution').textContent = 'Unable to load preview';
-    };
-    
-    // Hide progress, show preview
+    // Show preview, hide progress
     progressDiv.classList.add('d-none');
     previewDiv.classList.remove('d-none');
     
-    console.log("✅ Preview displayed");
+    // for frontend error("video details" section)
+    console.log("=".repeat(50));
+    console.log("✅ PREVIEW DISPLAYED with values:");
+    console.log("   FPS:", document.getElementById('preview-fps')?.textContent);
+    console.log("   Audio:", document.getElementById('preview-audio-quality')?.textContent);
+    console.log("   Aspect:", document.getElementById('preview-aspect-ratio')?.textContent);
+    console.log("=".repeat(50));
 }
+
+// // Update video details with FPS and Audio Quality
+// function updateVideoDetailsDisplay(videoData, file) {
+//     // Get the video-info container
+//     const videoInfoDiv = document.querySelector('.video-info ul');
+//     if (!videoInfoDiv) {
+//         console.warn("⚠️ Video info container not found");
+//         return;
+//     }
+    
+//     // Check if FPS and Audio Quality items already exist
+//     const existingFPS = document.getElementById('preview-fps-item');
+//     const existingAudioQuality = document.getElementById('preview-audio-quality-item');
+    
+//     // Get values from videoData or extract from file
+//     let fps = videoData.fps || 'original';
+//     let audioQuality = videoData.audio_quality || 'original';
+//     let resolution = videoData.resolution || '';
+    
+//     // If FPS item doesn't exist, add it
+//     if (!existingFPS) {
+//         const fpsItem = document.createElement('li');
+//         fpsItem.id = 'preview-fps-item';
+//         fpsItem.innerHTML = `<strong>Frame Rate (FPS):</strong> <span id="preview-fps">${fps !== 'original' ? fps + ' fps' : fps}</span>`;
+        
+//         // Insert after resolution (which is the 4th item)
+//         const resolutionItem = document.getElementById('preview-resolution')?.closest('li');
+//         if (resolutionItem && resolutionItem.parentNode) {
+//             resolutionItem.insertAdjacentElement('afterend', fpsItem);
+//         } else {
+//             videoInfoDiv.appendChild(fpsItem);
+//         }
+//         console.log("✅ Added FPS display to video details");
+//     } else {
+//         // Update existing FPS
+//         const fpsSpan = document.getElementById('preview-fps');
+//         if (fpsSpan) {
+//             fpsSpan.textContent = fps !== 'original' ? `${fps} fps` : fps;
+//         }
+//     }
+    
+//     // If Audio Quality item doesn't exist, add it
+//     if (!existingAudioQuality) {
+//         const audioItem = document.createElement('li');
+//         audioItem.id = 'preview-audio-quality-item';
+//         audioItem.innerHTML = `<strong>Audio Quality:</strong> <span id="preview-audio-quality">${audioQuality !== 'original' ? audioQuality : 'Original'}</span>`;
+//         videoInfoDiv.appendChild(audioItem);
+//         console.log("✅ Added Audio Quality display to video details");
+//     } else {
+//         // Update existing Audio Quality
+//         const audioSpan = document.getElementById('preview-audio-quality');
+//         if (audioSpan) {
+//             audioSpan.textContent = audioQuality !== 'original' ? audioQuality : 'Original';
+//         }
+//     }
+    
+//     console.log("📊 Video details updated - FPS:", fps, "Audio:", audioQuality);
+// }
+
+// // Get FPS from video element
+// function getVideoFPS(videoElement) {
+//     // This is an estimate; actual FPS detection requires analyzing frames
+//     // For now, return 'original' or you can implement frame counting
+//     return 'original';
+// }
+
+// Display thumbnails in gallery
+function displayThumbnails(aiThumbnails, extractedThumbnails, videoId) {
+    currentThumbnailId = videoId;
+    
+    // Show the thumbnail section
+    const thumbnailSection = document.getElementById('thumbnail-section');
+    if (thumbnailSection) thumbnailSection.style.display = 'block';
+    
+    // Display AI thumbnails
+    const aiGrid = document.getElementById('ai-thumbnails-grid');
+    const aiCount = document.getElementById('ai-thumbnail-count');
+    
+    if (aiGrid && aiThumbnails && aiThumbnails.length > 0) {
+        aiCount.textContent = aiThumbnails.length;
+        aiGrid.innerHTML = aiThumbnails.map((thumb, index) => `
+            <div class="thumbnail-card" data-thumbnail-id="${thumb.id}" data-thumbnail-type="ai">
+                <img src="${thumb.url}" alt="Thumbnail ${index + 1}" class="thumbnail-image">
+                <div class="thumbnail-badge">AI #${index + 1}</div>
+                <div class="thumbnail-actions">
+                    <button class="btn-icon" onclick="selectThumbnail('${thumb.id}', 'ai')" title="Select as main">
+                        <i class="fas fa-check"></i>
+                    </button>
+                    <button class="btn-icon" onclick="downloadThumbnail('${thumb.url}')" title="Download">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        
+        // Show regenerate button for paid tiers
+        const regenContainer = document.getElementById('regenerate-thumbnail-btn-container');
+        if (regenContainer && userTier !== 'free') {
+            regenContainer.style.display = 'block';
+            // Get remaining regenerations from API
+            fetchRemainingRegenerations(currentThumbnailId);
+        }
+    }
+    
+    // Store extracted thumbnails for pagination
+    if (extractedThumbnails && extractedThumbnails.length > 0) {
+        allExtractedThumbnails = extractedThumbnails;
+        document.getElementById('extracted-count').textContent = extractedThumbnails.length;
+        renderExtractedThumbnailsPage();
+    }
+}
+
+// Render current page of extracted thumbnails
+function renderExtractedThumbnailsPage() {
+    const grid = document.getElementById('extracted-thumbnails-grid');
+    if (!grid) return;
+    
+    const start = (currentThumbnailPage - 1) * thumbnailsPerPage;
+    const end = start + thumbnailsPerPage;
+    const pageThumbnails = allExtractedThumbnails.slice(start, end);
+    
+    if (pageThumbnails.length === 0) {
+        grid.innerHTML = '<p class="text-muted text-center">No extracted thumbnails available</p>';
+        return;
+    }
+    
+    grid.innerHTML = pageThumbnails.map((thumb, idx) => `
+        <div class="thumbnail-card" data-thumbnail-id="${thumb.id}" data-thumbnail-type="extracted">
+            <img src="${thumb.url}" alt="Frame ${start + idx + 1}" class="thumbnail-image">
+            <div class="thumbnail-badge">Frame ${start + idx + 1}</div>
+            <div class="thumbnail-actions">
+                <button class="btn-icon" onclick="selectThumbnail('${thumb.id}', 'extracted')" title="Select as main">
+                    <i class="fas fa-check"></i>
+                </button>
+                <button class="btn-icon" onclick="downloadThumbnail('${thumb.url}')" title="Download">
+                    <i class="fas fa-download"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+    
+    // Update pagination controls
+    const totalPages = Math.ceil(allExtractedThumbnails.length / thumbnailsPerPage);
+    document.getElementById('current-thumbnail-page').textContent = currentThumbnailPage;
+    document.getElementById('total-thumbnail-pages').textContent = totalPages;
+    
+    const prevBtn = document.getElementById('prev-thumbnail-page');
+    const nextBtn = document.getElementById('next-thumbnail-page');
+    
+    if (prevBtn) prevBtn.disabled = currentThumbnailPage === 1;
+    if (nextBtn) nextBtn.disabled = currentThumbnailPage === totalPages;
+    
+    const paginationContainer = document.getElementById('thumbnail-pagination');
+    if (paginationContainer) {
+        paginationContainer.style.display = totalPages > 1 ? 'flex' : 'none';
+    }
+}
+
+// Pagination functions
+function previousThumbnailPage() {
+    if (currentThumbnailPage > 1) {
+        currentThumbnailPage--;
+        renderExtractedThumbnailsPage();
+    }
+}
+
+function nextThumbnailPage() {
+    const totalPages = Math.ceil(allExtractedThumbnails.length / thumbnailsPerPage);
+    if (currentThumbnailPage < totalPages) {
+        currentThumbnailPage++;
+        renderExtractedThumbnailsPage();
+    }
+}
+
+// Select thumbnail as main
+async function selectThumbnail(thumbnailId, type) {
+    try {
+        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/thumbnails/select`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            },
+            body: JSON.stringify({ thumbnail_id: thumbnailId, type: type })
+        });
+        
+        if (response.ok) {
+            showAlert('Thumbnail selected successfully!', 'success');
+            
+            // Update UI to show selected state
+            document.querySelectorAll('.thumbnail-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector(`.thumbnail-card[data-thumbnail-id="${thumbnailId}"]`).classList.add('selected');
+        }
+    } catch (error) {
+        console.error('Error selecting thumbnail:', error);
+        showAlert('Failed to select thumbnail', 'danger');
+    }
+}
+
+// Download thumbnail
+function downloadThumbnail(url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'thumbnail.jpg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// Regenerate thumbnail
+async function regenerateThumbnail() {
+    if (!currentThumbnailId) return;
+    
+    const regenBtn = document.querySelector('.regenerate-thumbnail-btn');
+    const originalText = regenBtn.innerHTML;
+    regenBtn.disabled = true;
+    regenBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
+    
+    try {
+        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/regenerate-thumbnail`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            },
+            body: JSON.stringify({ style: document.getElementById('thumbnail-style')?.value || 'default' })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showAlert('New thumbnail generated!', 'success');
+            // Refresh thumbnails
+            await fetchVideoDetails(currentThumbnailId);
+            
+            if (data.regenerations_remaining !== undefined) {
+                thumbnailRegenerationsRemaining = data.regenerations_remaining;
+                updateRegenerationInfo();
+            }
+        } else {
+            showAlert(data.error?.message || 'Failed to regenerate thumbnail', 'danger');
+        }
+    } catch (error) {
+        console.error('Error regenerating thumbnail:', error);
+        showAlert('Failed to regenerate thumbnail', 'danger');
+    } finally {
+        regenBtn.disabled = false;
+        regenBtn.innerHTML = originalText;
+    }
+}
+
+function updateRegenerationInfo() {
+    const regenText = document.querySelector('.regenerate-thumbnail-btn + p');
+    if (regenText && thumbnailRegenerationsRemaining !== undefined) {
+        regenText.innerHTML = `<i class="fas fa-info-circle me-1"></i>
+            ${thumbnailRegenerationsRemaining} regenerations remaining this month`;
+    }
+}
+
+// Function to manage advanced options access - SHOW but DISABLE for lower tiers
+function checkAdvancedOptionsAccess() {
+    const userTier = '{{ current_user.tier }}';
+    const advancedOptionsDiv = document.getElementById('advanced-options');
+    const advancedToggle = document.querySelector('[data-bs-target="#advanced-options"]');
+    
+    // Normalize tier value (handle various formats: 'pro', 'Pro', 'Tier.PRO', etc.)
+    let normalizedTier = String(userTier).toLowerCase();
+    if (normalizedTier.includes('.')) {
+        normalizedTier = normalizedTier.split('.')[1];
+    }
+    
+    // Pro tier and above can USE advanced options
+    const allowedTiers = ['pro', 'plus', 'enterprise'];
+    const canUse = allowedTiers.includes(normalizedTier);
+    
+    console.log(`🔧 Advanced Options - User Tier: ${userTier}, Normalized: ${normalizedTier}, Can Use: ${canUse}`);
+    
+    // ALWAYS show the advanced options section
+    if (advancedOptionsDiv) {
+        advancedOptionsDiv.parentElement.style.display = 'block';
+    }
+    if (advancedToggle) {
+        advancedToggle.style.display = 'inline-block';
+    }
+    
+    // Define controls that should be enabled/disabled
+    const controlsToManage = [
+        'fps-select',
+        'audio-quality',
+        'generate-chapters',
+        'process-silent-video'
+    ];
+    
+    if (!canUse) {
+        // DISABLE all advanced options for Free/Starter users
+        console.log('🔒 Advanced options locked - user cannot use them');
+        
+        for (const controlId of controlsToManage) {
+            const control = document.getElementById(controlId);
+            if (control) {
+                control.disabled = true;
+                control.style.opacity = '0.6';
+                control.style.cursor = 'not-allowed';
+            }
+        }
+        
+        // Also disable specific options within selects
+        const fpsSelect = document.getElementById('fps-select');
+        if (fpsSelect) {
+            const fps60Option = fpsSelect.querySelector('option[value="60"]');
+            if (fps60Option) fps60Option.disabled = true;
+        }
+        
+        const audioSelect = document.getElementById('audio-quality');
+        if (audioSelect) {
+            const option256k = audioSelect.querySelector('option[value="256k"]');
+            const option320k = audioSelect.querySelector('option[value="320k"]');
+            if (option256k) option256k.disabled = true;
+            if (option320k) option320k.disabled = true;
+        }
+        
+        // Add upgrade badge to toggle button if not already there
+        const toggleBtn = advancedToggle;
+        if (toggleBtn && !toggleBtn.querySelector('.upgrade-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-warning text-dark ms-2 upgrade-badge';
+            badge.style.fontSize = '0.7rem';
+            badge.innerHTML = '<i class="fas fa-crown me-1"></i>Pro+ Feature';
+            toggleBtn.appendChild(badge);
+        }
+        
+        // Add upgrade message if not already there
+        const optionsPanel = document.getElementById('advanced-options');
+        if (optionsPanel && !optionsPanel.querySelector('.upgrade-message')) {
+            const cardBody = optionsPanel.querySelector('.card-body');
+            if (cardBody && !cardBody.querySelector('.upgrade-message')) {
+                const upgradeMsg = document.createElement('div');
+                upgradeMsg.className = 'alert alert-warning mt-3 upgrade-message';
+                upgradeMsg.innerHTML = `
+                    <i class="fas fa-lock me-2"></i>
+                    <strong>Advanced options are locked</strong><br>
+                    <small>FPS adjustment, audio quality, chapter generation, and silent video processing are available on
+                    <strong>Pro plans and above</strong>.</small>
+                    <div class="mt-2">
+                        <a href="{{ url_for('pricing') }}" class="btn btn-sm btn-warning">
+                            <i class="fas fa-arrow-up me-1"></i>Upgrade to Pro
+                        </a>
+                    </div>
+                `;
+                cardBody.appendChild(upgradeMsg);
+            }
+        }
+    } else {
+        // ENABLE all advanced options for Pro/Plus/Enterprise users
+        console.log('✅ Advanced options unlocked - user can use all features');
+        
+        // Remove upgrade badge if exists
+        const upgradeBadge = document.querySelector('.upgrade-badge');
+        if (upgradeBadge) upgradeBadge.remove();
+        
+        // Remove upgrade message if exists
+        const upgradeMsg = document.querySelector('.upgrade-message');
+        if (upgradeMsg) upgradeMsg.remove();
+        
+        // Enable all controls
+        for (const controlId of controlsToManage) {
+            const control = document.getElementById(controlId);
+            if (control) {
+                control.disabled = false;
+                control.style.opacity = '1';
+                control.style.cursor = 'default';
+            }
+        }
+        
+        // Enable specific options within selects
+        const fpsSelect = document.getElementById('fps-select');
+        if (fpsSelect) {
+            const fps60Option = fpsSelect.querySelector('option[value="60"]');
+            if (fps60Option) fps60Option.disabled = false;
+        }
+        
+        const audioSelect = document.getElementById('audio-quality');
+        if (audioSelect) {
+            const option256k = audioSelect.querySelector('option[value="256k"]');
+            const option320k = audioSelect.querySelector('option[value="320k"]');
+            if (option256k) option256k.disabled = false;
+            if (option320k && normalizedTier === 'enterprise') {
+                option320k.disabled = false;
+            } else if (option320k) {
+                option320k.disabled = true;
+                option320k.title = 'Available on Enterprise tier';
+            }
+        }
+    }
+}
+
+// Call this during page initialization
+document.addEventListener('DOMContentLoaded', function() {
+    checkAdvancedOptionsAccess();
+});
+
+async function fetchRemainingRegenerations(videoId) {
+    try {
+        const response = await fetch(`/api/v1/videos/${videoId}/regenerations-remaining`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        const data = await response.json();
+        if (data.remaining !== undefined) {
+            thumbnailRegenerationsRemaining = data.remaining;
+            updateRegenerationInfo();
+        }
+    } catch (error) {
+        console.error('Error fetching regenerations:', error);
+    }
+}
+
+async function fetchVideoDetails(videoId) {
+    try {
+        const response = await fetch(`/api/v1/videos/${videoId}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        const data = await response.json();
+        
+        if (data.ai_thumbnails || data.extracted_thumbnails) {
+            displayThumbnails(data.ai_thumbnails, data.extracted_thumbnails, videoId);
+        }
+    } catch (error) {
+        console.error('Error fetching video details:', error);
+    }
+}
+
+// Hide progress, show preview
+progressDiv.classList.add('d-none');
+previewDiv.classList.remove('d-none');
+
 
 console.log("✅ Upload script setup complete");
 </script>

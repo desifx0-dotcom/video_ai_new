@@ -1,5 +1,5 @@
 """
-Video entity representing a processing job.
+Video entity representing a processing job - PRODUCTION READY.
 """
 
 from dataclasses import dataclass, field
@@ -37,7 +37,7 @@ class VideoType(str, Enum):
 
 @dataclass
 class Video:
-    """Video entity."""
+    """Video entity - PRODUCTION READY."""
 
     id: str
     user_id: str
@@ -64,21 +64,24 @@ class Video:
     tags: List[str] = field(default_factory=list)
 
     # Thumbnails
-    ai_thumbnails: List[str] = field(default_factory=list)  # URLs or paths
+    ai_thumbnails: List[Dict[str, Any]] = field(
+        default_factory=list
+    )  # URLs or paths with metadata
     extracted_thumbnails: List[str] = field(default_factory=list)
     selected_thumbnail: Optional[str] = None
 
-    # 🔥 NEW: Thumbnail style preference
+    # Thumbnail style preference
     thumbnail_style: str = "default"
 
-    # Video Processing
+    # Video Processing Options
     output_quality: str = "720p"
     output_format: str = "mp4"
     applied_styles: List[str] = field(default_factory=list)
+    aspect_ratio: str = "original"  # here aspect ratio
     output_video_url: Optional[str] = None
     output_video_size: Optional[int] = None
 
-    # 🔥 NEW: Advanced processing options
+    # Advanced processing options
     fps: str = "original"
     audio_quality: str = "original"
     auto_transcribe: bool = True
@@ -95,6 +98,18 @@ class Video:
     processing_started: Optional[datetime] = None
     processing_completed: Optional[datetime] = None
     processing_time: Optional[float] = None  # in seconds
+    silent_analysis: Optional[Dict[str, Any]] = None
+
+    # for frontend "video details" section
+    original_fps: float = 0.0
+    original_audio_bitrate: int = 0
+    original_width: int = 0
+    original_height: int = 0
+
+    # Display versions
+    original_fps_display: str = "unknown"
+    original_audio_display: str = "unknown"
+    original_aspect_display: str = "unknown"
 
     # Cost tracking
     ai_costs: Dict[str, float] = field(
@@ -124,6 +139,31 @@ class Video:
     # Timestamps
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
+
+    # Regeneration tracking
+    thumbnail_regenerations: int = 0
+    title_regenerations: int = 0
+    description_regenerations: int = 0
+
+    # Used concepts for regeneration
+    used_thumbnail_concepts: List[str] = field(default_factory=list)
+    used_title_concepts: List[str] = field(default_factory=list)
+
+    # 🔥 ADDED: Flag to track if video is silent
+    is_silent: bool = False
+
+    chapters: List[Dict[str, Any]] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Ensure status and video_type are strings."""
+        # Convert status to string if it's an enum
+        if hasattr(self.status, "value"):
+            self.status = self.status.value
+
+        # Convert video_type to string if it's an enum
+        if hasattr(self.video_type, "value"):
+            self.video_type = self.video_type.value
 
     def update_status(self, new_status: VideoStatus, message: Optional[str] = None):
         """Update video status and record timestamp."""
@@ -192,28 +232,45 @@ class Video:
         return progress_map.get(self.status, 0)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert video to dictionary."""
+        """Convert video to dictionary - PRODUCTION READY."""
 
-        def safe_isoformat(dt):
+        def format_datetime(dt):
+            """Safely format datetime to ISO string."""
             if dt is None:
                 return None
             if isinstance(dt, str):
-                # If it's already a string, return as is
                 return dt
             if hasattr(dt, "isoformat"):
                 return dt.isoformat()
-            return str(dt)  # Fallback
+            return str(dt)
 
         return {
+            # Basic Info
             "id": self.id,
             "user_id": self.user_id,
             "original_filename": self.original_filename,
+            "original_path": self.original_path,
             "file_size": self.file_size,
             "duration": self.duration,
-            "status": self.status.value,
-            "video_type": self.video_type.value,
+            "original_fps": getattr(self, "original_fps", "unknown"),
+            "original_audio_quality": getattr(
+                self, "original_audio_quality", "unknown"
+            ),
+            "original_aspect_ratio": getattr(self, "original_aspect_ratio", "unknown"),
+            "mime_type": self.mime_type,
+            "is_silent": self.is_silent,
+            # Status
+            "status": (
+                self.status if isinstance(self.status, str) else self.status.value
+            ),
+            "video_type": (
+                self.video_type
+                if isinstance(self.video_type, str)
+                else self.video_type.value
+            ),
             "progress": self.get_progress(),
-            # Results
+            "silent_analysis": self.silent_analysis,
+            # AI Results
             "title": self.title,
             "description": self.description,
             "transcription": self.transcription,
@@ -223,33 +280,42 @@ class Video:
             "ai_thumbnails": self.ai_thumbnails,
             "extracted_thumbnails": self.extracted_thumbnails,
             "selected_thumbnail": self.selected_thumbnail,
-            # 🔥 NEW: Thumbnail style
             "thumbnail_style": self.thumbnail_style,
-            # Output
-            "output_video_url": self.output_video_url,
-            "output_video_size": self.output_video_size,
+            # Processing Options
             "output_quality": self.output_quality,
+            "output_format": self.output_format,
             "applied_styles": self.applied_styles,
-            # 🔥 NEW: Advanced options
-            "fps": self.fps,
-            "audio_quality": self.audio_quality,
+            "fps": getattr(self, "fps", "original"),
+            "audio_quality": getattr(self, "audio_quality", "original"),
+            "aspect_ratio": getattr(self, "aspect_ratio", "original"),
             "auto_transcribe": self.auto_transcribe,
             "generate_chapters": self.generate_chapters,
             "remove_silence": self.remove_silence,
+            # Output
+            "output_video_url": self.output_video_url,
+            "output_video_size": self.output_video_size,
             # Translation
             "translated_transcription": self.translated_transcription,
             "translation_language": self.translation_language,
             "translated_title": self.translated_title,
+            "translated_description": self.translated_description,
             # Metadata
             "processed_tier": self.processed_tier,
             "processing_time": self.processing_time,
             "total_cost": self.total_cost,
+            "ai_costs": self.ai_costs,
             # Timestamps
-            "created_at": safe_isoformat(self.created_at),
-            "updated_at": safe_isoformat(self.updated_at),
-            "processing_started": safe_isoformat(self.processing_started),
-            "processing_completed": safe_isoformat(self.processing_completed),
-            "scheduled_for_deletion": safe_isoformat(self.scheduled_for_deletion),
+            "created_at": format_datetime(self.created_at),
+            "updated_at": format_datetime(self.updated_at),
+            "processing_started": format_datetime(self.processing_started),
+            "processing_completed": format_datetime(self.processing_completed),
+            "scheduled_for_deletion": format_datetime(self.scheduled_for_deletion),
+            # Regeneration tracking
+            "thumbnail_regenerations": self.thumbnail_regenerations,
+            "title_regenerations": self.title_regenerations,
+            "description_regenerations": self.description_regenerations,
+            "used_thumbnail_concepts": self.used_thumbnail_concepts,
+            "used_title_concepts": self.used_title_concepts,
             # Error handling
             "error_message": self.error_message,
             "retry_count": self.retry_count,

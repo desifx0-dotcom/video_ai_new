@@ -622,6 +622,49 @@ a:hover {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* from here latest */
+
+/* Add to your static/css/main.css */
+
+/* Fix icon and text spacing */
+.processing-details-icon {
+    width: 20px;
+    margin-right: 12px;
+}
+
+/* Fix column gap */
+.processing-details-grid .col-md-6 {
+    padding-left: 15px;
+    padding-right: 15px;
+}
+
+/* Fix label width consistency */
+.processing-details-label {
+    min-width: 140px;
+}
+
+/* Fix value text wrapping */
+.processing-details-value {
+    word-break: break-word;
+    max-width: 100%;
+}
+
+/* Fix border-bottom spacing */
+.processing-details-item {
+    margin-bottom: 1rem !important;
+    padding-bottom: 0.75rem !important;
+}
+
+/* Ensure proper spacing between columns on large screens */
+@media (min-width: 768px) {
+    .processing-details-grid .col-md-6:first-child {
+        padding-right: 20px;
+    }
+    .processing-details-grid .col-md-6:last-child {
+        padding-left: 20px;
+    }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .container {

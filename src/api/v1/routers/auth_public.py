@@ -1,7 +1,7 @@
-"""Public authentication routes (no JWT required)."""
+"""Public authentication routes (no JWT required) - Complete production version with credit allocation."""
 
 from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import create_access_token, create_refresh_token
 import logging
 
@@ -13,10 +13,11 @@ from api.schemas.auth import (
     ForgotPasswordSchema,
     ResetPasswordSchema,
     VerifyEmailSchema,
-    AuthResponseSchema,
 )
 from services.user_service import UserService
 from services.email_service import EmailService
+from services.credit_service import CreditService
+from services.tier_service import TierService
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -25,16 +26,16 @@ logger = logging.getLogger(__name__)
 
 user_service = UserService()
 email_service = EmailService()
+credit_service = CreditService()
+tier_service = TierService()
 limiter = Limiter(key_func=get_remote_address)
 
 
 @public_auth_bp.route("/login", methods=["POST"])
-@limiter.limit("10 per minute, 100 per day")  # Prevent brute force
+@limiter.limit("10 per minute, 100 per day")
 @validate_request(LoginSchema)
 def login():
     """Authenticate user and return tokens with session."""
-    from flask import g, session
-
     try:
         data = request.get_json()
         email = data.get("email")
@@ -49,7 +50,7 @@ def login():
         if not user.is_active():
             return jsonify({"error": {"message": "Account is not active"}}), 401
 
-        # ALSO set Flask session
+        # Set Flask session
         from flask import session
 
         session["user_id"] = user.id
@@ -72,28 +73,32 @@ def login():
             identity=user.id, expires_delta=timedelta(days=30)
         )
 
-        response = jsonify(
-            {
-                "success": True,
-                "message": "Login successful",
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "tier": getattr(user, "tier", "free"),
-                    "full_name": getattr(user, "full_name", ""),
-                },
-                "expires_in": 3600,
-            }
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": "Login successful",
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "user": {
+                        "id": user.id,
+                        "email": user.email,
+                        "tier": getattr(user, "tier", "free"),
+                        "full_name": getattr(user, "full_name", ""),
+                        "credits_remaining": user.credits_remaining,
+                        "monthly_limit": user.monthly_video_limit,
+                        "videos_processed_this_month": user.videos_processed_this_month,
+                    },
+                    "expires_in": 3600,
+                }
+            ),
+            200,
         )
-
-        return response, 200
 
     except Exception as e:
         import traceback
 
-        print(f"Login error: {traceback.format_exc()}")
+        logger.error(f"Login error: {traceback.format_exc()}")
         return (
             jsonify(
                 {
@@ -108,22 +113,20 @@ def login():
 
 
 @public_auth_bp.route("/register", methods=["POST"])
-@limiter.limit("5 per hour, 10 per day")  # Prevent spam registration
+@limiter.limit("5 per hour, 10 per day")
 @validate_request(RegisterSchema)
 def register():
-    """Register a new user."""
+    """Register a new user with initial credits."""
     try:
-        from flask import g
-
         data = g.validated_data
-        print(f"Registration data: {data}")
+        logger.info(f"Registration data: {data}")
 
         # Combine first_name and last_name into full_name
         full_name = f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
         if not full_name:
-            full_name = data.get("email").split("@")[0]  # Default from email
+            full_name = data.get("email").split("@")[0]
 
-        # Check if user already exists - use instance method
+        # Check if user already exists
         existing_user = user_service.get_user_by_email(data["email"])
         if existing_user:
             return (
@@ -131,13 +134,19 @@ def register():
                 400,
             )
 
-        # Create user - use instance method
+        # Get tier from data
+        tier = data.get("tier", "free")
+
+        # Get initial credits based on tier
+        initial_credits = tier_service.get_credits_per_month(tier(tier))
+
+        # Create user with initial credits
         user = user_service.create_user(
             email=data["email"],
             password=data["password"],
             full_name=full_name,
-            tier=data.get("tier", "free"),
-            # credits_remaining=10,
+            tier=tier,
+            credits_remaining=initial_credits,
         )
 
         if not user:
@@ -149,22 +158,28 @@ def register():
             expires_delta=timedelta(hours=1),
             additional_claims={
                 "email": user.email,
-                "tier": getattr(user, "tier", "free"),
+                "tier": tier,
             },
         )
         refresh_token = create_refresh_token(
             identity=user.id, expires_delta=timedelta(days=30)
         )
 
-        # If user opted in for newsletter, handle that
+        # Track registration event
+        credit_service.track_usage(
+            user.id,
+            "registration",
+            None,
+            {"tier": tier, "initial_credits": initial_credits},
+        )
+
+        # If user opted in for newsletter
         if data.get("newsletter"):
             try:
-                email_service = EmailService()
                 # Add to newsletter list (implement as needed)
-                # email_service.subscribe_to_newsletter(user.email)
                 pass
             except Exception as e:
-                print(f"Newsletter subscription failed: {e}")
+                logger.error(f"Newsletter subscription failed: {e}")
 
         return (
             jsonify(
@@ -177,7 +192,9 @@ def register():
                         "id": user.id,
                         "email": user.email,
                         "full_name": getattr(user, "full_name", full_name),
-                        "tier": getattr(user, "tier", "free"),
+                        "tier": tier,
+                        "credits_remaining": user.credits_remaining,
+                        "monthly_limit": user.monthly_video_limit,
                     },
                     "expires_in": 3600,
                 }
@@ -188,7 +205,7 @@ def register():
     except Exception as e:
         import traceback
 
-        print(f"Registration error: {traceback.format_exc()}")
+        logger.error(f"Registration error: {traceback.format_exc()}")
         return (
             jsonify(
                 {
@@ -203,22 +220,16 @@ def register():
 
 
 @public_auth_bp.route("/forgot-password", methods=["POST"])
-@limiter.limit("3 per hour")  # Prevent email flooding
+@limiter.limit("3 per hour")
 @validate_request(ForgotPasswordSchema)
 def forgot_password():
     """Send password reset email."""
     try:
-        from flask import g
-
         data = g.validated_data
-
         user = user_service.get_user_by_email(data["email"])
 
         if user:
-            # Generate reset token
             reset_token = user_service.generate_password_reset_token(user.id)
-
-            # Send reset email
             email_service.send_password_reset_email(user.email, reset_token)
 
         return (
@@ -232,17 +243,15 @@ def forgot_password():
         )
 
     except Exception as e:
-        print(f"Forgot password error: {str(e)}")
+        logger.error(f"Forgot password error: {str(e)}")
         return jsonify({"error": {"message": "An error occurred"}}), 500
 
 
 @public_auth_bp.route("/reset-password", methods=["POST"])
-@limiter.limit("3 per hour")  # Prevent abuse
+@limiter.limit("3 per hour")
 @validate_request(ResetPasswordSchema)
 def reset_password():
     """Reset password with token."""
-    from flask import g
-
     data = g.validated_data
 
     try:
@@ -257,15 +266,13 @@ def reset_password():
 
     except Exception as e:
         logger.error(f"Password reset failed: {str(e)}")
-        raise
+        return jsonify({"error": {"message": str(e)}}), 500
 
 
 @public_auth_bp.route("/verify-email", methods=["POST"])
 @validate_request(VerifyEmailSchema)
 def verify_email():
     """Verify email with token."""
-    from flask import g
-
     data = g.validated_data
 
     try:
@@ -293,4 +300,4 @@ def verify_email():
 
     except Exception as e:
         logger.error(f"Email verification failed: {str(e)}")
-        raise
+        return jsonify({"error": {"message": str(e)}}), 500

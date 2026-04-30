@@ -9,7 +9,7 @@ from .routers import auth, videos, users, billing, webhooks, admin
 from .routers.auth_public import public_auth_bp  # NEW - import public auth
 
 # Create v1 blueprint
-api_v1_bp = Blueprint("api_v1_bp", __name__, url_prefix="/v1")
+api_v1_bp = Blueprint("api_v1_bp", __name__, url_prefix="/api/v1")
 
 # Register routers
 # PUBLIC routes (no JWT required) - REGISTER THESE FIRST

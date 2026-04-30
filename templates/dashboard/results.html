@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block title %}Results - {{ video.original_filename }} - Video AI Studio{% endblock %}
 
@@ -33,7 +33,7 @@
                                     {% if video.output_video_url %}
                                     <video id="main-video-player" controls class="w-100" 
                                            poster="{{ video.selected_thumbnail_url|default('') }}">
-                                        <source src="{{ video.output_video_url }}" type="video/mp4">
+                                        <source src="{{ url_for('serve_processed_video', video_id=video.id) }}" type="video/mp4">
                                         Your browser does not support the video tag.
                                     </video>
                                     {% else %}
@@ -60,7 +60,11 @@
                                     </a>
                                     <small class="text-muted d-block">
                                         {{ video.output_quality|upper }} • 
-                                        {{ video.output_video_size|filesizeformat }}
+                                        {% if video.output_video_size %}
+                                            {{ video.output_video_size|filesizeformat }}
+                                        {% else %}
+                                            Pending
+                                        {% endif %}
                                     </small>
                                 </div>
                                 
@@ -75,7 +79,7 @@
                                 {% if video.transcription %}
                                 <div class="mb-3">
                                     <button class="btn btn-outline-secondary w-100 mb-2" 
-                                            onclick="downloadTranscription()">
+                                            onclick="downloadTranscription('txt')">
                                         <i class="fas fa-file-alt me-2"></i>Transcription (TXT)
                                     </button>
                                     <button class="btn btn-outline-secondary w-100" 
@@ -111,57 +115,129 @@
                 <div class="card-header">
                     <div class="d-flex justify-content-between align-items-center">
                         <h5 class="card-title mb-0">Generated Thumbnails</h5>
-                        <small class="text-muted">{{ thumbnails|length }} thumbnails generated</small>
+                        <div>
+                            <small class="text-muted me-2">
+                                AI: <span id="ai-thumbnail-count">{{ thumbnails|selectattr('type', 'equalto', 'ai')|list|length }}</span>
+                            </small>
+                            <small class="text-muted">
+                                Extracted: <span id="extracted-count">{{ thumbnails|selectattr('type', 'equalto', 'extracted')|list|length }}</span>
+                            </small>
+                        </div>
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        {% for thumbnail in thumbnails %}
-                        <div class="col-md-3 col-sm-4 col-6 mb-3">
-                            <div class="thumbnail-item {% if thumbnail.selected %}selected-thumbnail{% endif %}">
-                                <div class="thumbnail-image position-relative">
-                                    <img src="{{ thumbnail.url }}" 
-                                         alt="Thumbnail {{ loop.index }}"
-                                         class="img-fluid rounded"
-                                         onclick="previewThumbnail('{{ thumbnail.url }}', '{{ thumbnail.type }}')">
-                                    {% if thumbnail.selected %}
-                                    <div class="selected-indicator">
-                                        <i class="fas fa-check-circle"></i>
-                                    </div>
-                                    {% endif %}
-                                    <div class="thumbnail-actions">
-                                        <button class="btn btn-sm btn-light" 
-                                                onclick="downloadThumbnail('{{ thumbnail.url }}')"
-                                                title="Download">
-                                            <i class="fas fa-download"></i>
-                                        </button>
-                                        {% if not thumbnail.selected %}
-                                        <button class="btn btn-sm btn-primary" 
-                                                onclick="setAsThumbnail('{{ thumbnail.id }}')"
-                                                title="Set as main">
-                                            <i class="fas fa-check"></i>
-                                        </button>
+                    <!-- AI Thumbnails Section -->
+                    {% set ai_thumbnails = thumbnails|selectattr('type', 'equalto', 'ai')|list %}
+                    {% if ai_thumbnails %}
+                    <div class="mb-4">
+                        <h6 class="mb-3">AI Generated Thumbnails</h6>
+                        <div class="row" id="ai-thumbnails-grid">
+                            {% for thumbnail in ai_thumbnails %}
+                            <div class="col-md-3 col-sm-4 col-6 mb-3">
+                                <div class="thumbnail-card" data-thumbnail-id="{{ thumbnail.id }}" data-thumbnail-type="ai">
+                                    <div class="thumbnail-image position-relative">
+                                        <img src="{{ thumbnail.url }}" 
+                                            alt="AI Thumbnail {{ loop.index }}"
+                                            class="img-fluid rounded thumbnail-img"
+                                            style="width: 100%; height: 120px; object-fit: cover; cursor: pointer;"
+                                            onclick="previewThumbnail('{{ thumbnail.url }}', '{{ thumbnail.id }}')">
+                                        {% if thumbnail.selected %}
+                                        <div class="selected-indicator position-absolute top-0 end-0 m-2">
+                                            <i class="fas fa-check-circle text-success fa-lg" style="background: white; border-radius: 50%;"></i>
+                                        </div>
                                         {% endif %}
+                                        <div class="thumbnail-actions position-absolute bottom-0 start-0 end-0 p-2 d-flex justify-content-center gap-2" 
+                                            style="background: rgba(0,0,0,0.7); opacity: 0; transition: opacity 0.2s;">
+                                            <button class="btn btn-sm btn-light" onclick="downloadThumbnail('{{ thumbnail.url }}')" title="Download">
+                                                <i class="fas fa-download"></i>
+                                            </button>
+                                            {% if not thumbnail.selected %}
+                                            <button class="btn btn-sm btn-primary" onclick="setAsThumbnail('{{ thumbnail.id }}')" title="Set as main">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            {% endif %}
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="thumbnail-info mt-2">
-                                    <small class="d-block">
-                                        {% if thumbnail.type == 'ai' %}
-                                        <span class="badge bg-primary">AI</span>
-                                        {% else %}
-                                        <span class="badge bg-secondary">Extracted</span>
-                                        {% endif %}
-                                        <span class="text-muted ms-1">#{{ loop.index }}</span>
-                                    </small>
-                                    {% if thumbnail.score %}
-                                    <small class="text-muted d-block">
-                                        Score: {{ "%.1f"|format(thumbnail.score) }}
-                                    </small>
-                                    {% endif %}
+                                    <div class="thumbnail-info mt-2 text-center">
+                                        <small class="text-muted">AI #{{ loop.index }}</small>
+                                    </div>
                                 </div>
                             </div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
+                        
+                        <!-- Regenerate Button for Paid Tiers -->
+                        {% if current_user.tier != 'free' %}
+                        <div class="text-center mt-3" id="regenerate-thumbnail-btn-container">
+                            <button class="btn btn-outline-primary btn-sm" onclick="regenerateThumbnail()">
+                                <i class="fas fa-sync-alt me-1"></i>Regenerate Thumbnail
+                            </button>
+                            <p class="small text-muted mt-1" id="regen-info">
+                                <i class="fas fa-info-circle me-1"></i>
+                                <span id="regen-remaining">Check remaining regenerations</span>
+                            </p>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Extracted Thumbnails Section -->
+                    {% set extracted_thumbnails = thumbnails|selectattr('type', 'equalto', 'extracted')|list %}
+                    {% if extracted_thumbnails %}
+                    <div>
+                        <h6 class="mb-3">Extracted Frames (from video)</h6>
+                        <div class="row" id="extracted-thumbnails-grid">
+                            {% for thumbnail in extracted_thumbnails %}
+                            <div class="col-md-3 col-sm-4 col-6 mb-3">
+                                <div class="thumbnail-card" data-thumbnail-id="{{ thumbnail.id }}" data-thumbnail-type="extracted">
+                                    <div class="thumbnail-image position-relative">
+                                        <img src="{{ thumbnail.url }}" 
+                                            alt="Frame {{ loop.index }}"
+                                            class="img-fluid rounded thumbnail-img"
+                                            style="width: 100%; height: 120px; object-fit: cover; cursor: pointer;"
+                                            onclick="previewThumbnail('{{ thumbnail.url }}', '{{ thumbnail.id }}')">
+                                        <div class="thumbnail-actions position-absolute bottom-0 start-0 end-0 p-2 d-flex justify-content-center gap-2" 
+                                            style="background: rgba(0,0,0,0.7); opacity: 0; transition: opacity 0.2s;">
+                                            <button class="btn btn-sm btn-light" onclick="downloadThumbnail('{{ thumbnail.url }}')" title="Download">
+                                                <i class="fas fa-download"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-primary" onclick="setAsThumbnail('{{ thumbnail.id }}')" title="Set as main">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="thumbnail-info mt-2 text-center">
+                                        <small class="text-muted">Frame {{ loop.index }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Silent Video Warning for Free Tier -->
+            {% if video.video_type == 'silent' and current_user.tier == 'free' %}
+            <div class="alert alert-warning mb-4">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-microphone-slash fa-2x"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="alert-heading mb-1">Silent Video Detected</h5>
+                        <p class="mb-0">Your free tier plan includes silent video analysis. To get enhanced results with AI-generated titles, descriptions, and captions, please upgrade to Starter or Pro tier.</p>
+                        <hr>
+                        <div class="d-flex gap-2">
+                            <a href="{{ url_for('pricing') }}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-arrow-up me-1"></i>Upgrade Plan
+                            </a>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="showBasicResults()">
+                                <i class="fas fa-eye me-1"></i>View Basic Results
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -174,7 +250,6 @@
                     <h5 class="card-title mb-0">AI-Generated Content</h5>
                 </div>
                 <div class="card-body">
-                    <!-- Title & Description -->
                     <div class="mb-4">
                         <h6 class="border-bottom pb-2">Title & Description</h6>
                         <div class="mb-3">
@@ -219,7 +294,7 @@
                         <div class="mb-3">
                             <label class="form-label">Tags</label>
                             <div class="ai-content-box">
-                                <div class="tags-container">
+                                <div class="tags-container" id="tags-container">
                                     {% for tag in video.tags %}
                                     <span class="badge bg-light text-dark border me-1 mb-1">{{ tag }}</span>
                                     {% endfor %}
@@ -245,15 +320,15 @@
                             <div class="transcription-actions mb-3">
                                 <div class="btn-group" role="group">
                                     <button type="button" class="btn btn-sm btn-outline-primary active" 
-                                            onclick="showTranscriptionView('paragraph')">
+                                            onclick="showTranscriptionView('paragraph', this)">
                                         Paragraph
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-primary" 
-                                            onclick="showTranscriptionView('timeline')">
+                                            onclick="showTranscriptionView('timeline', this)">
                                         Timeline
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-primary" 
-                                            onclick="showTranscriptionView('captions')">
+                                            onclick="showTranscriptionView('captions', this)">
                                         Captions
                                     </button>
                                 </div>
@@ -278,7 +353,6 @@
                             </div>
                             
                             <div id="transcription-timeline" class="transcription-view d-none">
-                                <!-- Timeline view would show transcription with timestamps -->
                                 <div class="text-center text-muted py-4">
                                     <i class="fas fa-clock fa-2x mb-2"></i>
                                     <p>Timeline view shows transcription with timestamps</p>
@@ -286,7 +360,6 @@
                             </div>
                             
                             <div id="transcription-captions" class="transcription-view d-none">
-                                <!-- Captions view for subtitle generation -->
                                 <div class="text-center text-muted py-4">
                                     <i class="fas fa-closed-captioning fa-2x mb-2"></i>
                                     <p>Generate subtitle files from transcription</p>
@@ -301,7 +374,7 @@
                                 <small class="text-muted">
                                     Language detected: 
                                     <span class="badge bg-info">{{ video.transcription_language|upper }}</span>
-                                    • Confidence: {{ transcription_confidence|default('High') }}
+                                    • Confidence: High
                                 </small>
                             </div>
                             {% endif %}
@@ -317,12 +390,12 @@
                             <span class="badge bg-info">{{ video.translation_language|upper }}</span>
                         </h6>
                         <div class="translation-container">
-                            <div class="translation-text mb-3">
+                            <div class="translation-text mb-3" id="translation-text">
                                 {{ video.translated_transcription }}
                             </div>
                             <div class="translation-actions">
                                 <button class="btn btn-sm btn-outline-secondary" 
-                                        onclick="copyToClipboard('.translation-text')">
+                                        onclick="copyToClipboard('translation-text')">
                                     <i class="fas fa-copy me-1"></i>Copy Translation
                                 </button>
                                 <button class="btn btn-sm btn-outline-primary" onclick="translateToOtherLanguage()">
@@ -336,79 +409,139 @@
             </div>
             {% endif %}
 
-            <!-- Processing Details -->
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Processing Details</h5>
+            <!-- Processing Details-->
+            <div class="card mb-4">
+                <div class="card-header bg-transparent">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-chart-line me-2"></i>Processing Details
+                    </h5>
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <table class="table table-sm">
-                                <tbody>
-                                    <tr>
-                                        <th>Processing Time:</th>
-                                        <td>{{ video.processing_time|format_duration }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Started:</th>
-                                        <td>{{ video.processing_started|datetimeformat }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Completed:</th>
-                                        <td>{{ video.processing_completed|datetimeformat }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>AI Models Used:</th>
-                                        <td>
-                                            {% for model in ai_models_used %}
-                                            <span class="badge bg-light text-dark border me-1">{{ model }}</span>
-                                            {% endfor %}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <!-- Main row with explicit gap -->
+                    <div style="display: flex; flex-wrap: wrap; margin: 0 -20px;">
+                        
+                        <!-- Left Column -->
+                        <div style="flex: 0 0 50%; padding: 0 20px;">
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-hourglass-half" style="margin-right: 10px;"></i>Processing Time:
+                                    </span>
+                                    <span class="fw-semibold">{{ video.processing_time|format_duration }}</span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-play-circle" style="margin-right: 10px;"></i>Started:
+                                    </span>
+                                    <span>{{ video.processing_started|datetimeformat }}</span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-check-circle" style="margin-right: 10px;"></i>Completed:
+                                    </span>
+                                    <span>{{ video.processing_completed|datetimeformat }}</span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-tv" style="margin-right: 10px;"></i>Output Quality:
+                                    </span>
+                                    <span><span class="badge bg-primary">{{ video.output_quality|upper }}</span></span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="col-md-6">
-                            <table class="table table-sm">
-                                <tbody>
-                                    <tr>
-                                        <th>Total Cost:</th>
-                                        <td>${{ "%.4f"|format(video.total_cost) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Cost Savings:</th>
-                                        <td>
-                                            {% if video.video_type == 'silent' %}
-                                            <span class="badge bg-success">69% saved</span>
-                                            {% else %}
-                                            <span class="badge bg-secondary">Standard cost</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Output Quality:</th>
-                                        <td>{{ video.output_quality|upper }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Styles Applied:</th>
-                                        <td>
-                                            {% if video.applied_styles %}
-                                                {{ video.applied_styles|join(', ') }}
-                                            {% else %}
-                                                None
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        
+                        <!-- Right Column -->
+                        <div style="flex: 0 0 50%; padding: 0 20px;">
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-video" style="margin-right: 10px;"></i>Frame Rate(FPS):
+                                    </span>
+                                    <span>
+                                        {% if video.fps and video.fps != 'original' %}
+                                            {{ video.fps }} fps
+                                        {% else %}
+                                            <span class="text-muted">Original</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-music" style="margin-right: 10px;"></i>Audio Quality:
+                                    </span>
+                                    <span>
+                                        {% if video.audio_quality and video.audio_quality != 'original' %}
+                                            {{ video.audio_quality }}
+                                        {% else %}
+                                            <span class="text-muted">Original</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-arrows-alt" style="margin-right: 10px;"></i>Aspect Ratio:
+                                    </span>
+                                    <span>{{ video.aspect_ratio|default('Original') }}</span>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-image" style="margin-right: 10px;"></i>Thumbnail Style:
+                                    </span>
+                                    <span>
+                                        {% if video.thumbnail_style and video.thumbnail_style != 'default' %}
+                                            <span class="badge bg-warning text-dark">{{ video.thumbnail_style|title }}</span>
+                                        {% else %}
+                                            <span class="text-muted">Default</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Full Width Row -->
+                        <div style="flex: 0 0 100%; padding: 0 20px; margin-top: 0.5rem;">
+                            <div style="padding-top: 0.75rem; border-top: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-palette" style="margin-right: 10px;"></i>Styles Applied:
+                                    </span>
+                                    <span>
+                                        {% if video.applied_styles %}
+                                            {% for style in video.applied_styles %}
+                                                <span class="badge bg-secondary me-1">{{ style }}</span>
+                                            {% endfor %}
+                                        {% else %}
+                                            <span class="text-muted">None</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
-                    <div class="mt-3">
-                        <button class="btn btn-outline-secondary btn-sm" 
-                                onclick="showRawProcessingData()">
-                            <i class="fas fa-code me-1"></i>View Raw Processing Data
+                    <hr class="my-4">
+                    
+                    <div class="text-center">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="showRawProcessingData()">
+                            <i class="fas fa-code me-1"></i>Technical Details
                         </button>
                     </div>
                 </div>
@@ -423,8 +556,7 @@
                 </div>
                 <div class="card-body">
                     <div class="d-grid gap-2">
-                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" 
-                           class="btn btn-primary">
+                        <a href="{{ url_for('upload') }}" class="btn btn-primary">
                             <i class="fas fa-plus me-2"></i>Process Another Video
                         </a>
                         
@@ -449,89 +581,6 @@
                         <button class="btn btn-outline-secondary" onclick="duplicateProcessing()">
                             <i class="fas fa-copy me-2"></i>Duplicate with New Options
                         </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Video Analytics -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Video Analytics</h5>
-                </div>
-                <div class="card-body">
-                    <div class="analytics-grid">
-                        <div class="analytics-item text-center mb-3">
-                            <div class="analytics-value text-primary">{{ video.duration|format_duration }}</div>
-                            <div class="analytics-label">Duration</div>
-                        </div>
-                        <div class="analytics-item text-center mb-3">
-                            <div class="analytics-value text-success">{{ video.output_video_size|filesizeformat }}</div>
-                            <div class="analytics-label">File Size</div>
-                        </div>
-                        <div class="analytics-item text-center mb-3">
-                            <div class="analytics-value text-info">
-                                {% if video.transcription %}
-                                {{ video.transcription|length }} chars
-                                {% else %}
-                                No text
-                                {% endif %}
-                            </div>
-                            <div class="analytics-label">Transcription</div>
-                        </div>
-                        <div class="analytics-item text-center">
-                            <div class="analytics-value text-warning">{{ thumbnails|length }}</div>
-                            <div class="analytics-label">Thumbnails</div>
-                        </div>
-                    </div>
-                    
-                    <div class="mt-3">
-                        <h6 class="small text-uppercase text-muted mb-2">Engagement Score</h6>
-                        <div class="progress" style="height: 10px;">
-                            <div class="progress-bar bg-success" role="progressbar" 
-                                 style="width: {{ engagement_score }}%"></div>
-                        </div>
-                        <small class="text-muted">
-                            Based on video content, length, and AI analysis
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Export & Integration -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Export & Integration</h5>
-                </div>
-                <div class="card-body">
-                    <div class="integration-options">
-                        <h6 class="small text-uppercase text-muted mb-2">Export To</h6>
-                        <div class="d-flex flex-wrap gap-2 mb-3">
-                            <button class="btn btn-sm btn-outline-dark" onclick="exportToYouTube()">
-                                <i class="fab fa-youtube"></i> YouTube
-                            </button>
-                            <button class="btn btn-sm btn-outline-primary" onclick="exportToVimeo()">
-                                <i class="fab fa-vimeo"></i> Vimeo
-                            </button>
-                            <button class="btn btn-sm btn-outline-info" onclick="exportToTikTok()">
-                                <i class="fab fa-tiktok"></i> TikTok
-                            </button>
-                            <button class="btn btn-sm btn-outline-success" onclick="exportToInstagram()">
-                                <i class="fab fa-instagram"></i> Instagram
-                            </button>
-                        </div>
-                        
-                        <h6 class="small text-uppercase text-muted mb-2 mt-3">CMS Integration</h6>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-sm btn-outline-secondary" onclick="exportToWordPress()">
-                                <i class="fab fa-wordpress"></i> WordPress
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="exportToShopify()">
-                                <i class="fab fa-shopify"></i> Shopify
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="exportToWebflow()">
-                                Webflow
-                            </button>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -600,7 +649,7 @@
     </div>
 </div>
 
-<!-- Edit Content Modals -->
+<!-- Edit Title Modal -->
 <div class="modal fade" id="edit-title-modal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -619,6 +668,7 @@
     </div>
 </div>
 
+
 <!-- Raw Data Modal -->
 <div class="modal fade" id="raw-data-modal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -633,301 +683,495 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
+
+
 
 {% block scripts %}
 <script>
-    let currentThumbnailUrl = '';
-    let currentThumbnailId = '';
-    
-    function previewThumbnail(url, type) {
-        currentThumbnailUrl = url;
-        document.getElementById('thumbnail-preview').src = url;
-        const modal = new bootstrap.Modal(document.getElementById('thumbnail-modal'));
-        modal.show();
+// ============================================
+// CORE VARIABLES
+// ============================================
+let currentThumbnailUrl = '';
+let currentThumbnailId = '';
+const videoId = '{{ video.id }}';
+const csrfToken = '{{ csrf_token() }}';
+const accessToken = localStorage.getItem('access_token');
+
+// ============================================
+// THUMBNAIL FUNCTIONS
+// ============================================
+window.previewThumbnail = function(url, id) {
+    currentThumbnailUrl = url;
+    currentThumbnailId = id;
+    const previewImg = document.getElementById('thumbnail-preview');
+    if (previewImg) {
+        previewImg.src = url;
     }
-    
-    function downloadCurrentThumbnail() {
-        if (currentThumbnailUrl) {
-            const link = document.createElement('a');
-            link.href = currentThumbnailUrl;
-            link.download = `thumbnail-${Date.now()}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-    }
-    
-    function useAsMainThumbnail() {
-        if (currentThumbnailId) {
-            setAsThumbnail(currentThumbnailId);
-        }
-        bootstrap.Modal.getInstance(document.getElementById('thumbnail-modal')).hide();
-    }
-    
-    function downloadThumbnail(url) {
+    const modal = new bootstrap.Modal(document.getElementById('thumbnail-modal'));
+    modal.show();
+};
+
+window.downloadCurrentThumbnail = function() {
+    if (currentThumbnailUrl) {
         const link = document.createElement('a');
-        link.href = url;
+        link.href = currentThumbnailUrl;
         link.download = `thumbnail-${Date.now()}.jpg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     }
+};
+
+window.useAsMainThumbnail = function() {
+    if (currentThumbnailId) {
+        setAsThumbnail(currentThumbnailId);
+    }
+    const modal = bootstrap.Modal.getInstance(document.getElementById('thumbnail-modal'));
+    if (modal) modal.hide();
+};
+
+window.downloadThumbnail = function(url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `thumbnail-${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+window.setAsThumbnail = function(thumbnailId) {
+    fetch(`/api/v1/videos/${videoId}/thumbnails/${thumbnailId}/select`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${accessToken}`
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Thumbnail set as main successfully.', 'success');
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showAlert(`Failed to set thumbnail: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Error setting thumbnail.', 'danger');
+    });
+};
+
+// ============================================
+// REGENERATION FUNCTIONS
+// ============================================
+async function regenerateThumbnail() {
+    const regenBtn = document.querySelector('#regenerate-thumbnail-btn-container .btn');
+    const originalText = regenBtn.innerHTML;
+    regenBtn.disabled = true;
+    regenBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
     
-    function setAsThumbnail(thumbnailId) {
-        fetch(`/api/v1/videos/{{ video.id }}/thumbnails/${thumbnailId}/select`, {
+    try {
+        const response = await fetch(`/api/v1/videos/${videoId}/regenerate-thumbnail`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-Token': '{{ csrf_token() }}'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showAlert('Thumbnail set as main successfully.', 'success');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            } else {
-                showAlert(`Failed to set thumbnail: ${data.message}`, 'danger');
-            }
-        })
-        .catch(error => {
-            showAlert('Error setting thumbnail.', 'danger');
+                'Authorization': `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({})
         });
-    }
-    
-    function downloadAssets() {
-        fetch(`/api/v1/videos/{{ video.id }}/download/all`, {
-            method: 'GET',
-            headers: {
-                'X-CSRF-Token': '{{ csrf_token() }}'
-            }
-        })
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `video-assets-{{ video.id }}.zip`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        })
-        .catch(error => {
-            showAlert('Error downloading assets.', 'danger');
-        });
-    }
-    
-    function downloadTranscription(format = 'txt') {
-        fetch(`/api/v1/videos/{{ video.id }}/transcription/download?format=${format}`, {
-            method: 'GET',
-            headers: {
-                'X-CSRF-Token': '{{ csrf_token() }}'
-            }
-        })
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `transcription-{{ video.id }}.${format}`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        })
-        .catch(error => {
-            showAlert('Error downloading transcription.', 'danger');
-        });
-    }
-    
-    function copyToClipboard(elementId) {
-        const element = document.getElementById(elementId);
-        if (!element) return;
         
-        const text = element.textContent || element.innerText;
-        navigator.clipboard.writeText(text)
-            .then(() => {
-                showAlert('Copied to clipboard!', 'success');
-            })
-            .catch(err => {
-                console.error('Failed to copy: ', err);
-                showAlert('Failed to copy to clipboard.', 'danger');
-            });
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            showAlert('New thumbnail generated! Refreshing...', 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showAlert(data.error?.message || 'Failed to regenerate thumbnail', 'danger');
+        }
+    } catch (error) {
+        console.error('Error regenerating thumbnail:', error);
+        showAlert('Failed to regenerate thumbnail', 'danger');
+    } finally {
+        regenBtn.disabled = false;
+        regenBtn.innerHTML = originalText;
     }
-    
-    function editTitle() {
-        document.getElementById('title-editor').value = document.getElementById('ai-title').textContent;
+}
+
+async function fetchRemainingRegenerations() {
+    try {
+        const response = await fetch(`/api/v1/videos/${videoId}/regenerations-remaining`, {
+            headers: { 
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            const regenSpan = document.getElementById('regen-remaining');
+            if (regenSpan) {
+                const remaining = data.thumbnail_remaining || data.remaining || 0;
+                regenSpan.textContent = `${remaining} regenerations remaining this month`;
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching regenerations:', error);
+    }
+}
+
+// ============================================
+// ALERT FUNCTION
+// ============================================
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+    setTimeout(() => {
+        if (alertDiv.parentNode) alertDiv.remove();
+    }, 5000);
+}
+
+// ============================================
+// DOWNLOAD FUNCTIONS
+// ============================================
+function downloadAssets() {
+    fetch(`/api/v1/videos/${videoId}/download/all`, {
+        method: 'GET',
+        headers: { 'X-CSRF-Token': csrfToken }
+    })
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `video-assets-${videoId}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Error downloading assets.', 'danger');
+    });
+}
+
+function downloadTranscription(format = 'txt') {
+    fetch(`/api/v1/videos/${videoId}/transcription/download?format=${format}`, {
+        method: 'GET',
+        headers: { 'X-CSRF-Token': csrfToken }
+    })
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `transcription-${videoId}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Error downloading transcription.', 'danger');
+    });
+}
+
+// ============================================
+// TEXT CONTENT FUNCTIONS
+// ============================================
+function copyToClipboard(elementId) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    const text = element.textContent || element.innerText;
+    navigator.clipboard.writeText(text)
+        .then(() => showAlert('Copied to clipboard!', 'success'))
+        .catch(err => {
+            console.error('Failed to copy: ', err);
+            showAlert('Failed to copy to clipboard.', 'danger');
+        });
+}
+
+function editTitle() {
+    const editor = document.getElementById('title-editor');
+    if (editor) {
+        editor.value = document.getElementById('ai-title').textContent;
         const modal = new bootstrap.Modal(document.getElementById('edit-title-modal'));
         modal.show();
     }
-    
-    function saveTitle() {
-        const newTitle = document.getElementById('title-editor').value;
-        fetch(`/api/v1/videos/{{ video.id }}/title`, {
-            method: 'PUT',
+}
+
+function saveTitle() {
+    const newTitle = document.getElementById('title-editor').value;
+    fetch(`/api/v1/videos/${videoId}/title`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ title: newTitle })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('ai-title').textContent = newTitle;
+            showAlert('Title updated successfully.', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('edit-title-modal')).hide();
+        } else {
+            showAlert(`Failed to update title: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Error updating title.', 'danger');
+    });
+}
+
+function regenerateTitle() {
+    if (confirm('Regenerate title using AI?')) {
+        fetch(`/api/v1/videos/${videoId}/title/regenerate`, {
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-Token': '{{ csrf_token() }}'
-            },
-            body: JSON.stringify({ title: newTitle })
+                'X-CSRF-Token': csrfToken,
+                'Authorization': `Bearer ${accessToken}`
+            }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                document.getElementById('ai-title').textContent = newTitle;
-                showAlert('Title updated successfully.', 'success');
-                bootstrap.Modal.getInstance(document.getElementById('edit-title-modal')).hide();
+                document.getElementById('ai-title').textContent = data.title;
+                showAlert('Title regenerated successfully.', 'success');
             } else {
-                showAlert(`Failed to update title: ${data.message}`, 'danger');
+                showAlert(`Failed to regenerate title: ${data.message}`, 'danger');
             }
         })
         .catch(error => {
-            showAlert('Error updating title.', 'danger');
+            console.error('Error:', error);
+            showAlert('Error regenerating title.', 'danger');
         });
     }
+}
+
+function regenerateDescription() {
+    showAlert('Description regeneration feature coming soon!', 'info');
+}
+
+function regenerateTags() {
+    showAlert('Tags regeneration feature coming soon!', 'info');
+}
+
+function editDescription() {
+    showAlert('Edit description feature coming soon!', 'info');
+}
+
+function editTags() {
+    showAlert('Edit tags feature coming soon!', 'info');
+}
+
+function editTranscription() {
+    showAlert('Edit transcription feature coming soon!', 'info');
+}
+
+function translateTranscription() {
+    showAlert('Translate transcription feature coming soon!', 'info');
+}
+
+function generateSubtitles() {
+    showAlert('Subtitle generation feature coming soon!', 'info');
+}
+
+function translateToOtherLanguage() {
+    showAlert('Translation to other languages coming soon!', 'info');
+}
+
+// ============================================
+// TRANSCRIPTION VIEW FUNCTIONS
+// ============================================
+function showTranscriptionView(view, btn) {
+    document.querySelectorAll('.transcription-view').forEach(el => {
+        el.classList.add('d-none');
+    });
+    document.getElementById(`transcription-${view}`).classList.remove('d-none');
     
-    function regenerateTitle() {
-        if (confirm('Regenerate title using AI?')) {
-            fetch(`/api/v1/videos/{{ video.id }}/title/regenerate`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': '{{ csrf_token() }}'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('ai-title').textContent = data.title;
-                    showAlert('Title regenerated successfully.', 'success');
-                } else {
-                    showAlert(`Failed to regenerate title: ${data.message}`, 'danger');
-                }
-            })
-            .catch(error => {
-                showAlert('Error regenerating title.', 'danger');
-            });
+    document.querySelectorAll('.transcription-actions .btn-group .btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    btn.classList.add('active');
+}
+
+// ============================================
+// SHARE FUNCTIONS
+// ============================================
+function shareLink() {
+    navigator.clipboard.writeText(window.location.href)
+        .then(() => showAlert('Link copied to clipboard!', 'success'))
+        .catch(err => {
+            console.error('Failed to copy: ', err);
+            showAlert('Failed to copy link.', 'danger');
+        });
+}
+
+function shareTwitter() {
+    const text = encodeURIComponent(`Check out my video "${document.getElementById('ai-title')?.textContent || 'Video'}" on Video AI Studio!`);
+    const url = encodeURIComponent(window.location.href);
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
+}
+
+function shareWhatsApp() {
+    const text = encodeURIComponent(`Check out my video "${document.getElementById('ai-title')?.textContent || 'Video'}"`);
+    const url = encodeURIComponent(window.location.href);
+    window.open(`https://wa.me/?text=${text}%20${url}`, '_blank');
+}
+
+// ============================================
+// EXPORT FUNCTIONS
+// ============================================
+function exportToYouTube() { showAlert('YouTube export feature coming soon!', 'info'); }
+function exportToVimeo() { showAlert('Vimeo export feature coming soon!', 'info'); }
+function exportToTikTok() { showAlert('TikTok export feature coming soon!', 'info'); }
+function exportToInstagram() { showAlert('Instagram export feature coming soon!', 'info'); }
+function exportToWordPress() { showAlert('WordPress export feature coming soon!', 'info'); }
+function exportToShopify() { showAlert('Shopify export feature coming soon!', 'info'); }
+function exportToWebflow() { showAlert('Webflow export feature coming soon!', 'info'); }
+
+// ============================================
+// CONTENT GENERATION FUNCTIONS
+// ============================================
+function createShortClip() { showAlert('Short clip creation coming soon!', 'info'); }
+function applyNewStyle() { showAlert('Apply new style feature coming soon!', 'info'); }
+function generateBlogPost() { showAlert('Blog post generation coming soon!', 'info'); }
+function generateSocialPosts() { showAlert('Social media posts generation coming soon!', 'info'); }
+function duplicateProcessing() { showAlert('Duplicate processing feature coming soon!', 'info'); }
+function reprocessVideo() { showAlert('Reprocess video feature coming soon!', 'info'); }
+function duplicateVideo() { showAlert('Duplicate video feature coming soon!', 'info'); }
+
+// ============================================
+// MANAGEMENT FUNCTIONS
+// ============================================
+function updateRetention() {
+    const retentionDays = document.getElementById('retention-period').value;
+    fetch(`/api/v1/videos/${videoId}/retention`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ retention_days: retentionDays })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Retention period updated successfully.', 'success');
+        } else {
+            showAlert(`Failed to update retention: ${data.message}`, 'danger');
         }
-    }
-    
-    function showTranscriptionView(view) {
-        // Hide all views
-        document.querySelectorAll('.transcription-view').forEach(el => {
-            el.classList.add('d-none');
-        });
-        
-        // Remove active class from all buttons
-        document.querySelectorAll('.transcription-actions .btn-group .btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        
-        // Show selected view
-        document.getElementById(`transcription-${view}`).classList.remove('d-none');
-        
-        // Activate button
-        event.target.classList.add('active');
-    }
-    
-    function showRawProcessingData() {
-        fetch(`/api/v1/videos/{{ video.id }}/raw-data`, {
-            method: 'GET',
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Error updating retention.', 'danger');
+    });
+}
+
+function deleteVideo() {
+    if (confirm('Are you sure you want to delete this video permanently? This action cannot be undone.')) {
+        fetch(`/api/v1/videos/${videoId}`, {
+            method: 'DELETE',
             headers: {
-                'X-CSRF-Token': '{{ csrf_token() }}'
+                'X-CSRF-Token': csrfToken,
+                'Authorization': `Bearer ${accessToken}`
             }
-        })
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById('raw-data-content').textContent = JSON.stringify(data, null, 2);
-            const modal = new bootstrap.Modal(document.getElementById('raw-data-modal'));
-            modal.show();
-        })
-        .catch(error => {
-            showAlert('Error loading raw data.', 'danger');
-        });
-    }
-    
-    function updateRetention() {
-        const retentionDays = document.getElementById('retention-period').value;
-        fetch(`/api/v1/videos/{{ video.id }}/retention`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': '{{ csrf_token() }}'
-            },
-            body: JSON.stringify({ retention_days: retentionDays })
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showAlert('Retention period updated successfully.', 'success');
+                showAlert('Video deleted successfully.', 'success');
+                setTimeout(() => {
+                    window.location.href = '{{ url_for("history") }}';
+                }, 1000);
             } else {
-                showAlert(`Failed to update retention: ${data.message}`, 'danger');
+                showAlert(`Failed to delete video: ${data.message}`, 'danger');
             }
         })
         .catch(error => {
-            showAlert('Error updating retention.', 'danger');
+            console.error('Error:', error);
+            showAlert('Error deleting video.', 'danger');
         });
     }
-    
-    function deleteVideo() {
-        if (confirm('Are you sure you want to delete this video permanently? This action cannot be undone.')) {
-            fetch(`/api/v1/videos/{{ video.id }}`, {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRF-Token': '{{ csrf_token() }}'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert('Video deleted successfully.', 'success');
-                    setTimeout(() => {
-                        window.location.href = '{{ url_for("api.v1.routers.videos.history") }}';
-                    }, 1000);
-                } else {
-                    showAlert(`Failed to delete video: ${data.message}`, 'danger');
-                }
-            })
-            .catch(error => {
-                showAlert('Error deleting video.', 'danger');
-            });
+}
+
+// ============================================
+// RAW DATA FUNCTIONS
+// ============================================
+function showRawProcessingData() {
+    fetch(`/api/v1/videos/${videoId}/raw-data`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
         }
+    })
+    .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    })
+    .then(data => {
+        const pre = document.getElementById('raw-data-content');
+        if (pre) pre.textContent = JSON.stringify(data, null, 2);
+        const modal = new bootstrap.Modal(document.getElementById('raw-data-modal'));
+        modal.show();
+    })
+    .catch(error => {
+        console.error('Error fetching raw data:', error);
+        showAlert('Could not load raw processing data', 'danger');
+    });
+}
+
+// ============================================
+// BASIC RESULTS FUNCTION
+// ============================================
+function showBasicResults() {
+    document.querySelectorAll('.ai-content-box').forEach(el => {
+        el.style.opacity = '0.5';
+    });
+    const upgradeMessage = document.createElement('div');
+    upgradeMessage.className = 'alert alert-info mt-3';
+    upgradeMessage.innerHTML = `
+        <i class="fas fa-info-circle me-2"></i>
+        Upgrade to Starter or Pro tier to unlock AI-generated titles, descriptions, and captions for silent videos.
+        <a href="{{ url_for('pricing') }}" class="alert-link ms-2">Learn more →</a>
+    `;
+    const container = document.querySelector('.ai-content-box');
+    if (container && !document.querySelector('.alert-info')) {
+        container.after(upgradeMessage);
     }
+}
+
+// ============================================
+// INITIALIZATION
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Results page loaded');
+    console.log('Video URL:', '{{ video.output_video_url }}');
+    console.log('Video ID:', videoId);
+    console.log('Video Status:', '{{ video.status }}');
     
-    function shareLink() {
-        const shareUrl = window.location.href;
-        navigator.clipboard.writeText(shareUrl)
-            .then(() => {
-                showAlert('Link copied to clipboard!', 'success');
-            })
-            .catch(err => {
-                console.error('Failed to copy: ', err);
-                showAlert('Failed to copy link.', 'danger');
-            });
-    }
-    
-    function showAlert(message, type) {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        alertDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        
-        document.body.appendChild(alertDiv);
-        
-        // Auto-dismiss after 5 seconds
-        setTimeout(() => {
-            const bsAlert = bootstrap.Alert.getInstance(alertDiv);
-            if (bsAlert) {
-                bsAlert.close();
-            }
-        }, 5000);
-    }
+    // Fetch remaining regenerations for paid tiers
+    {% if current_user.tier != 'free' %}
+    fetchRemainingRegenerations();
+    {% endif %}
+});
 </script>
 {% endblock %}

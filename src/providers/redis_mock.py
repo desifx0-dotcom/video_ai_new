@@ -35,6 +35,73 @@ class MockRedisProvider:
         """Mock ping command."""
         return True
 
+    def lpush(self, key: str, value: Any) -> int:
+        """Push value to left of list."""
+        if key not in self._data:
+            self._data[key] = []
+        self._data[key].insert(0, value)
+        return len(self._data[key])
+
+    def rpush(self, key: str, value: Any) -> int:
+        """Push value to right of list."""
+        if key not in self._data:
+            self._data[key] = []
+        self._data[key].append(value)
+        return len(self._data[key])
+
+    def lrange(self, key: str, start: int, end: int) -> List[Any]:
+        """Get range of list."""
+        if key not in self._data or not isinstance(self._data[key], list):
+            return []
+        return (
+            self._data[key][start : end + 1] if end != -1 else self._data[key][start:]
+        )
+
+    def lpop(self, key: str) -> Optional[Any]:
+        """Pop value from left of list."""
+        if (
+            key not in self._data
+            or not isinstance(self._data[key], list)
+            or not self._data[key]
+        ):
+            return None
+        return self._data[key].pop(0)
+
+    def rpop(self, key: str) -> Optional[Any]:
+        """Pop value from right of list."""
+        if (
+            key not in self._data
+            or not isinstance(self._data[key], list)
+            or not self._data[key]
+        ):
+            return None
+        return self._data[key].pop()
+
+    def ltrim(self, key: str, start: int, end: int) -> bool:
+        """Trim list to specified range."""
+        if key not in self._data or not isinstance(self._data[key], list):
+            return False
+        self._data[key] = self._data[key][start : end + 1]
+        return True
+
+    def llen(self, key: str) -> int:
+        """Get length of list."""
+        if key not in self._data or not isinstance(self._data[key], list):
+            return 0
+        return len(self._data[key])
+
+    def keys(self, pattern: str = "*") -> List[str]:
+        """Get all keys matching pattern."""
+        # Simple implementation - only supports "*" for now
+        return list(self._data.keys())
+
+    def expire(self, key: str, seconds: int) -> bool:
+        """Set expiry on key."""
+        if key in self._data:
+            self._expiry[key] = time.time() + seconds
+            return True
+        return False
+
     def get(self, key: str) -> Optional[Any]:
         """Get value by key."""
         # Check if expired

@@ -350,6 +350,19 @@ class StyleService:
         Returns:
             Processing result
         """
+
+        # 🔥 LOG the received tier
+        logger.info(f"🎨 Applying styles: {style_names}")
+        logger.info(f"🎨 User tier received: {tier}")
+        logger.info(f"🎨 Tier type: {type(tier)}")
+
+        # Convert string to Tier enum if needed
+        if isinstance(tier, str):
+            from core.domain.entities.user import Tier
+
+            tier = Tier(tier.lower())
+            logger.info(f"🎨 Converted tier to: {tier}")
+
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
 

@@ -15,46 +15,42 @@ from tasks.celery_app import celery_app as celery
 from providers.redis_provider import RedisProvider
 from providers.firebase_provider import FirebaseProvider
 from core.logging import get_logger
-from app.monitoring.metrics import (
-    update_system_metrics,
-    record_video_processing,
-    record_ai_cost,
-    record_user_signup,
-    record_tier_upgrade,
-)
+
+# THESE DUPLICATE METRICS - They are defined in app/monitoring/metrics.py
+# MONITORING_TASKS_EXECUTED = Counter(
+#     "monitoring_tasks_executed_total", "Total monitoring tasks executed", ["task_name"]
+# )
+#
+# MONITORING_TASK_DURATION = Histogram(
+#     "monitoring_task_duration_seconds",
+#     "Monitoring task execution duration",
+#     ["task_name"],
+# )
+#
+# SYSTEM_HEALTH = Gauge(
+#     "system_health_status",
+#     "System health status (1=healthy, 0=unhealthy)",
+#     ["component"],
+# )
+#
+# QUEUE_DEPTH = Gauge(
+#     "celery_queue_depth", "Number of tasks in Celery queue", ["queue_name"]
+# )
+#
+# DATABASE_HEALTH = Gauge(
+#     "database_health_status",
+#     "Database health status (1=healthy, 0=unhealthy)",
+#     ["database_type"],
+# )
+#
+# EXTERNAL_SERVICE_HEALTH = Gauge(
+#     "external_service_health_status", "External service health status", ["service_name"]
+# )
+
+# Instead, import metrics from the metrics module when needed
+# We'll import them inside functions to avoid circular imports
 
 logger = get_logger(__name__)
-
-# Prometheus metrics for monitoring tasks
-MONITORING_TASKS_EXECUTED = Counter(
-    "monitoring_tasks_executed_total", "Total monitoring tasks executed", ["task_name"]
-)
-
-MONITORING_TASK_DURATION = Histogram(
-    "monitoring_task_duration_seconds",
-    "Monitoring task execution duration",
-    ["task_name"],
-)
-
-SYSTEM_HEALTH = Gauge(
-    "system_health_status",
-    "System health status (1=healthy, 0=unhealthy)",
-    ["component"],
-)
-
-QUEUE_DEPTH = Gauge(
-    "celery_queue_depth", "Number of tasks in Celery queue", ["queue_name"]
-)
-
-DATABASE_HEALTH = Gauge(
-    "database_health_status",
-    "Database health status (1=healthy, 0=unhealthy)",
-    ["database_type"],
-)
-
-EXTERNAL_SERVICE_HEALTH = Gauge(
-    "external_service_health_status", "External service health status", ["service_name"]
-)
 
 
 @celery.task(bind=True, name="monitoring.update_system_metrics")
@@ -63,6 +59,16 @@ def update_metrics(self):
     start_time = time.time()
 
     try:
+        # Import metrics INSIDE the function to avoid circular imports
+        from app.monitoring.metrics import update_system_metrics
+
+        # Also import Prometheus metrics from the same module
+        from app.monitoring.metrics import (
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+            SYSTEM_HEALTH,
+        )
+
         # Update system metrics
         update_system_metrics()
 
@@ -81,6 +87,9 @@ def update_metrics(self):
         return {"status": "success", "duration": duration}
 
     except Exception as e:
+        # Import SYSTEM_HEALTH for error reporting
+        from app.monitoring.metrics import SYSTEM_HEALTH
+
         SYSTEM_HEALTH.labels(component="metrics_collector").set(0)
         logger.error(f"Failed to update system metrics: {e}")
         raise
@@ -93,6 +102,15 @@ def check_system_health(self):
     health_checks = {}
 
     try:
+        # Import metrics from the main metrics module
+        from app.monitoring.metrics import (
+            SYSTEM_HEALTH,
+            QUEUE_DEPTH,
+            DATABASE_HEALTH,
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+        )
+
         # Check Redis
         redis = RedisProvider()
         try:
@@ -141,8 +159,6 @@ def check_system_health(self):
 
         # Check queue depths
         try:
-            from tasks.celery_app import celery
-
             inspect = celery.control.inspect()
 
             # Get active queues
@@ -264,6 +280,14 @@ def collect_business_metrics_task(self):
     start_time = time.time()
 
     try:
+        # Import metrics INSIDE the function to avoid circular imports
+        from app.monitoring.metrics import (
+            record_video_processing,
+            record_user_signup,
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+        )
+
         db = FirebaseProvider()
         redis = RedisProvider()
 
@@ -283,7 +307,7 @@ def collect_business_metrics_task(self):
             },
         )
 
-        # Calculate metrics
+        # Calculate metrics (rest of the function remains the same)
         total_videos = len(videos)
         total_processing_time = sum(v.get("processing_time", 0) for v in videos)
         total_cost = sum(v.get("total_cost", 0) for v in videos)
@@ -328,10 +352,6 @@ def collect_business_metrics_task(self):
         for user in users:
             tier = user.get("tier", "free")
             signups_by_tier[tier] = signups_by_tier.get(tier, 0) + 1
-
-        # Get tier upgrades
-        # This would typically come from a dedicated collection
-        # For now, we'll estimate from user tier changes
 
         # Calculate silent video savings
         silent_videos = [v for v in videos if v.get("video_type") == "silent"]
@@ -378,19 +398,17 @@ def collect_business_metrics_task(self):
                 "savings_percentage": cost_savings_percentage,
             },
             "revenue": {
-                # This would come from Stripe/webhook data
                 "estimated_daily": 0,
                 "estimated_monthly": 0,
             },
         }
 
         # Store metrics
-        redis.set("business_metrics_24h", metrics, ex=3600)  # Cache for 1 hour
+        redis.set("business_metrics_24h", metrics, ex=3600)
 
         # Update Prometheus metrics
         for tier, data in videos_by_tier.items():
             for video_type, type_data in videos_by_type.items():
-                # Filter videos by tier and type for accurate counts
                 filtered_videos = [
                     v
                     for v in videos
@@ -432,6 +450,13 @@ def check_external_services_task(self):
     service_checks = {}
 
     try:
+        # Import metrics from the main module
+        from app.monitoring.metrics import (
+            EXTERNAL_SERVICE_HEALTH,
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+        )
+
         # Check OpenAI API
         try:
             from providers.openai_provider import OpenAIProvider
@@ -508,7 +533,7 @@ def check_external_services_task(self):
         service_checks["overall"] = {
             "status": "healthy" if not unhealthy_services else "unhealthy",
             "unhealthy_services": unhealthy_services,
-            "total_services": len(service_checks) - 1,  # Exclude overall
+            "total_services": len(service_checks) - 1,
             "timestamp": datetime.utcnow().isoformat(),
         }
 
@@ -521,9 +546,7 @@ def check_external_services_task(self):
 
         # Store results
         redis = RedisProvider()
-        redis.set(
-            "external_services_health", service_checks, ex=300
-        )  # Cache for 5 minutes
+        redis.set("external_services_health", service_checks, ex=300)
 
         logger.info(f"External services health check completed in {duration:.2f}s")
         return service_checks
@@ -539,14 +562,17 @@ def cleanup_old_metrics_task(self):
     start_time = time.time()
 
     try:
+        # Import metrics from the main module
+        from app.monitoring.metrics import (
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+        )
+
         db = FirebaseProvider()
         redis = RedisProvider()
 
         # Cleanup old health checks (older than 7 days)
         cutoff_time = (datetime.utcnow() - timedelta(days=7)).isoformat()
-
-        # This would typically involve querying and deleting old documents
-        # For Firebase, we might use scheduled cleanup functions instead
 
         # Cleanup Redis keys
         pattern = "metrics:*"
@@ -589,6 +615,10 @@ def send_daily_report_task(self):
     try:
         from services.email_service import EmailService
         from services.user_service import UserService
+        from app.monitoring.metrics import (
+            MONITORING_TASKS_EXECUTED,
+            MONITORING_TASK_DURATION,
+        )
 
         email_service = EmailService()
         user_service = UserService()
@@ -655,28 +685,28 @@ def schedule_monitoring_tasks():
     # Update system metrics every minute
     celery.conf.beat_schedule["update-system-metrics"] = {
         "task": "monitoring.update_system_metrics",
-        "schedule": 60.0,  # Every 60 seconds
+        "schedule": 60.0,
         "options": {"queue": "monitoring"},
     }
 
     # Check system health every 5 minutes
     celery.conf.beat_schedule["check-system-health"] = {
         "task": "monitoring.check_system_health",
-        "schedule": 300.0,  # Every 5 minutes
+        "schedule": 300.0,
         "options": {"queue": "monitoring"},
     }
 
     # Collect business metrics every hour
     celery.conf.beat_schedule["collect-business-metrics"] = {
         "task": "monitoring.collect_business_metrics",
-        "schedule": 3600.0,  # Every hour
+        "schedule": 3600.0,
         "options": {"queue": "monitoring"},
     }
 
     # Check external services every 15 minutes
     celery.conf.beat_schedule["check-external-services"] = {
         "task": "monitoring.check_external_services",
-        "schedule": 900.0,  # Every 15 minutes
+        "schedule": 900.0,
         "options": {"queue": "monitoring"},
     }
 

@@ -3,27 +3,45 @@ Celery configuration.
 """
 
 import os
+from pathlib import Path
 from celery import Celery
 from kombu import Queue, Exchange
+from dotenv import load_dotenv
+
+# 🔥 Load .env file explicitly
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+# 🔥 Get Redis URL from environment (now it should work)
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# Also check alternative env vars
+if not redis_url or redis_url == "memory://":
+    redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+    print(f"⚠️  Using CELERY_BROKER_URL: {redis_url}")
+
+# Print for debugging
+print(
+    f"🔍 Redis URL: {redis_url[:50]}..."
+    if len(redis_url) > 50
+    else f"🔍 Redis URL: {redis_url}"
+)
+
+# Use the Redis URL directly
+celery_broker = redis_url
+celery_backend = redis_url
+
+print(f"✅ Using Redis transport for Celery")
 
 # Create Celery instance
-celery_app = Celery("video_ai_studio")
-
-# Get Redis URL from environment, default to mock for development
-redis_url = os.getenv("REDIS_URL", "mock://")
-celery_broker = os.getenv("CELERY_BROKER_URL", redis_url)
-celery_backend = os.getenv("CELERY_RESULT_BACKEND", redis_url)
-
-# If using mock Redis, use memory transport
-if redis_url == "mock://" or celery_broker == "mock://":
-    celery_broker = "memory://"
-    celery_backend = "memory://"
-    print("⚠️  Using memory transport for Celery (no Redis required)")
+celery_app = Celery(
+    "video_ai_studio",
+    broker=celery_broker,
+    backend=celery_backend,
+)
 
 # Configure Celery
 celery_app.conf.update(
-    broker_url=celery_broker,
-    result_backend=celery_backend,
     # Serialization
     task_serializer="json",
     accept_content=["json"],
@@ -136,11 +154,10 @@ celery_app.conf.update(
     },
     # Result expiration
     result_expires=86400,  # 24 hours
-    # Security
-    security_key="video_ai_studio_celery_key",
-    security_certificate="video_ai_studio_celery_cert",
-    security_digest="sha256",
 )
+
+# Auto-discover tasks
+celery_app.autodiscover_tasks(["tasks"])
 
 
 if __name__ == "__main__":

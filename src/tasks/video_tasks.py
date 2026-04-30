@@ -3,11 +3,13 @@ Video processing Celery tasks.
 """
 
 import os
+import sys
 import logging
 import traceback
 from datetime import datetime
 from typing import Dict, Any, List
-
+# from api.websocket import send_progress_update, send_video_update, send_video_completed
+import uuid
 from .celery_app import celery_app
 from services.video_service import VideoService
 from services.notification_service import (
@@ -16,11 +18,116 @@ from services.notification_service import (
     NotificationChannel,
 )
 from core.exceptions import ProcessingError
-from app.monitoring.metrics import record_video_processing
-
 logger = logging.getLogger(__name__)
 
 video_service = VideoService()
+
+
+def emit_websocket_update(
+    video_id: str,
+    user_id: str,
+    status: str,
+    progress: float,
+    step: str = None,
+    message: str = None,
+):
+    """Emit WebSocket update for video processing."""
+    try:
+        from api.websocket import socketio, WS_EVENTS
+
+        data = {
+            "video_id": video_id,
+            "user_id": user_id,
+            "status": status,
+            "progress": progress,
+            "current_step": step,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        # Send to user's room - this will reach the frontend via WebSocket
+        socketio.emit(WS_EVENTS["PROGRESS_UPDATE"], data, room=f"user:{user_id}")
+
+        # Also send to video room if anyone is subscribed
+        socketio.emit(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"video:{video_id}")
+
+        logger.debug(f"📡 WebSocket update sent: {video_id} - {progress}%")
+
+    except Exception as e:
+        logger.warning(f"Failed to send WebSocket update: {e}")
+
+
+def _check_silent_video_tier(video, user_id):
+    """Check if user can process silent video based on tier."""
+    from services.user_service import UserService
+    from services.tier_service import TierService
+    from core.exceptions import TierLimitExceeded
+
+    user_service = UserService()
+    tier_service = TierService()
+
+    user = user_service.get_user_by_id(user_id)
+    if not user:
+        return False, "User not found"
+
+    is_silent = getattr(video, "is_silent", False)
+
+    if is_silent and not tier_service.is_silent_video_allowed(user.tier):
+        raise TierLimitExceeded(
+            "silent_video",
+            0,
+            0,
+            message=f"Silent videos are not available in {user.tier.value} tier. "
+            f"Upgrade to Starter or higher to process silent videos.",
+            upgrade_url="/pricing",
+        )
+
+    return True, ""
+
+
+# Helper function to get WebSocket module lazily
+def _get_websocket():
+    """Lazy import WebSocket functions to avoid circular imports."""
+    from api.websocket import (
+        send_video_update,
+        send_video_completed,
+        send_video_failed,
+        send_progress_update,
+    )
+
+    return (
+        send_video_update,
+        send_video_completed,
+        send_video_failed,
+        send_progress_update,
+    )
+
+
+def _send_ws_update(video_id, user_id, status, progress, step, message):
+    """Send WebSocket update safely."""
+    try:
+        send_video_update, _, _, _ = _get_websocket()
+        send_video_update(video_id, user_id, status, progress, step, message)
+    except Exception as e:
+        logger.warning(f"Failed to send WebSocket update: {e}")
+
+
+def _send_ws_completed(video_id, user_id, url, proc_time, cost):
+    """Send WebSocket completion safely."""
+    try:
+        _, send_completed, _, _ = _get_websocket()
+        send_completed(video_id, user_id, url, proc_time, cost)
+    except Exception as e:
+        logger.warning(f"Failed to send WebSocket completion: {e}")
+
+
+def _send_ws_failed(video_id, user_id, error, retry_count, can_retry):
+    """Send WebSocket failure safely."""
+    try:
+        _, _, send_failed, _ = _get_websocket()
+        send_failed(video_id, user_id, error, retry_count, can_retry)
+    except Exception as e:
+        logger.warning(f"Failed to send WebSocket failure: {e}")
 
 
 @celery_app.task(bind=True, max_retries=3)
@@ -35,21 +142,24 @@ def process_video_async(
         user_id: User ID
         options: Processing options (quality, style, aspect_ratio, etc.)
     """
-    from services.notification_service import (
-        NotificationService,
-        NotificationType,
-        NotificationChannel,
-    )
+    options = options or {}
     from services.user_service import UserService
-    from providers.ffmpeg_provider import FFmpegProvider
-    import tempfile
-    import subprocess
-    import shutil
+
+    # 🔥 DEBUG: Log received options
+    logger.info("=" * 80)
+    logger.info(f"📥 VIDEO PROCESSING STARTED for {video_id}")
+    logger.info(f"📥 Received options from Celery task:")
+    logger.info(f"   quality: {options.get('quality')}")
+    logger.info(f"   fps: {options.get('fps')}")
+    logger.info(f"   audio_quality: {options.get('audio_quality')}")
+    logger.info(f"   aspect_ratio: {options.get('aspect_ratio')}")
+    logger.info(f"   thumbnail_style: {options.get('thumbnail_style')}")
+    logger.info(f"   styles: {options.get('styles')}")
+    logger.info(f"   process_silent_video: {options.get('process_silent_video')}")
+    logger.info("=" * 80)
 
     notification_service = NotificationService()
     user_service = UserService()
-    ffmpeg = FFmpegProvider()
-    options = options or {}
 
     send_email_notification = options.get("send_email_notification", False)
 
@@ -59,39 +169,73 @@ def process_video_async(
         )
         logger.info(f"Processing options: {options}")
 
+        # Send initial WebSocket update
+        _send_ws_update(
+            video_id, user_id, "queued", 10, "queued", "Video queued for processing"
+        )
+
         # Update task state
         self.update_state(
             state="PROGRESS",
             meta={"current": "starting", "total": 100, "status": "Processing video..."},
         )
 
-        # Send processing started notification (in-app only)
-        try:
-            notification_service.send_notification(
-                user_id=user_id,
-                notification_type=NotificationType.VIDEO_PROCESSING_STARTED,
-                data={
-                    "video_id": video_id,
-                    "video_title": options.get("title", "Your video"),
-                    "message": "Your video processing has started.",
-                },
-                channels=[NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
-            )
-        except Exception as e:
-            logger.error(f"Failed to send processing started notification: {e}")
-
         # Get video data
         video = video_service.get_video_by_id(video_id)
         if not video:
             raise ProcessingError(f"Video not found: {video_id}")
 
-        # Update progress: Analyzing
-        self.update_state(
-            state="PROGRESS",
-            meta={"current": "analyzing", "total": 100, "status": "Analyzing video..."},
+        # Silent video tier enforcement
+        _check_silent_video_tier(video, user_id)
+
+        # Detect if video is silent
+        if not hasattr(video, "is_silent"):
+            from services.silent_video_service import SilentVideoService
+
+            silent_service = SilentVideoService()
+            video.is_silent = silent_service.is_silent_video(video.original_path)
+            logger.info(f"Video {video_id} silent detection: {video.is_silent}")
+
+        # Apply frontend options to video object
+        if options.get("quality") and options["quality"] != "original":
+            video.output_quality = options["quality"]
+            logger.info(f"✅ Setting quality from frontend: {options['quality']}")
+
+        if options.get("fps") and options["fps"] != "original":
+            video.fps = options["fps"]
+            logger.info(f"✅ Setting FPS from frontend: {options['fps']}")
+
+        if options.get("audio_quality") and options["audio_quality"] != "original":
+            video.audio_quality = options["audio_quality"]
+            logger.info(
+                f"✅ Setting audio quality from frontend: {options['audio_quality']}"
+            )
+
+        if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
+            video.aspect_ratio = options["aspect_ratio"]
+            logger.info(
+                f"✅ Setting aspect ratio from frontend: {options['aspect_ratio']}"
+            )
+
+        if options.get("thumbnail_style"):
+            video.thumbnail_style = options["thumbnail_style"]
+            logger.info(
+                f"✅ Setting thumbnail style from frontend: {options['thumbnail_style']}"
+            )
+
+        if options.get("styles") and len(options["styles"]) > 0:
+            video.applied_styles = options["styles"]
+            logger.info(f"✅ Setting video styles from frontend: {options['styles']}")
+
+        video_service.update_video(video)
+        logger.info(f"💾 Saved video settings to database")
+
+        # Send progress update
+        _send_ws_update(
+            video_id, user_id, "processing", 15, "analyzing", "Analyzing video..."
         )
 
-        # Process based on video type (speech vs silent)
+        # Process based on video type
         video_type = options.get("video_type", "speech")
 
         # Step 1: Handle silent video processing
@@ -99,103 +243,86 @@ def process_video_async(
             logger.info(f"Processing silent video: {video_id}")
             _process_silent_video(video, options)
         else:
-            # Step 2: Transcribe audio (if speech video)
+            # Step 2: Transcribe audio
             if video_type == "speech" and options.get("auto_transcribe", True):
-                self.update_state(
-                    state="PROGRESS",
-                    meta={
-                        "current": "transcribing",
-                        "total": 100,
-                        "status": "Transcribing audio...",
-                    },
+                _send_ws_update(
+                    video_id,
+                    user_id,
+                    "processing",
+                    40,
+                    "transcribing",
+                    "Transcribing audio...",
                 )
                 _transcribe_video(video, options)
 
-        # Step 3: Generate title, description, tags
-        self.update_state(
-            state="PROGRESS",
-            meta={
-                "current": "generating_metadata",
-                "total": 100,
-                "status": "Generating title and description...",
-            },
+        # Step 3: Generate metadata
+        _send_ws_update(
+            video_id,
+            user_id,
+            "processing",
+            50,
+            "generating_metadata",
+            "Generating title and description...",
         )
         _generate_metadata(video, options)
 
         # Step 4: Generate thumbnails
-        self.update_state(
-            state="PROGRESS",
-            meta={
-                "current": "generating_thumbnails",
-                "total": 100,
-                "status": "Generating thumbnails...",
-            },
+        _send_ws_update(
+            video_id,
+            user_id,
+            "processing",
+            60,
+            "generating_thumbnails",
+            "Creating thumbnails...",
         )
-        _generate_thumbnails(video, options)
+        _generate_thumbnails(video, options, user_id)
 
         # Step 5: Apply video styles
-        if options.get("styles") and len(options["styles"]) > 0:
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "current": "applying_styles",
-                    "total": 100,
-                    "status": "Applying video styles...",
-                },
+        if video.applied_styles and len(video.applied_styles) > 0:
+            _send_ws_update(
+                video_id,
+                user_id,
+                "processing",
+                75,
+                "applying_styles",
+                "Applying video styles...",
             )
-            _apply_video_styles(video, options["styles"])
+            _apply_video_styles(video, video.applied_styles)
 
         # Step 6: Apply aspect ratio
-        if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "current": "aspect_ratio",
-                    "total": 100,
-                    "status": "Adjusting aspect ratio...",
-                },
+        if video.aspect_ratio and video.aspect_ratio != "original":
+            _send_ws_update(
+                video_id,
+                user_id,
+                "processing",
+                80,
+                "aspect_ratio",
+                "Adjusting aspect ratio...",
             )
-            _apply_aspect_ratio(video, options["aspect_ratio"])
+            _apply_aspect_ratio(video, video.aspect_ratio)
 
-        # Step 7: Apply FPS and audio quality
-        if options.get("fps") and options["fps"] != "original":
-            _apply_fps(video, options["fps"])
-
-        if options.get("audio_quality") and options["audio_quality"] != "original":
-            _apply_audio_quality(video, options["audio_quality"])
-
-        # Step 8: Generate chapters
-        if options.get("generate_chapters"):
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "current": "generating_chapters",
-                    "total": 100,
-                    "status": "Generating chapters...",
-                },
+        # Step 7: Apply FPS
+        if video.fps and video.fps != "original":
+            _send_ws_update(
+                video_id, user_id, "processing", 85, "fps", "Adjusting frame rate..."
             )
-            _generate_chapters(video)
+            _apply_fps(video, video.fps)
 
-        # Step 9: Translate if requested
-        if options.get("translation_language"):
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "current": "translating",
-                    "total": 100,
-                    "status": "Translating content...",
-                },
+        # Step 8: Apply audio quality
+        if video.audio_quality and video.audio_quality != "original":
+            _send_ws_update(
+                video_id,
+                user_id,
+                "processing",
+                90,
+                "audio",
+                "Adjusting audio quality...",
             )
-            _translate_content(video, options["translation_language"])
+            _apply_audio_quality(video, video.audio_quality)
 
-        # Step 10: Finalize output
-        self.update_state(
-            state="PROGRESS",
-            meta={
-                "current": "finalizing",
-                "total": 100,
-                "status": "Finalizing output...",
-            },
+        # Step 9: Finalize
+        _send_ws_update(
+            video_id, user_id, "processing", 95, "finalizing", "Finalizing output..."
         )
         output_path = _finalize_video(video, options)
 
@@ -210,42 +337,24 @@ def process_video_async(
         video.output_video_url = output_path
         video_service.update_video(video)
 
-        # Record metrics
-        record_video_processing(
-            tier=video.processed_tier or "free",
-            video_type=video.video_type.value if video.video_type else "unknown",
-            duration=video.duration or 0,
-            status="completed",
+        # Log final settings
+        logger.info("=" * 80)
+        logger.info(f"✅ VIDEO PROCESSING COMPLETED for {video_id}")
+        logger.info(f"📊 Final video settings:")
+        logger.info(f"   quality: {video.output_quality}")
+        logger.info(f"   fps: {video.fps}")
+        logger.info(f"   audio_quality: {video.audio_quality}")
+        logger.info(f"   aspect_ratio: {video.aspect_ratio}")
+        logger.info("=" * 80)
+
+        # Send completion notification via WebSocket
+        _send_ws_completed(
+            video_id,
+            user_id,
+            video.output_video_url,
+            video.processing_time,
+            video.total_cost,
         )
-
-        # Get user tier to determine email behavior
-        user = user_service.get_user_by_id(user_id)
-        user_tier = user.tier.value if user else "free"
-
-        # Determine channels based on tier and opt-in
-        channels = [NotificationChannel.WEBSOCKET, NotificationChannel.IN_APP]
-
-        if user_tier in ["pro", "enterprise"] and send_email_notification:
-            channels.append(NotificationChannel.EMAIL)
-            logger.info(f"Adding email notification for user {user_id} (opted in)")
-
-        # Send completion notification
-        notification_service.send_notification(
-            user_id=user_id,
-            notification_type=NotificationType.VIDEO_PROCESSED,
-            data={
-                "video_id": video_id,
-                "video_title": video.title or "Your video",
-                "video_url": video.output_video_url,
-                "thumbnail_url": video.selected_thumbnail,
-                "duration": video.duration,
-                "message": f"Your video '{video.title or video.original_filename}' is ready!",
-            },
-            channels=channels,
-            video_specific_opt_in=send_email_notification,
-        )
-
-        logger.info(f"Video processing completed for video_id: {video_id}")
 
         return {
             "success": True,
@@ -255,44 +364,10 @@ def process_video_async(
         }
 
     except ProcessingError as e:
-        logger.error(
-            f"Video processing failed for video_id: {video_id}, error: {str(e)}"
-        )
+        logger.error(f"Video processing failed: {str(e)}")
+        _send_ws_failed(video_id, user_id, str(e), 0, True)
 
-        # Send failure notification
-        try:
-            notification_service.send_notification(
-                user_id=user_id,
-                notification_type=NotificationType.VIDEO_FAILED,
-                data={
-                    "video_id": video_id,
-                    "error": str(e),
-                    "step": e.step if hasattr(e, "step") else "unknown",
-                    "message": f"Video processing failed: {str(e)}",
-                },
-                channels=[
-                    NotificationChannel.IN_APP,
-                    NotificationChannel.WEBSOCKET,
-                    NotificationChannel.EMAIL,
-                ],
-                video_specific_opt_in=True,
-            )
-        except Exception as notify_error:
-            logger.error(f"Failed to send failure notification: {notify_error}")
-
-        # Record metrics for failure
-        record_video_processing(
-            tier=options.get("tier", "free"),
-            video_type="unknown",
-            duration=0,
-            status="failed",
-        )
-
-        # Retry if possible
         if self.request.retries < self.max_retries:
-            logger.info(
-                f"Retrying video processing for video_id: {video_id} (attempt {self.request.retries + 1})"
-            )
             raise self.retry(countdown=60 * (self.request.retries + 1))
 
         return {
@@ -303,79 +378,311 @@ def process_video_async(
         }
 
     except Exception as e:
-        logger.error(
-            f"Unexpected error processing video {video_id}: {str(e)}\n{traceback.format_exc()}"
-        )
-
-        try:
-            notification_service.send_notification(
-                user_id=user_id,
-                notification_type=NotificationType.SYSTEM_ALERT,
-                data={
-                    "video_id": video_id,
-                    "error": "Unexpected system error",
-                    "message": "An unexpected error occurred during processing.",
-                },
-                channels=[NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-                video_specific_opt_in=True,
-            )
-        except Exception:
-            pass
+        logger.error(f"Video processing failed: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        _send_ws_failed(video_id, user_id, str(e), 0, True)
 
         if self.request.retries < self.max_retries:
-            logger.info(
-                f"Retrying video processing for video_id: {video_id} (attempt {self.request.retries + 1})"
-            )
-            raise self.retry(countdown=60 * (self.request.retries + 1))
+            raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
 
         return {
             "success": False,
             "video_id": video_id,
-            "error": "Unexpected error",
+            "error": str(e),
             "retries_exhausted": True,
         }
 
 
 # Helper functions (regular functions, not async)
-
-
 def _process_silent_video(video, options):
-    """Process silent video using Gemini Vision."""
-    try:
-        from services.silent_video_service import SilentVideoService
+    """
+    Process silent video using Gemini Vision with tier-based frame analysis.
 
-        silent_service = SilentVideoService()
-        result = silent_service.analyze_silent_video(
-            video_path=video.original_path, video_id=video.id, options=options
+    Free tier: Not available - returns reminder message
+    Starter: 2 frames analysis
+    Pro: 3 frames analysis
+    Plus: 4 frames analysis
+    Enterprise: 15 frames analysis
+    """
+    from providers.google_provider import GoogleProvider
+    from providers.ffmpeg_provider import FFmpegProvider
+    import tempfile
+    import os
+
+    try:
+        video.is_silent = True
+        # Get user tier
+        user_tier = video.processed_tier or "free"
+        logger.info(f"Processing silent video for tier: {user_tier}")
+
+        # Define frame counts per tier
+        frame_counts = {
+            "free": 0,  # No frames for free tier
+            "starter": 2,
+            "pro": 3,
+            "plus": 4,
+            "enterprise": 15,
+        }
+
+        frame_count = frame_counts.get(user_tier, 0)
+
+        # Handle FREE TIER - Silent video not allowed
+        if user_tier == "free":
+            logger.info(f"Free tier user attempted silent video: {video.id}")
+
+            # Set reminder message for free tier
+            video.title = "Silent Video Processing Not Available in Free Tier"
+            video.description = """
+            Silent video analysis is not available in the Free tier. 
+            
+            To analyze silent videos (videos without speech), please upgrade to:
+            - Starter Tier: 2 frame analysis
+            - Pro Tier: 3 frame analysis  
+            - Plus Tier: 4 frame analysis
+            - Enterprise: 15 frame analysis
+            
+            Silent videos use AI vision technology to analyze frames and generate:
+            - Titles from visual content
+            - Descriptions from scene analysis
+            - Tags from objects detected
+            - AI-generated thumbnails
+            """
+            video.tags = ["silent-video", "upgrade-required", "free-tier-limit"]
+            video.transcription = "Silent video processing requires a paid tier. Upgrade to analyze this video."
+
+            # Add upgrade CTA in transcription
+            video.transcription_language = "en"
+
+            logger.info(f"Free tier silent video processed with reminder message")
+            return
+
+        # For paid tiers, proceed with frame extraction
+        logger.info(
+            f"Processing silent video with {frame_count} frames for tier: {user_tier}"
         )
 
-        video.transcription = result.get("description", "")
-        video.transcription_language = "en"
-        video.title = result.get("title", "")
-        video.description = result.get("description", "")
-        video.tags = result.get("tags", [])
+        provider = GoogleProvider()
+        ffmpeg = FFmpegProvider()
 
-        logger.info(f"Silent video analysis completed for {video.id}")
+        # Get video duration
+        duration = video.duration or 60
+        logger.info(f"Video duration: {duration}s, extracting {frame_count} frames")
+
+        # Calculate frame timestamps (evenly spread throughout video)
+        if frame_count == 1:
+            timestamps = [duration / 2]  # Middle of video
+        else:
+            # Spread frames evenly
+            interval = duration / (frame_count + 1)
+            timestamps = [interval * (i + 1) for i in range(frame_count)]
+
+        logger.info(f"Extracting frames at timestamps: {timestamps}")
+
+        # Extract frames
+        frames = []
+        frame_paths = []
+
+        for i, ts in enumerate(timestamps):
+            try:
+                frame_path = ffmpeg.extract_frame(
+                    video.original_path,
+                    ts,
+                    tempfile.gettempdir(),
+                    f"silent_frame_{video.id}_{i}",
+                )
+                if frame_path and os.path.exists(frame_path):
+                    frames.append(frame_path)
+                    frame_paths.append(frame_path)
+                    logger.info(f"Extracted frame {i+1}/{frame_count} at {ts}s")
+            except Exception as e:
+                logger.error(f"Failed to extract frame at {ts}s: {e}")
+                continue
+
+        if not frames:
+            logger.warning(f"No frames extracted for video {video.id}")
+            # Fallback to basic metadata
+            video.title = "Silent Video"
+            video.description = "A silent video uploaded to Video AI Studio"
+            video.tags = ["silent", "video", "no-speech"]
+            return
+
+        logger.info(f"Successfully extracted {len(frames)} frames")
+
+        # Analyze each frame with Gemini Vision
+        frame_analyses = []
+        for i, frame_path in enumerate(frames):
+            try:
+                analysis = provider.analyze_image(frame_path)
+                frame_analyses.append(
+                    {
+                        "frame": i + 1,
+                        "timestamp": timestamps[i],
+                        "description": analysis.get("description", ""),
+                        "objects": analysis.get("objects", []),
+                        "colors": analysis.get("colors", []),
+                        "labels": analysis.get("labels", []),
+                    }
+                )
+                logger.info(f"Analyzed frame {i+1}/{len(frames)}")
+            except Exception as e:
+                logger.error(f"Failed to analyze frame {i}: {e}")
+                frame_analyses.append(
+                    {
+                        "frame": i + 1,
+                        "timestamp": timestamps[i],
+                        "description": "",
+                        "objects": [],
+                        "colors": [],
+                        "labels": [],
+                    }
+                )
+
+        # Combine all analyses
+        combined_descriptions = [
+            a["description"] for a in frame_analyses if a["description"]
+        ]
+        combined_objects = []
+        combined_colors = []
+        combined_labels = []
+
+        for analysis in frame_analyses:
+            combined_objects.extend(analysis.get("objects", []))
+            combined_colors.extend(analysis.get("colors", []))
+            combined_labels.extend(analysis.get("labels", []))
+
+        # Remove duplicates while preserving order
+        combined_objects = list(dict.fromkeys(combined_objects))
+        combined_colors = list(dict.fromkeys(combined_colors))
+        combined_labels = list(dict.fromkeys(combined_labels))
+
+        # Build prompt for metadata generation
+        prompt = f"""
+        Based on this silent video analysis, generate:
+        
+        1. A catchy, clickable YouTube title (max 60 chars)
+        2. An engaging description (150-200 words) describing the visual content
+        3. 10 relevant SEO tags
+        
+        Video Analysis:
+        - Duration: {duration:.1f} seconds
+        - Frames analyzed: {len(frames)}
+        - Scene descriptions: {' '.join(combined_descriptions[:500])}
+        - Objects detected: {', '.join(combined_objects[:20])}
+        - Colors present: {', '.join(combined_colors[:10])}
+        - Visual themes: {', '.join(combined_labels[:15])}
+        
+        Return in JSON format:
+        {{
+            "title": "...",
+            "description": "...",
+            "tags": ["tag1", "tag2", ...]
+        }}
+        """
+
+        # Generate metadata
+        try:
+            response = provider.generate_text(prompt, model="gemini-1.5-flash")
+
+            # Parse JSON response
+            import json
+            import re
+
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                # Fallback
+                result = {
+                    "title": f"Silent Video - {combined_labels[:3] if combined_labels else 'Visual Content'}",
+                    "description": (
+                        " ".join(combined_descriptions[:3])
+                        if combined_descriptions
+                        else "A silent video with visual content"
+                    ),
+                    "tags": combined_objects[:10] + ["silent", "video"],
+                }
+        except Exception as e:
+            logger.error(f"Metadata generation failed: {e}")
+            result = {
+                "title": "Silent Video - Visual Content",
+                "description": "A silent video. "
+                + (
+                    " ".join(combined_descriptions[:2]) if combined_descriptions else ""
+                ),
+                "tags": ["silent", "video", "visual"] + combined_objects[:5],
+            }
+
+        # Store results in video object
+        video.title = result.get("title", "Silent Video")
+        video.description = result.get(
+            "description", "A silent video with visual content"
+        )
+        video.tags = result.get("tags", ["silent", "video"])
+
+        # Store analysis for reference
+        video.silent_analysis = {
+            "frames_analyzed": len(frames),
+            "tier": user_tier,
+            "frame_data": frame_analyses,
+            "objects_detected": combined_objects,
+            "colors_detected": combined_colors,
+            "visual_themes": combined_labels,
+        }
+
+        # Set transcription to empty string (no audio)
+        video.transcription = ""
+        video.transcription_language = "silent"
+
+        logger.info(
+            f"Silent video analysis completed for {video.id} with {len(frames)} frames"
+        )
+
+        # Clean up temporary frame files
+        for frame_path in frame_paths:
+            try:
+                os.unlink(frame_path)
+            except:
+                pass
 
     except Exception as e:
         logger.error(f"Silent video processing failed: {e}")
+
+        # Set error message in video
+        video.title = "Silent Video Processing Failed"
+        video.description = (
+            f"An error occurred while processing this silent video: {str(e)}"
+        )
+        video.tags = ["error", "silent-video"]
+
         raise ProcessingError(
             f"Silent video analysis failed: {str(e)}", step="silent_analysis"
         )
 
 
 def _transcribe_video(video, options):
-    """Transcribe video audio using Whisper."""
+    """Transcribe video audio."""
+    from providers.openai_provider import OpenAIProvider
+
     try:
-        from services.transcription_service import TranscriptionService
+        provider = OpenAIProvider()
 
-        transcription_service = TranscriptionService()
-        result = transcription_service.transcribe_video(
-            video_path=video.original_path, video_id=video.id
-        )
+        # Extract audio from video
+        from providers.ffmpeg_provider import FFmpegProvider
 
-        video.transcription = result["text"]
-        video.transcription_language = result.get("language", "en")
+        ffmpeg = FFmpegProvider()
+
+        import tempfile
+
+        audio_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+        ffmpeg.extract_audio(video.original_path, audio_path)
+
+        # Transcribe
+        transcript = provider.transcribe_audio(audio_path)
+        video.transcription = transcript
+        video.transcription_language = "en"
+
+        # Clean up
+        os.unlink(audio_path)
 
         logger.info(f"Transcription completed for {video.id}")
 
@@ -385,13 +692,17 @@ def _transcribe_video(video, options):
 
 
 def _generate_metadata(video, options):
-    """Generate title, description, and tags using AI."""
-    try:
-        from services.title_service import TitleService
+    """Generate title, description, and tags."""
+    from services.title_service import TitleService
 
+    try:
+        logger.info(f"Generating metadata for video {video.id}")
+        logger.info(
+            f"Video transcription length: {len(video.transcription) if video.transcription else 0}"
+        )
         title_service = TitleService()
         result = title_service.generate_metadata(
-            transcript=video.transcription, video_id=video.id, options=options
+            transcript=video.transcription or "", video_id=video.id, options=options
         )
 
         video.title = result.get("title", "")
@@ -402,27 +713,53 @@ def _generate_metadata(video, options):
 
     except Exception as e:
         logger.error(f"Metadata generation failed: {e}")
-        raise ProcessingError(f"Metadata generation failed: {str(e)}", step="metadata")
+        logger.error(traceback.format_exc())
+        # Don't raise - set defaults and continue
+        video.title = "Untitled Video"
+        video.description = "Video processed by Video AI Studio"
+        video.tags = ["video", "ai", "processed"]
 
 
-def _generate_thumbnails(video, options):
-    """Generate thumbnails using AI and frame extraction."""
+def _generate_thumbnails(video, options, user_id):
+    """Generate thumbnails."""
+    from services.thumbnail_service import ThumbnailService
+
+    # check if original_path exists
+    if not video.original_path:
+        logger.error(f"Video {video.id} has no original_path")
+        # Try to get from database again
+        video_data = video_service.db.get("videos", video.id)
+        if video_data and video_data.get("original_path"):
+            video.original_path = video_data["original_path"]
+        else:
+            raise ProcessingError(f"No original path found for video {video.id}")
+
     try:
-        from services.thumbnail_service import ThumbnailService
-
         thumbnail_service = ThumbnailService()
+
+        # Pass the thumbnail_style from options
+        thumbnail_style = options.get("thumbnail_style", "default")
+        logger.info(f"Generating thumbnails with style: {thumbnail_style}")
+
         result = thumbnail_service.generate_thumbnails(
             video_path=video.original_path,
-            title=video.title,
-            video_type=video.video_type.value if video.video_type else "speech",
+            title=video.title or "Video",
+            video_type="speech" if video.transcription else "silent",
             tier=video.processed_tier or "free",
             transcription=video.transcription,
-            style=options.get("thumbnail_style", "default"),
+            user_id=user_id,
+            video_id=video.id,
+            thumbnail_style=thumbnail_style,
         )
 
         video.ai_thumbnails = result.get("ai_thumbnails", [])
         video.extracted_thumbnails = result.get("extracted_thumbnails", [])
-        video.selected_thumbnail = result.get("selected", "")
+        video.selected_thumbnail = result.get(
+            "selected_thumbnail",
+            video.ai_thumbnails[0]["path"] if video.ai_thumbnails else None,
+        )
+
+        video.thumbnail_style = thumbnail_style
 
         logger.info(f"Thumbnail generation completed for {video.id}")
 
@@ -433,132 +770,676 @@ def _generate_thumbnails(video, options):
         )
 
 
-def _apply_video_styles(video, styles):
-    """Apply video styles using FFmpeg."""
+def emit_websocket_update(video_id, user_id, status, progress):
+    """Safe WebSocket emission."""
     try:
-        from services.style_service import StyleService
+        from api.websocket import socketio
 
-        style_service = StyleService()
-        result = style_service.apply_styles(
-            video_path=video.original_path,
-            style_names=styles,
-            tier=video.processed_tier or "free",
-        )
+        if socketio is not None:
+            socketio.emit(
+                "video_status_update",
+                {
+                    "video_id": video_id,
+                    "status": status,
+                    "progress": progress,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                room=user_id,
+            )
+    except Exception as e:
+        logger.warning(f"WebSocket emit failed for video {video_id}: {e}")
 
-        video.applied_styles = result.get("applied_styles", [])
-        video.output_path = result.get("path", video.original_path)
 
-        logger.info(f"Style application completed for {video.id}")
+def _apply_video_styles(video, styles):
+    """
+    PRODUCTION SMART VERSION:
+    1. Scales DOWN to 720p for memory-efficient processing
+    2. Applies styles to the scaled version
+    3. Scales BACK UP to original resolution (preserves quality!)
+    """
+    import os
+    import subprocess
+    import time
+    import json
+    import uuid
+
+    try:
+        input_path = video.output_path if hasattr(video, "output_path") and video.output_path else video.original_path
+
+        if not input_path or not os.path.exists(input_path):
+            logger.error(f"[STYLES] Input not found: {input_path}")
+            return
+
+        # ========== 1. Get ORIGINAL resolution ==========
+        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=width,height", "-of", "json", input_path]
+        
+        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        
+        original_width = 1920
+        original_height = 1080
+        
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            original_width = info.get('streams', [{}])[0].get('width', 1920)
+            original_height = info.get('streams', [{}])[0].get('height', 1080)
+            logger.info(f"[STYLES] 📐 ORIGINAL resolution: {original_width}x{original_height}")
+
+        # ========== 2. CREATE scaled version for processing ==========
+        temp_dir = os.path.dirname(input_path)
+        scaled_path = os.path.join(temp_dir, f"temp_scaled_{uuid.uuid4().hex[:8]}.mp4")
+        
+        logger.info(f"[STYLES] 📐 TEMPORARILY scaling down to 1280x720 for processing (memory efficient)")
+        
+        scale_cmd = [
+            "ffmpeg", "-i", input_path,
+            "-vf", "scale=1280:720",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "18",
+            "-c:a", "copy",
+            "-y", scaled_path
+        ]
+        
+        scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
+        
+        if scale_result.returncode != 0 or not os.path.exists(scaled_path):
+            logger.warning(f"[STYLES] Scaling failed, continuing with original resolution")
+            working_path = input_path
+            needs_restore = False
+        else:
+            working_path = scaled_path
+            needs_restore = True
+            logger.info(f"[STYLES] ✅ Scaled to 720p for processing")
+
+        # ========== 3. Apply styles to scaled version ==========
+        style_filters = {
+            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+            "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
+            "educational": "eq=brightness=0.02:contrast=1.08:saturation=1.05",
+            "gaming": "eq=saturation=1.25:contrast=1.1:brightness=0.03",
+            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
+            "travel": "eq=saturation=1.15:contrast=1.05:brightness=0.05",
+            "professional": "eq=contrast=1.05:saturation=0.95",
+            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.92",
+            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
+            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
+            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
+            "cinematic_pro": "eq=brightness=0.04:contrast=1.2:saturation=1.05",
+            "artistic": "eq=saturation=1.15:contrast=1.08:brightness=0.02",
+            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
+            "futuristic": "eq=saturation=1.2:contrast=1.12:brightness=0.04",
+        }
+
+        style_names = {
+            "cinematic": "Cinematic", "bright": "Bright & Vibrant",
+            "educational": "Educational", "gaming": "Gaming",
+            "vlog": "Vlog", "travel": "Travel",
+            "professional": "Professional", "documentary": "Documentary",
+            "wedding": "Wedding", "corporate": "Corporate",
+            "real_estate": "Real Estate", "cinematic_pro": "Cinematic Pro",
+            "artistic": "Artistic", "retro": "Retro", "futuristic": "Futuristic",
+        }
+
+        applied = []
+        current_input = working_path
+
+        for style_name in styles:
+            filter_chain = style_filters.get(style_name)
+            if not filter_chain:
+                continue
+
+            display_name = style_names.get(style_name, style_name)
+            base_name = os.path.splitext(current_input)[0]
+            output_path = f"{base_name}_styled_{style_name}.mp4"
+
+            logger.info(f"[STYLES] Applying '{display_name}' to scaled video")
+
+            cmd = [
+                "ffmpeg", "-i", current_input,
+                "-vf", filter_chain,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "20",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                "-y", output_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+
+            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                if current_input != working_path and os.path.exists(current_input):
+                    try:
+                        os.remove(current_input)
+                    except:
+                        pass
+                current_input = output_path
+                applied.append(style_name)
+                logger.info(f"[STYLES] ✅ Applied '{display_name}' to scaled version")
+            else:
+                logger.error(f"[STYLES] ❌ Failed to apply '{display_name}'")
+                break
+
+        # ========== 4. RESTORE to original resolution ==========
+        if applied and needs_restore and os.path.exists(current_input):
+            final_output = current_input.replace("_styled_", f"_styled_final_{original_width}x{original_height}_")
+            
+            logger.info(f"[STYLES] 🔄 RESTORING to original resolution {original_width}x{original_height}")
+            
+            restore_cmd = [
+                "ffmpeg", "-i", current_input,
+                "-vf", f"scale={original_width}:{original_height}:force_original_aspect_ratio=decrease,pad={original_width}:{original_height}:(ow-iw)/2:(oh-ih)/2",
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "18",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                "-y", final_output
+            ]
+            
+            restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
+            
+            if restore_result.returncode == 0 and os.path.exists(final_output):
+                # Update video to use the restored high-quality version
+                video.output_path = final_output
+                logger.info(f"[STYLES] ✅ RESTORED to {original_width}x{original_height}")
+                
+                # Clean up styled version (no longer needed)
+                if os.path.exists(current_input) and current_input != final_output:
+                    try:
+                        os.remove(current_input)
+                    except:
+                        pass
+            else:
+                # Restore failed, keep the styled version
+                video.output_path = current_input
+                logger.warning(f"[STYLES] Restore failed, keeping scaled version")
+        elif applied:
+            video.output_path = current_input
+
+        # Update video
+        if applied:
+            video.applied_styles = applied
+            video_service.update_video(video)
+            logger.info(f"[STYLES] ✅ Final resolution: {original_width}x{original_height}")
+            logger.info(f"[STYLES] ✅ Styles applied: {applied}")
+
+        # ========== 5. Cleanup ==========
+        if needs_restore and os.path.exists(scaled_path):
+            try:
+                os.remove(scaled_path)
+            except:
+                pass
 
     except Exception as e:
-        logger.error(f"Style application failed: {e}")
-        raise ProcessingError(f"Style application failed: {str(e)}", step="styles")
-
+        logger.error(f"[STYLES] Failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 def _apply_aspect_ratio(video, aspect_ratio):
-    """Apply aspect ratio transformation."""
+    """Apply aspect ratio with smart scaling for large videos."""
+    import os
+    import subprocess
+    import json
+    import uuid
+
     try:
-        from providers.ffmpeg_provider import FFmpegProvider
-        import tempfile
-        import os
-
-        ffmpeg = FFmpegProvider()
-
-        # Create temp output file
-        temp_output = tempfile.NamedTemporaryFile(
-            suffix=f"_aspect_{aspect_ratio}.mp4",
-            delete=False,
-            dir=os.path.dirname(video.original_path),
-        ).name
-
-        success = ffmpeg.change_aspect_ratio(
-            input_path=video.output_path or video.original_path,
-            output_path=temp_output,
-            aspect_ratio=aspect_ratio,
+        input_path = (
+            video.output_path
+            if hasattr(video, "output_path") and video.output_path
+            else video.original_path
         )
 
-        if success:
+        if not input_path or not os.path.exists(input_path):
+            logger.error(f"[ASPECT] Input path does not exist: {input_path}")
+            return False
+
+        # Get original resolution
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", input_path
+        ]
+        
+        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        orig_width, orig_height = 1920, 1080
+        
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            orig_width = info.get('streams', [{}])[0].get('width', 1920)
+            orig_height = info.get('streams', [{}])[0].get('height', 1080)
+            logger.info(f"[ASPECT] Original resolution: {orig_width}x{orig_height}")
+
+        # Aspect ratio dimensions
+        aspect_map = {
+            "16:9": (1920, 1080),
+            "9:16": (1080, 1920),
+            "1:1": (1080, 1080),
+            "4:5": (1080, 1350),
+            "2:3": (1080, 1620),
+            "3:2": (1920, 1280),
+            "21:9": (2560, 1080),
+            "5:4": (1280, 1024),
+        }
+
+        if aspect_ratio not in aspect_map:
+            logger.warning(f"[ASPECT] Unknown aspect ratio: {aspect_ratio}")
+            return False
+
+        target_width, target_height = aspect_map[aspect_ratio]
+
+        # Determine working path (scale down if needed)
+        working_path = input_path
+        temp_dir = os.path.dirname(input_path)
+        temp_files = []
+
+        # 🔥 FORCE SCALE for large videos (>1080p)
+        if orig_width > 1920 or orig_height > 1080:
+            scaled_path = os.path.join(temp_dir, f"temp_aspect_scaled_{uuid.uuid4().hex[:8]}.mp4")
+            temp_files.append(scaled_path)
+            
+            logger.info(f"[ASPECT] 📐 Scaling {orig_width}x{orig_height} → 1280x720 for processing")
+            
+            scale_cmd = [
+                "ffmpeg", "-i", input_path,
+                "-vf", "scale=1280:720",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "23",
+                "-c:a", "copy",
+                "-y", scaled_path
+            ]
+            
+            scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
+            
+            if scale_result.returncode == 0 and os.path.exists(scaled_path):
+                working_path = scaled_path
+                logger.info(f"[ASPECT] ✅ Scaled to 720p")
+            else:
+                logger.warning(f"[ASPECT] Scaling failed, continuing at original resolution")
+
+        # Apply aspect ratio
+        base_name = os.path.splitext(working_path)[0]
+        safe_ratio = aspect_ratio.replace(':', '_')
+        output_path = f"{base_name}_aspect_{safe_ratio}.mp4"
+        temp_files.append(output_path)
+
+        logger.info(f"[ASPECT] Applying aspect ratio {aspect_ratio}")
+
+        cmd = [
+            "ffmpeg", "-i", working_path,
+            "-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",  # 🔥 Use ultrafast for memory efficiency
+            "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            "-y", output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            # If we scaled, keep the processed version (aspect ratio already applied)
+            final_path = output_path
+            
+            # Restore resolution if we scaled down
+            if working_path != input_path and (orig_width > 1920 or orig_height > 1080):
+                restore_path = output_path.replace(".mp4", f"_restored.mp4")
+                temp_files.append(restore_path)
+                
+                logger.info(f"[ASPECT] 🔄 Restoring to original resolution {orig_width}x{orig_height}")
+                
+                restore_cmd = [
+                    "ffmpeg", "-i", output_path,
+                    "-vf", f"scale={orig_width}:{orig_height}:force_original_aspect_ratio=decrease,pad={orig_width}:{orig_height}:(ow-iw)/2:(oh-ih)/2",
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-c:a", "copy",
+                    "-y", restore_path
+                ]
+                
+                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
+                
+                if restore_result.returncode == 0 and os.path.exists(restore_path):
+                    final_path = restore_path
+                    logger.info(f"[ASPECT] ✅ Restored to {orig_width}x{orig_height}")
+                else:
+                    logger.warning(f"[ASPECT] Restore failed, keeping processed version")
+            
+            video.output_path = final_path
             video.aspect_ratio = aspect_ratio
-            video.output_path = temp_output
-            logger.info(f"Aspect ratio applied: {aspect_ratio}")
+            video_service.update_video(video)
+            logger.info(f"[ASPECT] ✅ Success! aspect={aspect_ratio}")
+            
+            # Cleanup temp files
+            for temp_file in temp_files:
+                if temp_file != video.output_path and os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except:
+                        pass
+            
+            return True
+        else:
+            logger.error(f"[ASPECT] ❌ FFmpeg error: {result.stderr[:300]}")
+            return False
 
     except Exception as e:
-        logger.error(f"Aspect ratio application failed: {e}")
-        # Don't fail the whole process for aspect ratio
-        logger.warning(f"Continuing without aspect ratio: {e}")
-
+        logger.error(f"[ASPECT] Exception: {e}")
+        return False
 
 def _apply_fps(video, fps):
-    """Apply frame rate conversion."""
+    """Apply FPS change with smart scaling for large videos."""
+    import os
+    import subprocess
+    import json
+    import uuid
+
     try:
-        from providers.ffmpeg_provider import FFmpegProvider
-        import tempfile
-        import os
-
-        ffmpeg = FFmpegProvider()
-
-        temp_output = tempfile.NamedTemporaryFile(
-            suffix=f"_fps_{fps}.mp4",
-            delete=False,
-            dir=os.path.dirname(video.original_path),
-        ).name
-
-        success = ffmpeg.change_fps(
-            input_path=video.output_path or video.original_path,
-            output_path=temp_output,
-            fps=fps,
+        input_path = (
+            video.output_path
+            if hasattr(video, "output_path") and video.output_path
+            else video.original_path
         )
 
-        if success:
+        if not input_path or not os.path.exists(input_path):
+            logger.error(f"[FPS] Input path does not exist: {input_path}")
+            return False
+
+        # Get original resolution
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", input_path
+        ]
+        
+        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        width, height = 1920, 1080
+        
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            width = info.get('streams', [{}])[0].get('width', 1920)
+            height = info.get('streams', [{}])[0].get('height', 1080)
+            logger.info(f"[FPS] Original resolution: {width}x{height}")
+
+        # Determine working path (scale down if needed)
+        working_path = input_path
+        temp_dir = os.path.dirname(input_path)
+        temp_files = []
+
+        # 🔥 FORCE SCALE for large videos (>1080p)
+        if width > 1920 or height > 1080:
+            scaled_path = os.path.join(temp_dir, f"temp_fps_scaled_{uuid.uuid4().hex[:8]}.mp4")
+            temp_files.append(scaled_path)
+            
+            logger.info(f"[FPS] 📐 Scaling {width}x{height} → 1280x720 for processing")
+            
+            scale_cmd = [
+                "ffmpeg", "-i", input_path,
+                "-vf", "scale=1280:720",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "23",
+                "-c:a", "copy",
+                "-y", scaled_path
+            ]
+            
+            scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
+            
+            if scale_result.returncode == 0 and os.path.exists(scaled_path):
+                working_path = scaled_path
+                logger.info(f"[FPS] ✅ Scaled to 720p")
+            else:
+                logger.warning(f"[FPS] Scaling failed, continuing at original resolution")
+
+        # Apply FPS
+        base_name = os.path.splitext(working_path)[0]
+        output_path = f"{base_name}_fps_{fps}.mp4"
+        temp_files.append(output_path)
+
+        logger.info(f"[FPS] Applying FPS {fps}")
+
+        cmd = [
+            "ffmpeg", "-i", working_path,
+            "-vf", f"fps={fps}",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",  # 🔥 Use ultrafast for memory efficiency
+            "-crf", "23",            # 🔥 Higher CRF = less memory
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            "-y", output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            # If we scaled, we need to scale back to original resolution
+            final_path = output_path
+            
+            if working_path != input_path and (width > 1920 or height > 1080):
+                restore_path = output_path.replace(".mp4", f"_restored.mp4")
+                temp_files.append(restore_path)
+                
+                logger.info(f"[FPS] 🔄 Restoring to original resolution {width}x{height}")
+                
+                restore_cmd = [
+                    "ffmpeg", "-i", output_path,
+                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-c:a", "copy",
+                    "-y", restore_path
+                ]
+                
+                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
+                
+                if restore_result.returncode == 0 and os.path.exists(restore_path):
+                    final_path = restore_path
+                    logger.info(f"[FPS] ✅ Restored to {width}x{height}")
+                else:
+                    logger.warning(f"[FPS] Restore failed, keeping processed version")
+            
+            video.output_path = final_path
             video.fps = fps
-            video.output_path = temp_output
+            video_service.update_video(video)
+            logger.info(f"[FPS] ✅ Success! fps={fps}")
+            
+            # Cleanup temp files
+            for temp_file in temp_files:
+                if temp_file != video.output_path and os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except:
+                        pass
+            
+            return True
+        else:
+            logger.error(f"[FPS] ❌ FFmpeg error: {result.stderr[:300]}")
+            return False
 
     except Exception as e:
-        logger.error(f"FPS change failed: {e}")
-        logger.warning(f"Continuing with original FPS: {e}")
+        logger.error(f"[FPS] Exception: {e}")
+        return False
 
 
 def _apply_audio_quality(video, quality):
-    """Apply audio quality settings."""
+    """Apply audio quality and update output_path."""
+    import os
+    import subprocess
+
     try:
-        from providers.ffmpeg_provider import FFmpegProvider
-        import tempfile
-        import os
-
-        ffmpeg = FFmpegProvider()
-
-        temp_output = tempfile.NamedTemporaryFile(
-            suffix=f"_audio_{quality}.mp4",
-            delete=False,
-            dir=os.path.dirname(video.original_path),
-        ).name
-
-        success = ffmpeg.change_audio_quality(
-            input_path=video.output_path or video.original_path,
-            output_path=temp_output,
-            bitrate=quality,
+        input_path = (
+            video.output_path
+            if hasattr(video, "output_path") and video.output_path
+            else video.original_path
         )
 
-        if success:
+        if not input_path or not os.path.exists(input_path):
+            logger.error(f"[AUDIO] Input path does not exist: {input_path}")
+            return False
+
+        base_name = os.path.splitext(input_path)[0]
+        output_path = f"{base_name}_audio_{quality}.mp4"
+
+        logger.info(f"[AUDIO] Input: {input_path}")
+        logger.info(f"[AUDIO] Output: {output_path}")
+
+        bitrate_map = {"128k": "128k", "192k": "192k", "256k": "256k", "320k": "320k"}
+        bitrate = bitrate_map.get(quality, "192k")
+
+        cmd = [
+            "ffmpeg",
+            "-i",
+            input_path,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            bitrate,
+            "-y",
+            output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode == 0 and os.path.exists(output_path):
+            video.output_path = output_path
             video.audio_quality = quality
-            video.output_path = temp_output
+            video_service.update_video(video)
+            logger.info(f"[AUDIO] ✅ Success! New output_path: {video.output_path}")
+            return True
+        else:
+            logger.error(f"[AUDIO] ❌ FFmpeg error: {result.stderr}")
+            return False
 
     except Exception as e:
-        logger.error(f"Audio quality change failed: {e}")
-        logger.warning(f"Continuing with original audio: {e}")
+        logger.error(f"[AUDIO] Exception: {e}")
+        return False
+
+
+def _apply_quality(video, quality):
+    """Apply quality scaling while respecting original resolution"""
+    import os
+    import subprocess
+
+    try:
+        input_path = (
+            video.output_path
+            if hasattr(video, "output_path") and video.output_path
+            else video.original_path
+        )
+
+        if not input_path or not os.path.exists(input_path):
+            logger.error(f"[QUALITY] Input not found: {input_path}")
+            return False
+
+        # Get original resolution
+        probe_cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
+            input_path,
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode == 0 and result.stdout:
+            parts = result.stdout.strip().split(",")
+            orig_width, orig_height = int(parts[0]), int(parts[1])
+        else:
+            orig_width, orig_height = 1920, 1080
+
+        logger.info(f"[QUALITY] Original resolution: {orig_width}x{orig_height}")
+
+        # Quality to max dimensions mapping
+        quality_max = {
+            "480p": (854, 480),
+            "720p": (1280, 720),
+            "1080p": (1920, 1080),
+            "2K": (2560, 1440),
+            "4k": (3840, 2160),
+            "4K+HDR": "3840:2160",
+            "8K": "7680:4320",
+        }
+
+        max_w, max_h = quality_max.get(quality, (orig_width, orig_height))
+
+        # 🔥 CRITICAL: NEVER upscale beyond original
+        target_width = min(max_w, orig_width)
+        target_height = min(max_h, orig_height)
+
+        # If target is same as original, skip
+        if target_width >= orig_width and target_height >= orig_height:
+            logger.info(
+                f"[QUALITY] Target quality {quality} exceeds original, keeping original resolution"
+            )
+            video.output_quality = quality
+            video_service.update_video(video)
+            return True
+
+        logger.info(f"[QUALITY] Scaling to {target_width}x{target_height}")
+
+        base_name = os.path.splitext(input_path)[0]
+        output_path = f"{base_name}_{quality}.mp4"
+
+        cmd = [
+            "ffmpeg",
+            "-i",
+            input_path,
+            "-vf",
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",  # Use "fast" instead of "medium" to reduce memory
+            "-crf",
+            "23",  # Higher CRF = less memory, still good quality
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            "-y",
+            output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+        if (
+            result.returncode == 0
+            and os.path.exists(output_path)
+            and os.path.getsize(output_path) > 0
+        ):
+            video.output_path = output_path
+            video.output_quality = quality
+            video_service.update_video(video)
+            logger.info(f"[QUALITY] ✅ Success!")
+            return True
+        else:
+            logger.error(f"[QUALITY] FFmpeg error: {result.stderr[:500]}")
+            return False
+
+    except Exception as e:
+        logger.error(f"[QUALITY] Exception: {e}")
+        return False
 
 
 def _generate_chapters(video):
-    """Generate chapter markers using AI."""
+    """Generate chapters."""
+    from services.title_service import TitleService
+
     try:
-        from services.title_service import TitleService
-        import json
-
         title_service = TitleService()
-
-        chapters = title_service.generate_chapters(
-            transcript=video.transcription, video_id=video.id
-        )
+        chapters = title_service.generate_chapters(video.transcription or "", video.id)
 
         video.chapters = chapters
         logger.info(f"Generated {len(chapters)} chapters for {video.id}")
@@ -569,27 +1450,30 @@ def _generate_chapters(video):
 
 
 def _translate_content(video, target_language):
-    """Translate video content to target language."""
+    """Translate content."""
+    from providers.google_provider import GoogleProvider
+
     try:
-        from services.translation_service import TranslationService
+        provider = GoogleProvider()
 
-        translation_service = TranslationService()
+        if video.title:
+            video.translated_title = provider.translate_text(
+                video.title, target_language
+            )
 
-        result = translation_service.translate_video(
-            video_id=video.id,
-            target_language=target_language,
-            title=video.title,
-            description=video.description,
-            transcription=video.transcription,
-        )
+        if video.description:
+            video.translated_description = provider.translate_text(
+                video.description, target_language
+            )
 
-        if result:
-            video.translated_title = result.get("title")
-            video.translated_description = result.get("description")
-            video.translated_transcription = result.get("transcription")
-            video.translation_language = target_language
+        if video.transcription:
+            video.translated_transcription = provider.translate_text(
+                video.transcription[:5000], target_language
+            )
 
-            logger.info(f"Translation completed for {video.id} to {target_language}")
+        video.translation_language = target_language
+
+        logger.info(f"Translation completed for {video.id} to {target_language}")
 
     except Exception as e:
         logger.error(f"Translation failed: {e}")
@@ -597,44 +1481,116 @@ def _translate_content(video, target_language):
 
 
 def _finalize_video(video, options):
-    """Finalize video output."""
+    """Finalize video output with quality settings - PRESERVE user settings."""
     import os
-    import shutil
+    import subprocess
 
-    output_path = video.output_path or video.original_path
-
-    # Apply quality settings if needed
-    quality = options.get("quality", "720p")
-
-    if quality != "original" and output_path:
-        from providers.ffmpeg_provider import FFmpegProvider
-        import tempfile
-
-        ffmpeg = FFmpegProvider()
-
-        temp_output = tempfile.NamedTemporaryFile(
-            suffix=f"_{quality}.mp4", delete=False, dir=os.path.dirname(output_path)
-        ).name
-
-        success = ffmpeg.change_quality(
-            input_path=output_path, output_path=temp_output, quality=quality
-        )
-
-        if success:
-            output_path = temp_output
-            video.output_quality = quality
-
-    # Final output path
-    final_output = f"/processed/{video.id}/output.mp4"
-    video.output_video_url = final_output
-    video.output_video_size = (
-        os.path.getsize(output_path) if os.path.exists(output_path) else 0
+    # Start with the current output path
+    current_path = (
+        video.output_path
+        if hasattr(video, "output_path") and video.output_path
+        else video.original_path
     )
 
-    return final_output
+    if not current_path or not os.path.exists(current_path):
+        logger.error(f"[FINAL] Current path does not exist: {current_path}")
+        return None
+
+    logger.info(f"[FINAL] Starting with: {current_path}")
+    logger.info(
+        f"[FINAL] User settings: aspect={video.aspect_ratio}, fps={video.fps}, audio={video.audio_quality}"
+    )
+
+    # IMPORTANT: Use video object's processed settings, NOT original
+    quality = getattr(video, "output_quality", options.get("quality", "720p"))
+
+    # The user SET these values, they should NOT be overwritten with "original"
+
+    # Apply quality if specified
+    if quality and quality != "original":
+        base_name = os.path.splitext(current_path)[0]
+        quality_path = f"{base_name}_{quality}.mp4"
+
+        logger.info(f"[FINAL] Applying quality {quality}")
+
+        quality_resolutions = {
+            "480p": "854:480",
+            "720p": "1280:720",
+            "1080p": "1920:1080",
+            "2K": "2560:1440",
+            "4k": "3840:2160",
+            "4K+HDR": "3840:2160",
+            "8K": "7680:4320",
+        }
+
+        resolution = quality_resolutions.get(quality, "1280:720")
+
+        cmd = [
+            "ffmpeg",
+            "-i",
+            current_path,
+            "-vf",
+            f"scale={resolution}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-y",
+            quality_path,
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if result.returncode == 0 and os.path.exists(quality_path):
+                current_path = quality_path
+                video.output_quality = quality
+                logger.info(f"[FINAL] ✅ Quality {quality} applied")
+            else:
+                logger.warning(f"[FINAL] Quality change failed: {result.stderr}")
+        except Exception as e:
+            logger.warning(f"[FINAL] Quality change error: {e}")
+
+    # Store final path
+    video.output_path = current_path
+    video.output_video_url = current_path
+    video.output_video_size = (
+        os.path.getsize(current_path) if os.path.exists(current_path) else 0
+    )
+
+    # Do NOT restore original_fps, original_audio_quality, etc.
+    # keep those which users set
+
+    logger.info(f"[FINAL] ✅ Final video: {video.output_path}")
+    logger.info(f"[FINAL] ✅ File size: {video.output_video_size} bytes")
+    logger.info(
+        f"[FINAL] ✅ Final settings: quality={video.output_quality}, aspect={video.aspect_ratio}, fps={video.fps}, audio={video.audio_quality}"
+    )
+
+    return current_path
 
 
-# Keep existing functions (process_video_batch, retry_failed_videos, etc.)
+def _get_quality_resolution(quality):
+    """Get resolution string for quality."""
+    quality_map = {
+        "480p": "854:480",
+        "720p": "1280:720",
+        "1080p": "1920:1080",
+        "2K": "2560:1440",
+        "4k": "3840:2160",
+        "4K+HDR": "3840:2160",
+        "8K": "7680:4320",
+    }
+    return quality_map.get(quality, "1280:720")
+
+
+# existing functions (process_video_batch, retry_failed_videos, etc.)
 @celery_app.task
 def process_video_batch(
     video_ids: List[str], user_id: str, options: Dict[str, Any] = None
@@ -730,20 +1686,26 @@ def update_video_status(
         updates["error_message"] = message
 
     db.save("videos", video_id, updates)
+    video_data = db.get("videos", video_id)
+    user_id = video_data.get("user_id")
 
-    # Emit WebSocket update
-    from api.websocket import socketio
+    # # Emit WebSocket update
+    # try:
+    #     from api.websocket import socketio
 
-    socketio.emit(
-        "video_status_update",
-        {
-            "video_id": video_id,
-            "status": status,
-            "progress": progress,
-            "message": message,
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    #     if socketio:
+    #         socketio.emit(
+    #             "video_status_update",
+    #             {
+    #                 "video_id": video_id,
+    #                 "status": status,
+    #                 "progress": progress,
+    #                 "timestamp": datetime.utcnow().isoformat(),
+    #             },
+    #             room=user_id,
+    #         )
+    # except Exception as e:
+    #     logger.warning(f"WebSocket emit failed: {e}")
 
 
 @celery_app.task

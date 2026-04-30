@@ -72,19 +72,22 @@ services:
       context: .
       dockerfile: docker/celery/Dockerfile
     environment:
-      - DATABASE_PROVIDER=firebase
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    - DATABASE_PROVIDER=firebase
+    - REDIS_URL=redis://redis:6379/0
+    - CELERY_BROKER_URL=redis://redis:6379/0
+    - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    - FLASK_ENV=development
+    - GOOGLE_APPLICATION_CREDENTIALS=/app/config/firebase-credentials.json
     volumes:
-      - .:/app
-      - uploads_volume:/app/data/uploads
-      - processing_volume:/app/data/processing
-      - outputs_volume:/app/data/outputs
+    - .:/app
+    - ./config:/app/config:ro  # Mount config for credentials
+    - uploads_volume:/app/data/uploads
+    - processing_volume:/app/data/processing
+    - outputs_volume:/app/data/outputs
     depends_on:
       - redis
-      - web
-    command: celery -A tasks.celery_app:celery worker --loglevel=info --concurrency=2
+      #- web
+    command: celery -A tasks.celery_app:celery worker --loglevel=info --pool=solo --concurrency=2
     networks:
       - video_ai_network
 

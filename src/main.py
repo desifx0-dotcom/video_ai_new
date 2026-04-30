@@ -9,14 +9,20 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from functools import wraps
+import redis
+from datetime import time
+import json
+import uuid
+
 
 # Adding the src directory to Python path
 src_path = Path(__file__).parent
 sys.path.insert(0, str(src_path))
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, flash
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from api.websocket import set_socketio_instance
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect, generate_csrf
@@ -97,14 +103,32 @@ def create_app(config_class=Config):
     # Create Flask app
     app = Flask(__name__, static_folder="../static", template_folder="../templates")
 
+    # Initialize Redis for production
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        redis_client = redis.from_url(redis_url)
+        redis_client.ping()
+        app.config["REDIS_CLIENT"] = redis_client
+        logger.info("✅ Redis connected successfully")
+    except Exception as e:
+        logger.warning(
+            f"⚠️ Redis connection failed: {e}. Some features will be limited."
+        )
+        app.config["REDIS_CLIENT"] = None
+
+    # Initialize rate limiter
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri=redis_url if redis_client else "memory://",
+    )
+
     app.config.from_object(config_class)
     config_class.init_app(app)
 
     # Register custom filters
     app.jinja_env.filters["timeago"] = timeago_filter
-    app.jinja_env.filters["datetimeformat"] = datetimeformat
-    app.jinja_env.filters["currency"] = currency_format
-    app.jinja_env.filters["format_duration"] = format_duration
     logger.info("✅ Registered timeago filter")
 
     # Load configuration
@@ -162,7 +186,7 @@ def create_app(config_class=Config):
         return dict(csrf_token=lambda: generate_csrf())
 
     @app.template_filter("format_duration")
-    def format_duration_filter(seconds):
+    def format_duration(seconds):
         """Format duration in seconds to MM:SS format."""
         if not seconds:
             return "00:00"
@@ -171,7 +195,7 @@ def create_app(config_class=Config):
         return f"{minutes:02d}:{remaining_seconds:02d}"
 
     @app.template_filter("datetimeformat")
-    def format_datetime(value, format="%Y-%m-%d %H:%M:%S"):
+    def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
         """Format datetime for templates."""
         if value is None:
             return ""
@@ -191,6 +215,10 @@ def create_app(config_class=Config):
             return "$0.00"
         return f"${value:,.2f}"
 
+    # registered custom filters
+    app.jinja_env.filters["datetimeformat"] = datetimeformat
+    app.jinja_env.filters["currency"] = currency_format
+    app.jinja_env.filters["format_duration"] = format_duration
     logger.info(f"📱 Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info(f"🔧 Database Provider: {app.config.get('DATABASE_PROVIDER')}")
     logger.info(f"📧 Email Provider: {app.config.get('EMAIL_PROVIDER')}")
@@ -264,6 +292,7 @@ def create_app(config_class=Config):
         logger=True if app.debug else False,
         engineio_logger=True if app.debug else False,
     )
+    set_socketio_instance(socketio)
 
     # Register WebSocket handlers
     register_websocket_handlers(socketio)
@@ -272,6 +301,108 @@ def create_app(config_class=Config):
     from app.cli import register_cli_commands
 
     register_cli_commands(app)
+
+    # In main.py, after socketio initialization
+    import threading
+    from providers.redis_provider import RedisProvider
+
+    def process_redis_notifications():
+        """Background thread to process notifications from Redis."""
+        from providers.redis_provider import RedisProvider
+        import time
+        import json
+
+        redis = RedisProvider()
+
+        while True:
+            try:
+                # Use the underlying redis client if available
+                if hasattr(redis, "_client"):
+                    redis_client = redis._client
+                else:
+                    time.sleep(1)
+                    continue
+
+                # Get keys for pending notifications
+                keys = redis_client.keys("ws_notify:*")
+                for key in keys:
+                    user_id = (
+                        key.decode().split(":")[-1]
+                        if isinstance(key, bytes)
+                        else key.split(":")[-1]
+                    )
+                    notifications = redis_client.lrange(key, 0, -1)
+
+                    for notif in notifications:
+                        if isinstance(notif, bytes):
+                            notif = notif.decode()
+                        data = json.loads(notif)
+
+                        # Emit to the user's room
+                        socketio.emit(
+                            "notification",
+                            data,
+                            room=user_id,
+                        )
+
+                    # Clear the key after processing
+                    redis_client.delete(key)
+
+                time.sleep(1)
+
+            except Exception as e:
+                logger.error(f"Redis notification processor error: {e}")
+                time.sleep(5)
+
+    def _send_websocket_notification(self, user_id, notification_type, data):
+        """Send WebSocket notification."""
+        try:
+            socketio = self.get_socketio()
+
+            # Check if we're in a Celery worker
+            if os.environ.get("CELERY_WORKER", "false").lower() == "true":
+                # Store in Redis instead of sending directly
+                from providers.redis_provider import RedisProvider
+
+                redis = RedisProvider()
+
+                if hasattr(redis, "_client"):
+                    redis._client.lpush(
+                        f"ws_notify:{user_id}",
+                        json.dumps(
+                            {
+                                "type": notification_type.value,
+                                "data": data,
+                                "timestamp": datetime.utcnow().isoformat(),
+                            }
+                        ),
+                    )
+                    redis._client.expire(f"ws_notify:{user_id}", 60)
+
+                return {"status": "stored", "channel": "redis"}
+
+            # Emit to user's room
+            socketio.emit(
+                "notification",
+                {
+                    "type": notification_type.value,
+                    "data": data,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                room=user_id,
+            )
+
+            return {"status": "sent", "channel": "websocket"}
+
+        except Exception as e:
+            logger.error(f"WebSocket notification failed: {e}")
+            return {"status": "error", "error": str(e)}
+
+    # Start background thread (after socketio is initialized)
+    if not os.environ.get("CELERY_WORKER", "false").lower() == "true":
+        thread = threading.Thread(target=process_redis_notifications, daemon=True)
+        thread.start()
+        logger.info("Started Redis notification processor thread")
 
     # Inside create_app() function, after creating the app but before returning
     @app.context_processor
@@ -1014,6 +1145,7 @@ def create_app(config_class=Config):
                 completed_videos=completed_videos,
                 failed_videos=failed_videos,
             )
+
         except Exception as e:
             print(f"❌ Dashboard error: {e}")
             import traceback
@@ -1033,6 +1165,9 @@ def create_app(config_class=Config):
         import json
         from pathlib import Path
 
+        # Get user's credit balance
+        from services.credit_service import CreditService
+
         user_id = session.get("user_id")
         if not user_id:
             return redirect(url_for("login_page"))
@@ -1050,6 +1185,23 @@ def create_app(config_class=Config):
 
         # Get ALL thumbnail styles with availability info (not filtered)
         all_thumbnail_styles = thumbnail_service.get_all_thumbnail_styles(user.tier)
+
+        # 🔥 SEPARATE AVAILABLE AND UNAVAILABLE THUMBNAIL STYLES
+        available_styles = [
+            s for s in all_thumbnail_styles if s.get("available", False)
+        ]
+        unavailable_styles = [
+            s for s in all_thumbnail_styles if not s.get("available", False)
+        ]
+
+        # 🔥 SORT EACH GROUP ALPHABETICALLY BY NAME
+        available_styles.sort(key=lambda x: x["name"].lower())
+        unavailable_styles.sort(key=lambda x: x["name"].lower())
+
+        # 🔥 COMBINE: AVAILABLE FIRST, THEN UNAVAILABLE
+        sorted_thumbnail_styles = available_styles + unavailable_styles
+
+        credit_balance = user.credits_remaining
 
         quality_options = [
             {
@@ -1125,16 +1277,17 @@ def create_app(config_class=Config):
             "starter": 50,
             "pro": 100,
             "plus": 250,
-            "enterprise": 10000,
+            "enterprise": 1000,
         }
         monthly_limit = monthly_limits.get(user_tier, 3)
+        has_unlimited_credits = False
 
         return render_template(
             "dashboard/upload.html",
             current_user=user,
             available_qualities=available_qualities,
             available_styles=all_video_styles,
-            thumbnail_styles=all_thumbnail_styles,
+            thumbnail_styles=sorted_thumbnail_styles,  # 🔥 USE THE SORTED VERSION
             languages=languages,
             default_quality="original",
             unprocessed_videos_count=unprocessed_videos_count,
@@ -1143,6 +1296,7 @@ def create_app(config_class=Config):
             monthly_limit=monthly_limit,
             access_token=access_token,
             refresh_token=refresh_token,
+            credits_remaining=(credit_balance),
         )
 
     @app.route("/history")
@@ -1214,6 +1368,179 @@ def create_app(config_class=Config):
             completed_videos=video_service.get_completed_count(user_id),
             processing_videos=processing_count,
             failed_videos=video_service.get_failed_count(user_id),
+        )
+
+    @app.route("/uploads/<path:video_id>/original.mp4")
+    def serve_original_video(video_id):
+        """Serve original uploaded video for preview."""
+        from flask import send_file, session, jsonify
+        from services.video_service import VideoService
+
+        # Get user from session
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        video_service = VideoService()
+        video = video_service.get_video(video_id, user_id)
+
+        if not video or not video.original_path:
+            return jsonify({"error": "Video not found"}), 404
+
+        if not os.path.exists(video.original_path):
+            return jsonify({"error": "Video file not found"}), 404
+
+        return send_file(
+            video.original_path,
+            mimetype="video/mp4",
+            as_attachment=False,
+            conditional=True,
+        )
+
+    @app.route("/processed/<video_id>/output.mp4")
+    def serve_processed_video(video_id):
+        """Serve processed video file."""
+        from flask import send_file, abort
+        from services.video_service import VideoService
+        import os
+        import tempfile
+        import glob
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        video_service = VideoService()
+        video = video_service.get_video_by_id(video_id)
+
+        if not video:
+            logger.error(f"Video not found: {video_id}")
+            abort(404)
+
+        file_path = None
+
+        # Check output_path first
+        if hasattr(video, "output_path") and video.output_path:
+            if os.path.exists(video.output_path):
+                file_path = video.output_path
+                logger.info(f"Found video at output_path: {file_path}")
+
+        # Check output_video_url (which stores the actual path)
+        if (
+            not file_path
+            and hasattr(video, "output_video_url")
+            and video.output_video_url
+        ):
+            if os.path.exists(video.output_video_url):
+                file_path = video.output_video_url
+                logger.info(f"Found video at output_video_url: {file_path}")
+
+        # Search in the upload directory
+        if not file_path:
+            base_dir = os.path.join(
+                tempfile.gettempdir(), "video_ai", "uploads", video_id
+            )
+            logger.info(f"Searching for video in: {base_dir}")
+
+            if os.path.exists(base_dir):
+                # Look for mp4 files (excluding original.mp4)
+                mp4_files = glob.glob(os.path.join(base_dir, "*.mp4"))
+                # Filter out original.mp4 if present
+                processed_files = [f for f in mp4_files if "original" not in f.lower()]
+
+                if processed_files:
+                    # Get the most recently modified file
+                    file_path = max(processed_files, key=os.path.getmtime)
+                    logger.info(f"Found processed video: {file_path}")
+                elif mp4_files:
+                    # Fallback to any mp4 file
+                    file_path = max(mp4_files, key=os.path.getmtime)
+                    logger.info(f"Found video (fallback): {file_path}")
+
+        if not file_path or not os.path.exists(file_path):
+            logger.error(f"Video file not found for {video_id}. Base dir: {base_dir}")
+            return jsonify({"error": "Video file not found", "video_id": video_id}), 404
+
+        logger.info(f"Serving video: {file_path}")
+        logger.info(f"File size: {os.path.getsize(file_path)} bytes")
+
+        return send_file(
+            file_path,
+            mimetype="video/mp4",
+            as_attachment=False,
+            conditional=True,
+            download_name=f"processed_video_{video_id}.mp4",
+        )
+
+    @app.route("/results/<video_id>")
+    def results_page(video_id):
+        """Video results page."""
+        from flask import session, redirect, url_for, render_template
+        from services.video_service import VideoService
+        from services.user_service import UserService
+        import uuid
+        import os
+
+        user_id = session.get("user_id")
+        if not user_id:
+            return redirect(url_for("login_page"))
+
+        video_service = VideoService()
+        user_service = UserService()
+
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return redirect(url_for("dashboard"))
+
+        user = user_service.get_user_by_id(user_id)
+
+        # Process thumbnails to have proper URLs
+        thumbnails = []
+
+        # Process AI thumbnails
+        if hasattr(video, "ai_thumbnails") and video.ai_thumbnails:
+            for thumb in video.ai_thumbnails:
+                if isinstance(thumb, dict):
+                    thumb_path = thumb.get("path", "")
+                else:
+                    thumb_path = thumb
+
+                # 🔥 FIX: Convert backslashes to forward slashes BEFORE the f-string
+                normalized_path = thumb_path.replace("\\", "/")
+
+                thumbnails.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "url": f"/api/v1/videos/thumbnails/{normalized_path}",
+                        "type": "ai",
+                        "selected": thumb_path
+                        == getattr(video, "selected_thumbnail", ""),
+                    }
+                )
+
+        # Process extracted thumbnails
+        if hasattr(video, "extracted_thumbnails") and video.extracted_thumbnails:
+            for i, thumb_path in enumerate(
+                video.extracted_thumbnails[:12]
+            ):  # Limit to 12
+                # 🔥 FIX: Convert backslashes to forward slashes BEFORE the f-string
+                normalized_path = thumb_path.replace("\\", "/")
+
+                thumbnails.append(
+                    {
+                        "id": f"extracted_{i}",
+                        "url": f"/api/v1/videos/thumbnails/{normalized_path}",
+                        "type": "extracted",
+                        "selected": False,
+                    }
+                )
+
+        return render_template(
+            "dashboard/results.html",
+            video=video,
+            current_user=user,
+            thumbnails=thumbnails,
+            engagement_score=75,
+            transcription_confidence="High",
         )
 
     @app.route("/settings")
@@ -1313,6 +1640,57 @@ def create_app(config_class=Config):
             ),
         )
 
+    @app.route("/debug/video-info", methods=["POST"])
+    def debug_video_info():
+        """Debug endpoint to test video info extraction."""
+        from providers.ffmpeg_provider import FFmpegProvider
+
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+
+        # Save temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            file.save(tmp.name)
+            temp_path = tmp.name
+
+        try:
+            ffmpeg = FFmpegProvider()
+            metadata = ffmpeg.get_video_metadata(temp_path)
+
+            video_info = metadata.get("video", {})
+            audio_info = metadata.get("audio", {})
+
+            # Calculate aspect ratio
+            width = video_info.get("width", 0)
+            height = video_info.get("height", 0)
+            if width > 0 and height > 0:
+                from math import gcd
+
+                divisor = gcd(width, height)
+                aspect_ratio = f"{width//divisor}:{height//divisor}"
+            else:
+                aspect_ratio = "unknown"
+
+            return jsonify(
+                {
+                    "fps": video_info.get("fps", 0),
+                    "audio_bitrate": audio_info.get("bitrate", 0),
+                    "width": width,
+                    "height": height,
+                    "aspect_ratio": aspect_ratio,
+                    "duration": metadata.get("duration", 0),
+                    "raw_metadata": metadata,
+                }
+            )
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
     # Pricing page
     @app.route("/pricing")
     def pricing():
@@ -1376,6 +1754,37 @@ def create_app(config_class=Config):
                 f"Response: {request.method} {request.path} - {response.status_code}"
             )
         return response
+
+    @app.route("/preview/<video_id>")
+    @jwt_required(optional=True)
+    def preview_video(video_id):
+        """Serve video for preview."""
+        from flask import send_file, session
+        from services.video_service import VideoService
+
+        # Get user from session or JWT
+        user_id = session.get("user_id")
+        if not user_id:
+            try:
+                from flask_jwt_extended import get_jwt_identity
+
+                user_id = get_jwt_identity()
+            except:
+                pass
+
+        if not user_id:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        video_service = VideoService()
+        video = video_service.get_video(video_id, user_id)
+
+        if not video or not video.original_path:
+            return jsonify({"error": "Video not found"}), 404
+
+        if not os.path.exists(video.original_path):
+            return jsonify({"error": "Video file not found"}), 404
+
+        return send_file(video.original_path, mimetype="video/mp4", as_attachment=False)
 
     logger.info("✅ Application setup completed")
 

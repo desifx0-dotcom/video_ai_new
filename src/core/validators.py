@@ -5,7 +5,7 @@ import re
 import os
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
-import magic
+import filetype 
 from urllib.parse import urlparse
 
 from .exceptions import ValidationError
@@ -112,8 +112,11 @@ class Validators:
         # Check MIME type if requested
         if check_mime_type:
             try:
-                mime = magic.Magic(mime=True)
-                mime_type = mime.from_file(file_path)
+                kind = filetype.guess(file_path)
+                if kind:
+                    mime_type = kind.mime
+                else:
+                    mime_type = "unknown"
                 
                 allowed_mime_types = [
                     'video/mp4', 'video/x-msvideo', 'video/quicktime',

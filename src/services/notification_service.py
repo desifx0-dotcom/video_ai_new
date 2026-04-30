@@ -104,7 +104,7 @@ class NotificationService:
         from services.user_service import UserService
 
         user_service = UserService()
-        user = user_service.get_user(user_id)
+        user = user_service.get_user_by_id(user_id)
 
         if not user:
             logger.error(f"User not found for notification: {user_id}")
@@ -298,8 +298,25 @@ class NotificationService:
         self, user_id: str, notification_type: NotificationType, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Send WebSocket notification (always sent to all tiers)."""
-        socketio = self.get_socketio()
         try:
+            socketio = self.get_socketio()
+
+            # Check if socketio is available
+            if socketio is None:
+                logger.debug(
+                    f"SocketIO not available, skipping WebSocket notification for {user_id}"
+                )
+                return {"status": "skipped", "reason": "socketio_not_available"}
+
+            # Check if we're in a Celery worker (no app context)
+            import os
+
+            if os.environ.get("CELERY_WORKER", "false").lower() == "true":
+                logger.debug(
+                    f"Skipping WebSocket notification in Celery worker for {user_id}"
+                )
+                return {"status": "skipped", "reason": "celery_worker"}
+
             # Emit to user's room
             socketio.emit(
                 "notification",
@@ -311,6 +328,7 @@ class NotificationService:
                 room=user_id,
             )
 
+            logger.debug(f"WebSocket notification sent to user {user_id}")
             return {"status": "sent", "channel": "websocket"}
 
         except Exception as e:

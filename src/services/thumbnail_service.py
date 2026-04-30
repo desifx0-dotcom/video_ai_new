@@ -1,27 +1,293 @@
-"""
-Thumbnail generation service.
+﻿"""
+Thumbnail generation service with tier-based model selection, one-at-a-time regeneration,
+AND actual thumbnail style application using FFmpeg filters.
 """
 
 import os
 import tempfile
 import random
-from typing import Dict, Any, List, Optional
+import uuid
+import subprocess
+from typing import Dict, Any, List, Optional, Tuple
 import logging
+import json
+from datetime import datetime
+from pathlib import Path
 
 from core.domain.value_objects.tier import Tier
-from core.exceptions import ProcessingError, ExternalServiceError
+from core.exceptions import (
+    ProcessingError,
+    ExternalServiceError,
+    TierLimitExceeded,
+    InsufficientCreditsError,
+)
 from providers.stability_provider import StabilityProvider
+from providers.openai_provider import OpenAIProvider
 from providers.ffmpeg_provider import FFmpegProvider
+from services.tier_service import TierService
 
 logger = logging.getLogger(__name__)
 
 
 class ThumbnailService:
-    """Thumbnail generation service."""
+    """Thumbnail generation service with tier-based model selection and style application."""
 
-    def __init__(self):
+    # Unique concept templates for true variety
+    CONCEPT_STYLES = [
+        "dramatic lighting, intense mood, cinematic",
+        "bright and colorful, vibrant, eye-catching",
+        "minimalist, clean design, modern",
+        "action shot, dynamic movement, energetic",
+        "close-up, emotional, human element",
+        "mysterious, intriguing, dark atmosphere",
+        "professional, corporate, polished",
+        "funny, humorous, playful",
+        "educational, informative, clean",
+        "futuristic, cyberpunk, tech-inspired",
+        "vintage, retro, nostalgic",
+        "romantic, soft, dreamy",
+        "scary, suspenseful, thriller",
+        "whimsical, magical, fantasy",
+        "abstract, artistic, creative",
+        "bold typography, text-focused",
+        "collage style, mixed media",
+        "watercolor, artistic, soft",
+        "neon glow, cyber, electric",
+        "rustic, natural, organic",
+    ]
+
+    # Cost per thumbnail by model
+    MODEL_COSTS = {
+        "sd-3.5-medium": 0.002,
+        "sd-xl": 0.005,
+        "sd-3.6-turbo": 0.008,
+        "dall-e-3": 0.040,
+    }
+
+    # THUMBNAIL STYLE FILTERS (FFmpeg filters for post-processing)
+    THUMBNAIL_STYLE_FILTERS = {
+        "default": None,
+        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+        "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
+        "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
+        "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05",
+        "action": "eq=contrast=1.15:brightness=0.03,unsharp=5:5:1.0",
+        "minimalist": "eq=saturation=0.9:contrast=1.02",
+        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
+        "cartoon": "eq=saturation=1.15:contrast=1.08,edgedetect=low=0.1:high=0.3",
+        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.08,colorbalance=rs=0.04:gs=0.02:bs=0.02",
+        "mystery": "eq=brightness=-0.05:contrast=1.1:saturation=0.9,colorbalance=gs=-0.03",
+        "tech": "eq=saturation=1.15:contrast=1.08:brightness=0.03,colorbalance=rs=0.05:gs=0.02:bs=0.08",
+    }
+
+    def __init__(self, redis_client=None):
         self.stability = StabilityProvider()
+        self.openai = OpenAIProvider()
         self.ffmpeg = FFmpegProvider()
+        self.tier_service = TierService(redis_client)
+        self._redis = redis_client
+
+        # In-memory fallback for development
+        self._generated_thumbnails = {}
+        self._used_concepts = {}
+        self._regeneration_count = {}
+
+    def _normalize_tier(self, tier) -> Tier:
+        """Convert tier to Tier enum safely."""
+        if isinstance(tier, Tier):
+            return tier
+        if isinstance(tier, str):
+            # Try to convert string to Tier enum
+            tier_lower = tier.lower()
+            for t in Tier:
+                if t.value == tier_lower:
+                    return t
+            return Tier.FREE
+        return Tier.FREE
+
+    def _get_tier_value(self, tier) -> str:
+        """Get tier string value safely."""
+        if isinstance(tier, Tier):
+            return tier.value
+        return str(tier).lower()
+
+    def get_all_thumbnail_styles(self, tier: Tier) -> List[Dict[str, Any]]:
+        """Get all available thumbnail styles with tier availability."""
+
+        all_styles = [
+            {
+                "id": "default",
+                "name": "Default",
+                "description": "Standard thumbnail style",
+                "available": True,
+                "required_tier": "free",
+            },
+            {
+                "id": "cinematic",
+                "name": "Cinematic",
+                "description": "Movie-style thumbnail with dramatic lighting",
+                "available": True,
+                "required_tier": "free",
+            },
+            {
+                "id": "bright",
+                "name": "Bright & Vibrant",
+                "description": "High-contrast, colorful thumbnails",
+                "available": True,
+                "required_tier": "free",
+            },
+            {
+                "id": "dark",
+                "name": "Dark & Moody",
+                "description": "Dramatic dark-themed thumbnails",
+                "available": True,
+                "required_tier": "free",
+            },
+            {
+                "id": "text_heavy",
+                "name": "Text Heavy",
+                "description": "Thumbnails optimized for text overlay",
+                "available": True,
+                "required_tier": "starter",
+            },
+            {
+                "id": "action",
+                "name": "Action Shot",
+                "description": "Dynamic, motion-focused thumbnails",
+                "available": True,
+                "required_tier": "starter",
+            },
+            {
+                "id": "minimalist",
+                "name": "Minimalist",
+                "description": "Clean, simple design",
+                "available": True,
+                "required_tier": "starter",
+            },
+            {
+                "id": "vintage",
+                "name": "Vintage",
+                "description": "Retro, film-style look",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "cartoon",
+                "name": "Cartoon",
+                "description": "Illustrated, animated style",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "glamour",
+                "name": "Glamour",
+                "description": "Polished, professional look",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "mystery",
+                "name": "Mystery",
+                "description": "Intriguing, suspenseful style",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "tech",
+                "name": "Tech",
+                "description": "Futuristic, cyberpunk style",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "custom",
+                "name": "Custom",
+                "description": "Custom style based on video content",
+                "available": False,
+                "required_tier": "enterprise",
+            },
+        ]
+        tier = self._normalize_tier(tier)
+        user_tier_str = tier.value
+        tier_rank = {"free": 0, "starter": 1, "pro": 2, "plus": 3, "enterprise": 4}
+        user_rank = tier_rank.get(user_tier_str, 0)
+
+        for style in all_styles:
+            required_rank = tier_rank.get(style["required_tier"], 0)
+            style["available"] = user_rank >= required_rank
+
+        return all_styles
+
+    def _apply_thumbnail_style(self, image_path: str, style: str) -> str:
+        """
+        Apply style filter to thumbnail using FFmpeg.
+
+        Args:
+            image_path: Path to source image
+            style: Style identifier (cinematic, bright, dark, etc.)
+
+        Returns:
+            Path to styled image (original if style not found or error)
+        """
+        if not image_path or not os.path.exists(image_path):
+            return image_path
+
+        filter_chain = self.THUMBNAIL_STYLE_FILTERS.get(style)
+        if filter_chain is None:
+            logger.debug(f"No filter for thumbnail style: {style}")
+            return image_path
+
+        # Create output path
+        base_name = os.path.splitext(image_path)[0]
+        output_path = f"{base_name}_styled_{style}.jpg"
+
+        cmd = [
+            "ffmpeg",
+            "-i",
+            image_path,
+            "-vf",
+            filter_chain,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            "-y",
+            output_path,
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0 and os.path.exists(output_path):
+                # Replace original with styled version
+                os.remove(image_path)
+                os.rename(output_path, image_path)
+                logger.info(
+                    f"✅ Applied thumbnail style '{style}' to {os.path.basename(image_path)}"
+                )
+            else:
+                logger.warning(
+                    f"Failed to apply style '{style}': {result.stderr[:100]}"
+                )
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+        except Exception as e:
+            logger.error(f"Error applying thumbnail style '{style}': {e}")
+
+        return image_path
+
+    def _apply_thumbnail_styles_to_all(
+        self, thumbnail_paths: List[str], style: str
+    ) -> List[str]:
+        """Apply style to all thumbnails in list."""
+        if not style or style == "default":
+            return thumbnail_paths
+
+        styled_paths = []
+        for path in thumbnail_paths:
+            styled_path = self._apply_thumbnail_style(path, style)
+            styled_paths.append(styled_path)
+
+        return styled_paths
 
     def generate_thumbnails(
         self,
@@ -30,327 +296,268 @@ class ThumbnailService:
         video_type: str,
         tier: Tier,
         transcription: Optional[str] = None,
+        user_id: Optional[str] = None,
+        video_id: Optional[str] = None,
+        thumbnail_style: str = "default",
     ) -> Dict[str, Any]:
-        """
-        Generate thumbnails for video.
-
-        Args:
-            video_path: Path to video file
-            title: Video title
-            video_type: Type of video
-            tier: User tier
-            transcription: Optional transcription for context
-
-        Returns:
-            Thumbnail results
-        """
+        """Generate initial thumbnails for a video with style application."""
         if not os.path.exists(video_path):
             raise ProcessingError(f"Video file not found: {video_path}")
 
+        tier = self._normalize_tier(tier)
+
+        # Get tier specifications
+        tier_spec = self.tier_service.get_tier(tier)
+        if not tier_spec:
+            raise ProcessingError(f"Invalid tier: {tier}")
+
         try:
-            # Generate AI thumbnails
-            ai_thumbnails = self._generate_ai_thumbnails(
-                title, video_type, tier, transcription
-            )
+            # Get model and settings based on tier
+            model, steps = self._get_model_and_steps(tier)
+
+            # Get counts from tier service
+            ai_count = tier_spec.ai_thumbnails
+            extracted_count = tier_spec.extracted_frames
+
+            # Generate AI thumbnails with fallback
+            ai_thumbnails = []
+            total_cost = 0.0
+
+            for i in range(ai_count):
+                concept = self._get_new_concept(video_id)
+                result = self._generate_single_thumbnail(
+                    title=title,
+                    video_type=video_type,
+                    tier=tier,
+                    transcription=transcription,
+                    concept=concept,
+                    model=model,
+                    steps=steps,
+                    attempt_number=i + 1,
+                )
+                if result:
+                    # 🔥 APPLY STYLE TO GENERATED THUMBNAIL
+                    styled_path = self._apply_thumbnail_style(
+                        result["thumbnail"]["path"], thumbnail_style
+                    )
+                    result["thumbnail"]["path"] = styled_path
+                    ai_thumbnails.append(result["thumbnail"])
+                    total_cost += result["cost"]
+                    self._add_used_concept(video_id, concept)
 
             # Extract frames from video
-            extracted_thumbnails = self._extract_frames(video_path, tier)
+            extracted_thumbnails = self._extract_frames(video_path, extracted_count)
 
-            # Select best thumbnail
-            selected = self._select_best_thumbnail(
-                ai_thumbnails, extracted_thumbnails, title
+            # 🔥 APPLY STYLE TO EXTRACTED FRAMES
+            extracted_thumbnails = self._apply_thumbnail_styles_to_all(
+                extracted_thumbnails, thumbnail_style
             )
 
-            # Calculate cost
-            cost = self._calculate_cost(tier, len(ai_thumbnails))
+            # Select best thumbnail (first AI thumbnail or first extracted)
+            selected = (
+                ai_thumbnails[0]["path"]
+                if ai_thumbnails
+                else (extracted_thumbnails[0] if extracted_thumbnails else None)
+            )
 
             return {
+                "success": True,
                 "ai_thumbnails": ai_thumbnails,
                 "extracted_thumbnails": extracted_thumbnails,
                 "selected": selected,
-                "cost": cost,
+                "cost": total_cost,
                 "tier": tier.value,
                 "ai_count": len(ai_thumbnails),
                 "extracted_count": len(extracted_thumbnails),
+                "model": model,
+                "video_id": video_id,
+                "thumbnail_style": thumbnail_style,
             }
 
         except Exception as e:
-            if "Stability" in str(e) or "SDXL" in str(e):
-                raise ExternalServiceError("StabilityAI", str(e))
-            else:
-                raise ProcessingError(
-                    f"Thumbnail generation failed: {str(e)}",
-                    step="thumbnail_generation",
-                )
+            logger.error(f"Thumbnail generation failed: {e}")
+            raise ProcessingError(
+                f"Thumbnail generation failed: {str(e)}", step="thumbnail_generation"
+            )
 
-    def _generate_ai_thumbnails(
+    def regenerate_thumbnail(
         self,
+        video_id: str,
+        video_path: str,
         title: str,
         video_type: str,
         tier: Tier,
         transcription: Optional[str] = None,
-    ) -> List[str]:
-        """Generate AI thumbnails using Stability AI."""
-        # Get number of thumbnails based on tier
-        count = self._get_ai_thumbnail_count(tier)
+        user_id: Optional[str] = None,
+        thumbnail_style: str = "default",
+    ) -> Dict[str, Any]:
+        """Regenerate a single thumbnail with a different concept and apply style."""
+        # Check regeneration limits
+        current_count = self._get_regeneration_count(video_id)
+        max_regenerations = self.tier_service.get_thumbnail_regenerations(tier)
 
-        if count <= 0:
-            return []
+        tier = self._normalize_tier(tier)
 
-        # Get model and steps based on tier
-        model, steps = self._get_model_and_steps(tier)
-
-        # Generate prompts
-        prompts = self._generate_prompts(title, video_type, transcription, count)
-
-        # Generate images
-        thumbnails = []
-
-        for i, prompt in enumerate(prompts):
-            try:
-                image_data = self.stability.generate_image(
-                    prompt=prompt,
-                    model=model,
-                    steps=steps,
-                    cfg_scale=7.0,
-                    width=1280,
-                    height=720,
-                )
-
-                # Save thumbnail
-                thumbnail_path = self._save_thumbnail(image_data, f"ai_thumbnail_{i}")
-                thumbnails.append(thumbnail_path)
-
-            except Exception as e:
-                logger.error(f"Failed to generate AI thumbnail {i}: {str(e)}")
-                continue
-
-        return thumbnails
-
-    def _extract_frames(self, video_path: str, tier: Tier) -> List[str]:
-        """Extract frames from video."""
-        # Get number of frames based on tier
-        count = self._get_extracted_thumbnail_count(tier)
-
-        if count <= 0:
-            return []
-
-        # Get video duration
-        metadata = self.ffmpeg.get_video_metadata(video_path)
-        duration = metadata.get("duration", 60)
-
-        # Calculate frame intervals
-        intervals = []
-        if count == 1:
-            intervals = [duration / 2]  # Middle of video
-        else:
-            # Spread frames throughout video
-            interval = duration / (count + 1)
-            intervals = [interval * (i + 1) for i in range(count)]
-
-        # Extract frames
-        frames = []
-
-        for i, interval in enumerate(intervals):
-            try:
-                frame_path = self.ffmpeg.extract_frame(
-                    video_path=video_path,
-                    timestamp=interval,
-                    output_dir=tempfile.gettempdir(),
-                    filename=f"frame_{i}",
-                )
-
-                if frame_path and os.path.exists(frame_path):
-                    frames.append(frame_path)
-
-            except Exception as e:
-                logger.error(f"Failed to extract frame at {interval}s: {str(e)}")
-                continue
-
-        return frames
-
-    def _select_best_thumbnail(
-        self, ai_thumbnails: List[str], extracted_thumbnails: List[str], title: str
-    ) -> str:
-        """Select the best thumbnail from available options."""
-        all_thumbnails = ai_thumbnails + extracted_thumbnails
-
-        if not all_thumbnails:
-            # No thumbnails available
-            return ""
-
-        # Simple selection logic
-        # In production, you might use AI to analyze and select the best thumbnail
-
-        # Prefer AI thumbnails over extracted frames
-        if ai_thumbnails:
-            # Select first AI thumbnail (could be improved with analysis)
-            return ai_thumbnails[0]
-        else:
-            # Select middle frame from extracted frames
-            middle_index = len(extracted_thumbnails) // 2
-            return extracted_thumbnails[middle_index]
-
-    def get_all_thumbnail_styles(self, user_tier: str) -> List[Dict[str, Any]]:
-        """Return ALL thumbnail styles with availability info for user tier."""
-
-        # Define all thumbnail styles (your complete list)
-        all_styles = {
-            # "default": {
-            #     "name": "Default",
-            #     "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            # },
-            "cinematic": {
-                "name": "Cinematic",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "bright": {
-                "name": "Bright & Vibrant",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "educational": {
-                "name": "Educational",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "dark": {
-                "name": "Dark & Moody",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "text_heavy": {
-                "name": "Text Heavy",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "action": {
-                "name": "Action",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "travel": {
-                "name": "Travel",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "minimalist": {
-                "name": "Minimalist",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "vintage": {
-                "name": "Vintage",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "professional": {
-                "name": "Professional",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "documentary": {
-                "name": "Documentary",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "wedding": {
-                "name": "Wedding",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "corporate": {
-                "name": "Corporate",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "real_estate": {
-                "name": "Real Estate",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "cartoon": {
-                "name": "Cartoon Style",
-                "available_tiers": ["plus", "enterprise"],
-            },
-            "glamour": {"name": "Glamour", "available_tiers": ["plus", "enterprise"]},
-            "mystery": {"name": "Mystery", "available_tiers": ["plus", "enterprise"]},
-            "tech": {"name": "Tech", "available_tiers": ["plus", "enterprise"]},
-            "cinematic_pro": {
-                "name": "Cinematic Pro",
-                "available_tiers": ["plus", "enterprise"],
-            },
-            "artistic": {"name": "Artistic", "available_tiers": ["plus", "enterprise"]},
-            "retro": {"name": "Retro", "available_tiers": ["plus", "enterprise"]},
-            "futuristic": {
-                "name": "Futuristic",
-                "available_tiers": ["plus", "enterprise"],
-            },
-        }
-        # Build list with availability
-        styles_list = []
-        for style_id, style in all_styles.items():
-            available_tiers = style.get("available_tiers", [])
-            is_available = user_tier in available_tiers
-
-            styles_list.append(
-                {
-                    "id": style_id,
-                    "name": style["name"],
-                    "available": is_available,
-                    "required_tier": (
-                        available_tiers[0] if available_tiers else "enterprise"
-                    ),
-                }
+        if current_count >= max_regenerations:
+            raise TierLimitExceeded(
+                "thumbnail_regenerations",
+                current_count,
+                max_regenerations,
+                message=f"You've used {current_count} of {max_regenerations} thumbnail regenerations",
             )
 
-        # Separate available and unavailable
-        available_styles = [s for s in styles_list if s["available"]]
-        unavailable_styles = [s for s in styles_list if not s["available"]]
+        # Get tier specifications
+        tier_spec = self.tier_service.get_tier(tier)
+        if not tier_spec:
+            raise ProcessingError(f"Invalid tier: {tier}")
 
-        # Sort each group alphabetically by name
-        available_styles.sort(key=lambda x: x["name"])
-        unavailable_styles.sort(key=lambda x: x["name"])
+        # Get model based on tier
+        model, steps = self._get_model_and_steps(tier)
 
-        # Combine: available first, then unavailable
-        return available_styles + unavailable_styles
+        # Get a truly different concept
+        concept = self._get_new_concept(video_id, force_different=True)
 
-    def _get_ai_thumbnail_count(self, tier: Tier) -> int:
-        """Get number of AI thumbnails for tier."""
-        tier_counts = {
-            Tier.FREE: 1,
-            Tier.STARTER: 3,
-            Tier.PRO: 5,
-            Tier.PLUS: 10,
-            Tier.ENTERPRISE: 20,
+        # Generate new thumbnail
+        result = self._generate_single_thumbnail(
+            title=title,
+            video_type=video_type,
+            tier=tier,
+            transcription=transcription,
+            concept=concept,
+            model=model,
+            steps=steps,
+            attempt_number=current_count + 1,
+            is_regeneration=True,
+        )
+
+        if result:
+            # 🔥 APPLY STYLE TO REGENERATED THUMBNAIL
+            styled_path = self._apply_thumbnail_style(
+                result["thumbnail"]["path"], thumbnail_style
+            )
+            result["thumbnail"]["path"] = styled_path
+
+            self._add_used_concept(video_id, concept)
+            new_count = self._increment_regeneration_count(video_id)
+
+            return {
+                "success": True,
+                "thumbnail": result["thumbnail"],
+                "concept": concept,
+                "regeneration_count": new_count,
+                "max_regenerations": max_regenerations,
+                "model": model,
+                "cost": result["cost"],
+                "thumbnail_style": thumbnail_style,
+            }
+        else:
+            return {"success": False, "error": "Failed to generate thumbnail"}
+
+    def _generate_single_thumbnail(
+        self,
+        title: str,
+        video_type: str,
+        tier: Tier,
+        concept: str,
+        model: str,
+        steps: int,
+        attempt_number: int = 1,
+        is_regeneration: bool = False,
+        transcription: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a single thumbnail with specific concept."""
+        prompt = self._build_prompt(
+            title=title,
+            video_type=video_type,
+            concept=concept,
+            transcription=transcription,
+            attempt_number=attempt_number,
+            is_regeneration=is_regeneration,
+        )
+
+        try:
+            image_data = self.stability.generate_image(
+                prompt=prompt,
+                model=model,
+                steps=steps,
+                cfg_scale=7.0,
+                width=1280,
+                height=720,
+            )
+
+            thumbnail_path = self._save_thumbnail(
+                image_data, f"ai_thumbnail_{attempt_number}_{uuid.uuid4().hex[:8]}"
+            )
+
+            return {
+                "thumbnail": {
+                    "id": str(uuid.uuid4()),
+                    "path": thumbnail_path,
+                    "concept": concept,
+                    "prompt": prompt,
+                    "model": model,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "is_regeneration": is_regeneration,
+                },
+                "cost": self.MODEL_COSTS.get(model, 0.002),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to generate thumbnail with {model}: {e}")
+
+            if tier in [Tier.PLUS, Tier.ENTERPRISE]:
+                try:
+                    return self._generate_with_dalle(title, concept)
+                except Exception as e2:
+                    logger.error(f"DALL·E 3 fallback also failed: {e2}")
+
+            return None
+
+    def _generate_with_dalle(
+        self, title: str, concept: str
+    ) -> Optional[Dict[str, Any]]:
+        """Generate thumbnail with DALL·E 3."""
+        dalle_prompt = f"A professional YouTube thumbnail for a video titled: '{title}'. Style: {concept}. High quality, 4K resolution, engaging, clickable."
+
+        response = self.openai.generate_image(
+            prompt=dalle_prompt,
+            model="dall-e-3",
+            size="1024x1024",
+            quality="hd",
+        )
+
+        thumbnail_path = self._save_thumbnail(
+            response, f"ai_thumbnail_dalle_{uuid.uuid4().hex[:8]}"
+        )
+
+        return {
+            "thumbnail": {
+                "id": str(uuid.uuid4()),
+                "path": thumbnail_path,
+                "concept": concept,
+                "prompt": dalle_prompt,
+                "model": "dall-e-3",
+                "created_at": datetime.utcnow().isoformat(),
+                "is_regeneration": True,
+            },
+            "cost": self.MODEL_COSTS["dall-e-3"],
         }
 
-        return tier_counts.get(tier, 1)
-
-    def _get_extracted_thumbnail_count(self, tier: Tier) -> int:
-        """Get number of extracted thumbnails for tier."""
-        tier_counts = {
-            Tier.FREE: 5,
-            Tier.STARTER: 8,
-            Tier.PRO: 15,
-            Tier.PLUS: 25,
-            Tier.ENTERPRISE: 50,
-        }
-
-        return tier_counts.get(tier, 5)
-
-    def _get_model_and_steps(self, tier: Tier) -> tuple[str, int]:
-        """Get model and steps for AI thumbnail generation."""
-        tier_settings = {
-            Tier.FREE: ("sd-3.5-medium", 20),
-            Tier.STARTER: ("sd-3.5-medium", 30),
-            Tier.PRO: ("sd-xl", 40),
-            Tier.PLUS: ("sd-3.6-turbo", 50),
-            Tier.ENTERPRISE: ("sd-3.6-turbo", 50),
-        }
-
-        return tier_settings.get(tier, ("sd-3.5-medium", 20))
-
-    def _generate_prompts(
-        self, title: str, video_type: str, transcription: Optional[str], count: int
-    ) -> List[str]:
-        """Generate prompts for AI thumbnail generation."""
-        prompts = []
-
-        # Base prompt
-        base_context = f"A YouTube/TikTok style thumbnail for a video titled: '{title}'"
+    def _build_prompt(
+        self,
+        title: str,
+        video_type: str,
+        concept: str,
+        transcription: Optional[str],
+        attempt_number: int,
+        is_regeneration: bool,
+    ) -> str:
+        """Build prompt for thumbnail generation."""
+        base_context = f"A professional YouTube/TikTok style thumbnail for a video titled: '{title}'"
 
         if video_type == "speech" and transcription:
-            # Extract key phrases from transcription
-            key_phrases = self._extract_key_phrases(transcription)
-            context = f"{base_context}. The video is about: {key_phrases}"
+            key_phrases = self._extract_key_phrases(transcription, max_phrases=3)
+            context = f"{base_context}. The video content is about: {key_phrases[:200]}"
         elif video_type == "silent":
             context = (
                 f"{base_context}. This is a silent video with engaging visual content."
@@ -358,134 +565,152 @@ class ThumbnailService:
         else:
             context = base_context
 
-        # Generate different prompt variations
-        styles = [
-            ", dramatic lighting, professional photography",
-            "bright, colorful, vibrant, eye-catching, social media style",
-            "minimalist, clean, elegant, modern design",
-            "text-heavy with bold typography, YouTube thumbnail style",
-            "action shot, dynamic composition, exciting",
-            "close-up, emotional, human element",
-            "mysterious, intriguing, dark atmosphere",
-            "funny, humorous, cartoonish, playful",
-            "educational, informative, clean presentation",
-            "gaming, futuristic, cyberpunk aesthetic",
-        ]
+        if is_regeneration:
+            context += f" This is variation #{attempt_number}. Make it distinctly different from previous versions."
 
-        # Select random styles for diversity
-        selected_styles = random.sample(styles, min(count, len(styles)))
+        prompt = f"{context}. Style: {concept}. High quality, 4K resolution, professional thumbnail design, vibrant colors, clear focal point, suitable for YouTube/TikTok."
 
-        for style in selected_styles:
-            prompt = f"{context}. Style: {style}. High quality, detailed, 4K."
-            prompts.append(prompt)
+        return prompt
 
-        return prompts
+    def _get_new_concept(self, video_id: str, force_different: bool = False) -> str:
+        """Get a concept different from previously used ones."""
+        used = self._get_used_concepts(video_id)
+        available = [c for c in self.CONCEPT_STYLES if c not in used]
 
-    def _extract_key_phrases(self, transcription: str, max_phrases: int = 3) -> str:
-        """Extract key phrases from transcription."""
-        # Simple extraction - in production, use NLP
-        sentences = transcription.split(".")
+        if not available:
+            base_concept = random.choice(self.CONCEPT_STYLES[:10])
+            count = len(used)
+            return f"{base_concept} (variation {count + 1} - enhanced)"
 
-        # Take first few sentences
-        key_sentences = sentences[:3]
+        return random.choice(available)
 
-        # Clean up
-        phrases = []
-        for sentence in key_sentences:
-            sentence = sentence.strip()
-            if sentence and len(sentence.split()) > 3:
-                phrases.append(sentence)
+    def _extract_frames(self, video_path: str, count: int) -> List[str]:
+        """Extract frames from video."""
+        if count <= 0:
+            return []
 
-        # Join phrases
-        if phrases:
-            return ". ".join(phrases)
+        metadata = self.ffmpeg.get_video_metadata(video_path)
+        duration = metadata.get("duration", 60)
+
+        if count == 1:
+            intervals = [duration / 2]
         else:
-            # Fallback: use first 50 words
-            words = transcription.split()[:50]
-            return " ".join(words)
+            intervals = [duration * (i + 1) / (count + 1) for i in range(count)]
 
-    def _save_thumbnail(self, image_data: bytes, filename: str) -> str:
+        frames = []
+        for i, interval in enumerate(intervals):
+            try:
+                frame_dir = tempfile.mkdtemp(prefix="video_ai_frames_")
+                frame_path = os.path.join(frame_dir, f"frame_{i:03d}.jpg")
+                self.ffmpeg.extract_frame_at_time(
+                    video_path, interval, frame_path, width=640, height=360
+                )
+                if os.path.exists(frame_path):
+                    frames.append(frame_path)
+            except Exception as e:
+                logger.error(f"Failed to extract frame at {interval}s: {str(e)}")
+                continue
+
+        return frames
+
+    def _get_model_and_steps(self, tier: Tier) -> Tuple[str, int]:
+        """Get model and steps based on tier."""
+        tier_settings = {
+            Tier.FREE: ("sd-3.5-medium", 20),
+            Tier.STARTER: ("sd-3.5-medium", 30),
+            Tier.PRO: ("sd-xl", 40),
+            Tier.PLUS: ("sd-3.6-turbo", 50),
+            Tier.ENTERPRISE: ("sd-3.6-turbo", 50),
+        }
+        return tier_settings.get(tier, ("sd-3.5-medium", 20))
+
+    def _extract_key_phrases(self, text: str, max_phrases: int = 3) -> str:
+        """Extract key phrases from text."""
+        if not text:
+            return ""
+        sentences = [s.strip() for s in text.split(".") if len(s.strip()) > 10]
+        key_sentences = sentences[:max_phrases]
+        if key_sentences:
+            return ". ".join(key_sentences)
+        return text[:150]
+
+    def _save_thumbnail(self, image_data, filename: str) -> str:
         """Save thumbnail image to temporary file."""
         import base64
 
-        # Create temporary directory
         temp_dir = tempfile.mkdtemp(prefix="video_ai_thumbnails_")
         filepath = os.path.join(temp_dir, f"{filename}.png")
 
-        # Decode if base64
         if isinstance(image_data, str) and image_data.startswith("data:image"):
-            # Extract base64 data
             import re
 
             match = re.match(r"data:image/(.+?);base64,(.+)", image_data)
             if match:
                 image_data = base64.b64decode(match.group(2))
+        elif isinstance(image_data, str):
+            return image_data
 
-        # Save image
         with open(filepath, "wb") as f:
             f.write(image_data)
 
         return filepath
 
-    def _calculate_cost(self, tier: Tier, ai_thumbnail_count: int) -> float:
-        """Calculate thumbnail generation cost."""
-        # Cost per image based on steps
-        steps = self._get_model_and_steps(tier)[1]
+    def get_thumbnail_history(self, video_id: str) -> List[Dict[str, Any]]:
+        """Get thumbnail generation history for a video."""
+        if self._redis:
+            import json
 
-        # Cost per step (approximate)
-        cost_per_step = 0.0001  # $0.0001 per step
+            key = f"thumb:{video_id}:history"
+            history = self._redis.lrange(key, 0, -1)
+            return [json.loads(h.decode()) for h in history] if history else []
+        return self._generated_thumbnails.get(video_id, [])
 
-        # Calculate cost per image
-        cost_per_image = steps * cost_per_step
+    def get_regeneration_count(self, video_id: str) -> int:
+        """Get number of regenerations for a video."""
+        return self._get_regeneration_count(video_id)
 
-        # Total cost
-        total_cost = ai_thumbnail_count * cost_per_image
+    def get_max_regenerations(self, tier: Tier) -> int:
+        """Get maximum regenerations allowed for tier."""
+        return self.tier_service.get_thumbnail_regenerations(tier)
 
-        # Apply tier adjustments
-        tier_multipliers = {
-            Tier.FREE: 1.0,
-            Tier.STARTER: 1.0,
-            Tier.PRO: 1.0,
-            Tier.PLUS: 1.0,
-            Tier.ENTERPRISE: 1.0,
-        }
+    def _get_redis_key(self, video_id: str, suffix: str) -> str:
+        """Generate Redis key for tracking."""
+        return f"thumb:{video_id}:{suffix}"
 
-        multiplier = tier_multipliers.get(tier, 1.0)
+    def _get_used_concepts(self, video_id: str) -> List[str]:
+        """Get used concepts from Redis or memory."""
+        if self._redis:
+            key = self._get_redis_key(video_id, "concepts")
+            concepts = self._redis.lrange(key, 0, -1)
+            return [c.decode() for c in concepts] if concepts else []
+        return self._used_concepts.get(video_id, [])
 
-        return total_cost * multiplier
+    def _add_used_concept(self, video_id: str, concept: str):
+        """Track used concept in Redis or memory."""
+        if self._redis:
+            key = self._get_redis_key(video_id, "concepts")
+            self._redis.rpush(key, concept)
+            self._redis.expire(key, 2592000)
+        else:
+            if video_id not in self._used_concepts:
+                self._used_concepts[video_id] = []
+            self._used_concepts[video_id].append(concept)
 
-    def optimize_thumbnail(self, thumbnail_path: str) -> str:
-        """Optimize thumbnail for web display."""
-        if not os.path.exists(thumbnail_path):
-            return thumbnail_path
+    def _get_regeneration_count(self, video_id: str) -> int:
+        """Get regeneration count from Redis or memory."""
+        if self._redis:
+            key = self._get_redis_key(video_id, "regen_count")
+            count = self._redis.get(key)
+            return int(count) if count else 0
+        return self._regeneration_count.get(video_id, 0)
 
-        try:
-            # Create optimized version
-            optimized_path = thumbnail_path.replace(".png", "_optimized.jpg")
-
-            cmd = [
-                "ffmpeg",
-                "-i",
-                thumbnail_path,
-                "-vf",
-                "scale=1280:720",
-                "-q:v",
-                "2",  # Quality (2-31, lower is better)
-                "-y",
-                optimized_path,
-            ]
-
-            import subprocess
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-            if result.returncode == 0 and os.path.exists(optimized_path):
-                # Replace original with optimized
-                os.remove(thumbnail_path)
-                return optimized_path
-            else:
-                return thumbnail_path
-
-        except Exception as e:
-            logger.error(f"Thumbnail optimization failed: {str(e)}")
-            return thumbnail_path
+    def _increment_regeneration_count(self, video_id: str) -> int:
+        """Increment regeneration count."""
+        if self._redis:
+            key = self._get_redis_key(video_id, "regen_count")
+            new_count = self._redis.incr(key)
+            self._redis.expire(key, 2592000)
+            return new_count
+        new_count = self._regeneration_count.get(video_id, 0) + 1
+        self._regeneration_count[video_id] = new_count
+        return new_count

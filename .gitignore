@@ -217,3 +217,54 @@ yarn-error.log*
 # Production build
 build/
 dist/
+
+# Add at the end of your .gitignore:
+
+# Redis Cloud credentials (already covered by .env, but just to be safe)
+*.redislabs.com
+
+# Celery
+celerybeat-schedule.db
+celerybeat.pid
+
+# Database dumps
+*.dump
+*.backup
+
+# Redis persistence files
+*.rdb
+*.aof
+
+# Google Cloud credentials (specific)
+config/*-credentials.json
+config/*-service-account.json
+
+# Firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Temporary video files
+*.mp4.tmp
+*.avi.tmp
+*.mkv.tmp
+
+# AI generated files
+*.srt
+*.vtt
+*.json.tmp
+
+# User uploaded files (development)
+static/uploads/*
+static/processed/*
+media/*
+
+# Test videos (if any)
+test_videos/
+sample_videos/
+demo_videos/
+
+# Development secrets
+.dev.env
+.staging.env
+.prod.env

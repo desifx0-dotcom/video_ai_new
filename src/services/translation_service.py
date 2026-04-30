@@ -1,26 +1,103 @@
 """
-Translation service using googletrans (free).
+Translation service with Gemini Flash primary and GPT-4o Mini fallback.
+Complete production version with caching, batch limits, and cost tracking.
 """
 
 from typing import Dict, Any, List, Optional
 import logging
+import json
+import hashlib
+import time
+from pathlib import Path
+from datetime import datetime, timedelta
 
 from core.domain.value_objects.tier import Tier
-from core.exceptions import ProcessingError
-from core.constants import SUPPORTED_LANGUAGES
-
-# from googletrans import Translator
-from google.cloud import translate_v2 as translator
+from core.exceptions import ProcessingError, ExternalServiceError, TierLimitExceeded
+from providers.google_provider import GoogleProvider
+from providers.openai_provider import OpenAIProvider
+from services.tier_service import TierService
+from services.credit_service import CreditService
 
 logger = logging.getLogger(__name__)
 
 
 class TranslationService:
-    """Translation service using googletrans."""
+    """Translation service with tier-based limits, caching, and cost tracking."""
 
-    def __init__(self):
-        self.translator = translator
-        self._cache = {}  # Simple in-memory cache
+    # Cache TTL in seconds
+    CACHE_TTL = 86400  # 24 hours
+
+    # Cost per 1K characters by model
+    COST_PER_1K = {
+        "gemini-flash": 0.00006,
+        "gpt-4o-mini": 0.00015,
+        "batch": 0.00003,
+    }
+
+    def __init__(self, redis_client=None):
+        self.google = GoogleProvider()
+        self.openai = OpenAIProvider()
+        self.tier_service = TierService(redis_client)
+        self.credit_service = CreditService()
+        self._redis = redis_client
+
+    def _get_cache_key(self, text: str, source: Optional[str], target: str) -> str:
+        """Generate cache key for translation."""
+        # Use hash of normalized text for cache key
+        normalized = text[:500].lower().strip()
+        key_string = f"{normalized}_{source}_{target}"
+        return f"trans:{hashlib.md5(key_string.encode()).hexdigest()}"
+
+    def _get_cached_translation(self, key: str) -> Optional[str]:
+        """Get cached translation."""
+        if not self._redis:
+            return None
+        try:
+            cached = self._redis.get(key)
+            if cached:
+                logger.debug(f"Cache hit for key {key}")
+                return cached.decode()
+        except Exception as e:
+            logger.warning(f"Cache read failed: {e}")
+        return None
+
+    def _cache_translation(self, key: str, text: str, ttl: int = None):
+        """Cache translation result."""
+        if not self._redis:
+            return
+        try:
+            self._redis.setex(key, ttl or self.CACHE_TTL, text)
+        except Exception as e:
+            logger.warning(f"Cache write failed: {e}")
+
+    def _check_rate_limit(self, user_id: str, tier: Tier) -> bool:
+        """Check translation rate limit."""
+        if not self._redis:
+            return True
+
+        now = datetime.utcnow()
+        hour_key = f"trans_rate:{user_id}:{now.strftime('%Y%m%d%H')}"
+
+        try:
+            count = self._redis.incr(hour_key)
+            self._redis.expire(hour_key, 3600)
+
+            tier_spec = self.tier_service.get_tier(tier)
+            max_per_hour = tier_spec.rate_limit_per_hour if tier_spec else 200
+
+            if count > max_per_hour:
+                logger.warning(
+                    f"Rate limit exceeded for user {user_id}: {count}/{max_per_hour}"
+                )
+                return False
+        except Exception as e:
+            logger.error(f"Rate limit check failed: {e}")
+
+        return True
+
+    def can_translate(self, video) -> bool:
+        """Check if video can be translated (has text content)."""
+        return bool(video.title or video.description or video.transcription)
 
     def translate(
         self,
@@ -28,317 +105,172 @@ class TranslationService:
         target_language: str,
         tier: Tier,
         source_language: Optional[str] = None,
+        user_id: Optional[str] = None,
+        video_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Translate text to target language.
+        """Translate text to target language with tier-based limits."""
+        start_time = time.time()
 
-        Args:
-            text: Text to translate
-            target_language: Target language code
-            tier: User tier (for rate limiting)
-            source_language: Optional source language code
-
-        Returns:
-            Translation result
-        """
+        # Handle empty text
         if not text or not text.strip():
             return {
                 "text": "",
-                "source_language": source_language or "auto",
+                "source_language": "none",
                 "target_language": target_language,
                 "cost": 0.0,
                 "cached": False,
+                "message": "No text to translate",
             }
 
-        # Validate language codes
-        if not self._is_language_supported(target_language):
-            raise ProcessingError(f"Unsupported target language: {target_language}")
+        # Check rate limit
+        if not self._check_rate_limit(user_id, tier):
+            raise TierLimitExceeded(
+                "rate_limit",
+                0,
+                0,
+                message="Translation rate limit exceeded. Please try again later.",
+            )
 
-        if source_language and not self._is_language_supported(source_language):
-            raise ProcessingError(f"Unsupported source language: {source_language}")
+        # Check tier translation permission
+        tier_spec = self.tier_service.get_tier(tier)
+        if not tier_spec.translation_enabled:
+            raise TierLimitExceeded(
+                "translation",
+                0,
+                0,
+                message=f"Translation not available in {tier.value} tier. Upgrade to enable.",
+                upgrade_url="/pricing",
+            )
 
         # Check cache
-        cache_key = f"{text[:100]}_{source_language}_{target_language}"
-        if cache_key in self._cache:
-            cached_result = self._cache[cache_key]
+        cache_key = self._get_cache_key(text, source_language, target_language)
+        cached_result = self._get_cached_translation(cache_key)
+        if cached_result:
             return {
-                **cached_result,
+                "text": cached_result,
+                "source_language": source_language or "auto",
+                "target_language": target_language,
+                "cost": 0.0,
                 "cached": True,
-                "cost": 0.0,  # Cached translations are free
+                "processing_time_ms": 0,
             }
 
+        # Calculate approximate token count for cost
+        char_count = len(text)
+        approx_tokens = char_count / 4
+
+        # Translate
+        is_batch = char_count > 2000
         try:
-            # Perform translation
-            translated = self.translator.translate(
-                text=text, dest=target_language, src=source_language
-            )
+            if is_batch and tier_spec.batch_translation:
+                result = self._translate_batch(text, target_language, source_language)
+                cost_model = "batch"
+            else:
+                result = self._translate_with_primary(
+                    text, target_language, source_language
+                )
+                cost_model = "gemini-flash"
 
-            result = {
-                "text": translated.text,
-                "source_language": translated.src,
-                "target_language": translated.dest,
-                "pronunciation": getattr(translated, "pronunciation", None),
-                "original_text": text,
-                "cost": self._calculate_cost(len(text), tier),
-                "cached": False,
-                "confidence": 0.9,  # Google Translate confidence estimate
-            }
+            # Calculate cost
+            cost = (approx_tokens / 1000) * self.COST_PER_1K.get(cost_model, 0.00006)
 
             # Cache result
-            self._cache[cache_key] = {
-                "text": translated.text,
-                "source_language": translated.src,
-                "target_language": translated.dest,
-                "pronunciation": getattr(translated, "pronunciation", None),
-            }
+            self._cache_translation(cache_key, result)
 
-            # Limit cache size
-            if len(self._cache) > 1000:
-                # Remove oldest entries
-                keys = list(self._cache.keys())
-                for key in keys[:100]:
-                    del self._cache[key]
-
-            return result
-
-        except Exception as e:
-            raise ProcessingError(f"Translation failed: {str(e)}", step="translation")
-
-    def translate_batch(
-        self,
-        texts: List[str],
-        target_language: str,
-        tier: Tier,
-        source_language: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Translate multiple texts in batch.
-
-        Args:
-            texts: List of texts to translate
-            target_language: Target language code
-            tier: User tier
-            source_language: Optional source language code
-
-        Returns:
-            List of translation results
-        """
-        if not texts:
-            return []
-
-        # Check if batch translation is allowed for tier
-        if not self._is_batch_translation_allowed(tier):
-            # Fall back to individual translations
-            results = []
-            for text in texts:
-                try:
-                    result = self.translate(
-                        text, target_language, tier, source_language
-                    )
-                    results.append(result)
-                except Exception as e:
-                    logger.error(f"Failed to translate text in batch: {str(e)}")
-                    results.append(
-                        {
-                            "text": text,  # Return original text on error
-                            "source_language": source_language or "auto",
-                            "target_language": target_language,
-                            "error": str(e),
-                            "cost": 0.0,
-                        }
-                    )
-            return results
-
-        try:
-            # Batch translation
-            translated_list = self.translator.translate(
-                texts=texts, dest=target_language, src=source_language
-            )
-
-            results = []
-            total_cost = 0.0
-
-            for i, translated in enumerate(translated_list):
-                text_cost = self._calculate_cost(len(texts[i]), tier)
-                total_cost += text_cost
-
-                results.append(
+            # Track usage
+            if user_id and video_id:
+                self.credit_service.track_usage(
+                    user_id,
+                    "translation",
+                    video_id,
                     {
-                        "text": translated.text,
-                        "source_language": translated.src,
-                        "target_language": translated.dest,
-                        "pronunciation": getattr(translated, "pronunciation", None),
-                        "original_text": texts[i],
-                        "cost": text_cost,
-                        "cached": False,
-                        "confidence": 0.9,
-                    }
+                        "characters": char_count,
+                        "cost": cost,
+                        "target_language": target_language,
+                        "source_language": source_language,
+                    },
                 )
 
-            return results
-
-        except Exception as e:
-            logger.error(f"Batch translation failed: {str(e)}")
-            # Fall back to individual translations
-            return self.translate_batch(texts, target_language, tier, source_language)
-
-    def detect_language(self, text: str) -> Dict[str, Any]:
-        """Detect language of text."""
-        if not text or not text.strip():
-            return {"language": "en", "confidence": 0.0, "text": text}
-
-        try:
-            detected = self.translator.detect(text)
+            processing_time = (time.time() - start_time) * 1000
 
             return {
-                "language": detected.lang,
-                "confidence": detected.confidence,
-                "text": text,
+                "text": result,
+                "source_language": source_language or "auto",
+                "target_language": target_language,
+                "cost": cost,
+                "cached": False,
+                "provider": cost_model,
+                "characters": char_count,
+                "processing_time_ms": round(processing_time, 2),
+                "is_batch": is_batch,
             }
 
         except Exception as e:
-            logger.error(f"Language detection failed: {str(e)}")
-            return {"language": "en", "confidence": 0.0, "text": text}
+            logger.error(f"Translation failed: {e}")
+            raise ProcessingError(f"Translation failed: {str(e)}", step="translation")
 
-    def get_supported_languages(self) -> Dict[str, str]:
-        """Get all supported languages."""
-        # Map language codes to names
-        language_names = {
-            "af": "Afrikaans",
-            "sq": "Albanian",
-            "am": "Amharic",
-            "ar": "Arabic",
-            "hy": "Armenian",
-            "az": "Azerbaijani",
-            "eu": "Basque",
-            "be": "Belarusian",
-            "bn": "Bengali",
-            "bs": "Bosnian",
-            "bg": "Bulgarian",
-            "ca": "Catalan",
-            "ceb": "Cebuano",
-            "ny": "Chichewa",
-            "zh-cn": "Chinese (Simplified)",
-            "zh-tw": "Chinese (Traditional)",
-            "co": "Corsican",
-            "hr": "Croatian",
-            "cs": "Czech",
-            "da": "Danish",
-            "nl": "Dutch",
-            "en": "English",
-            "eo": "Esperanto",
-            "et": "Estonian",
-            "tl": "Filipino",
-            "fi": "Finnish",
-            "fr": "French",
-            "fy": "Frisian",
-            "gl": "Galician",
-            "ka": "Georgian",
-            "de": "German",
-            "el": "Greek",
-            "gu": "Gujarati",
-            "ht": "Haitian Creole",
-            "ha": "Hausa",
-            "haw": "Hawaiian",
-            "he": "Hebrew",
-            "hi": "Hindi",
-            "hmn": "Hmong",
-            "hu": "Hungarian",
-            "is": "Icelandic",
-            "ig": "Igbo",
-            "id": "Indonesian",
-            "ga": "Irish",
-            "it": "Italian",
-            "ja": "Japanese",
-            "jw": "Javanese",
-            "kn": "Kannada",
-            "kk": "Kazakh",
-            "km": "Khmer",
-            "ko": "Korean",
-            "ku": "Kurdish (Kurmanji)",
-            "ky": "Kyrgyz",
-            "lo": "Lao",
-            "la": "Latin",
-            "lv": "Latvian",
-            "lt": "Lithuanian",
-            "lb": "Luxembourgish",
-            "mk": "Macedonian",
-            "mg": "Malagasy",
-            "ms": "Malay",
-            "ml": "Malayalam",
-            "mt": "Maltese",
-            "mi": "Maori",
-            "mr": "Marathi",
-            "mn": "Mongolian",
-            "my": "Myanmar (Burmese)",
-            "ne": "Nepali",
-            "no": "Norwegian",
-            "ps": "Pashto",
-            "fa": "Persian",
-            "pl": "Polish",
-            "pt": "Portuguese",
-            "pa": "Punjabi",
-            "ro": "Romanian",
-            "ru": "Russian",
-            "sm": "Samoan",
-            "gd": "Scots Gaelic",
-            "sr": "Serbian",
-            "st": "Sesotho",
-            "sn": "Shona",
-            "sd": "Sindhi",
-            "si": "Sinhala",
-            "sk": "Slovak",
-            "sl": "Slovenian",
-            "so": "Somali",
-            "es": "Spanish",
-            "su": "Sundanese",
-            "sw": "Swahili",
-            "sv": "Swedish",
-            "tg": "Tajik",
-            "ta": "Tamil",
-            "te": "Telugu",
-            "th": "Thai",
-            "tr": "Turkish",
-            "uk": "Ukrainian",
-            "ur": "Urdu",
-            "uz": "Uzbek",
-            "vi": "Vietnamese",
-            "cy": "Welsh",
-            "xh": "Xhosa",
-            "yi": "Yiddish",
-            "yo": "Yoruba",
-            "zu": "Zulu",
-        }
+    def _translate_with_primary(
+        self, text: str, target_language: str, source_language: Optional[str]
+    ) -> str:
+        """Translate using Gemini 1.5 Flash."""
+        try:
+            return self._translate_with_gemini(text, target_language, source_language)
+        except Exception as e:
+            logger.warning(
+                f"Gemini translation failed: {e}, falling back to GPT-4o Mini"
+            )
+            return self._translate_with_gpt4o_mini(
+                text, target_language, source_language
+            )
 
-        return language_names
+    def _translate_with_gemini(
+        self, text: str, target_language: str, source_language: Optional[str]
+    ) -> str:
+        """Translate using Gemini 1.5 Flash."""
+        if source_language and source_language != "auto":
+            prompt = f"Translate this text from {source_language} to {target_language}. Only return the translated text, nothing else.\n\nText: {text}"
+        else:
+            prompt = f"Translate this text to {target_language}. Only return the translated text, nothing else.\n\nText: {text}"
 
-    def _is_language_supported(self, language_code: str) -> bool:
-        """Check if language code is supported."""
-        # Normalize language code
-        lang = language_code.lower().replace("_", "-")
+        response = self.google.generate_text(
+            prompt=prompt,
+            model="gemini-2.0-flash-lite",
+            temperature=0.3,
+            max_tokens=len(text) * 2,
+        )
+        return response.strip()
 
-        # Check against our list
-        return lang in SUPPORTED_LANGUAGES
+    def _translate_with_gpt4o_mini(
+        self, text: str, target_language: str, source_language: Optional[str]
+    ) -> str:
+        """Translate using GPT-4o Mini."""
+        if source_language and source_language != "auto":
+            prompt = f"Translate this text from {source_language} to {target_language}. Only return the translated text.\n\nText: {text}"
+        else:
+            prompt = f"Translate this text to {target_language}. Only return the translated text.\n\nText: {text}"
 
-    def _is_batch_translation_allowed(self, tier: Tier) -> bool:
-        """Check if batch translation is allowed for tier."""
-        # Batch translation for Pro tier and above
-        return tier in [Tier.PRO, Tier.PLUS, Tier.ENTERPRISE]
+        response = self.openai.generate_text(
+            prompt=prompt,
+            model="gpt-4o-mini",
+            temperature=0.3,
+            max_tokens=len(text) * 2,
+        )
+        return response.strip()
 
-    def _calculate_cost(self, text_length: int, tier: Tier) -> float:
-        """
-        Calculate translation cost.
+    def _translate_batch(
+        self, text: str, target_language: str, source_language: Optional[str]
+    ) -> str:
+        """Translate large text in batches."""
+        chunks = self._split_text(text, 4500)
+        translated_chunks = []
 
-        Note: googletrans is free, but we calculate "cost" for consistency
-        and potential future paid service integration.
-        """
-        # Free translation service
-        return 0.0
+        for chunk in chunks:
+            translated = self._translate_with_primary(
+                chunk, target_language, source_language
+            )
+            translated_chunks.append(translated)
 
-    def estimate_translation_time(self, text_length: int) -> float:
-        """Estimate translation time in seconds."""
-        # Rough estimate: 0.1 seconds per 100 characters
-        return max(0.5, text_length / 1000)  # Minimum 0.5 seconds
+        return " ".join(translated_chunks)
 
     def translate_video_metadata(
         self,
@@ -347,96 +279,104 @@ class TranslationService:
         tags: List[str],
         target_language: str,
         tier: Tier,
+        user_id: Optional[str] = None,
+        video_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Translate video metadata (title, description, tags).
-
-        Args:
-            title: Video title
-            description: Video description
-            tags: Video tags
-            target_language: Target language code
-            tier: User tier
-
-        Returns:
-            Translated metadata
-        """
+        """Translate video metadata."""
         results = {}
         total_cost = 0.0
 
+        # Check if there's anything to translate
+        has_content = title or description or tags
+        if not has_content:
+            return {
+                "message": "No content to translate",
+                "target_language": target_language,
+                "total_cost": 0.0,
+            }
+
         # Translate title
         if title:
-            title_result = self.translate(title, target_language, tier)
+            title_result = self.translate(
+                title, target_language, tier, user_id=user_id, video_id=video_id
+            )
             results["title"] = title_result["text"]
             total_cost += title_result["cost"]
 
         # Translate description
         if description:
-            # Split description if too long (Google Translate has limits)
-            if len(description) > 5000:
-                # Split into chunks
-                chunks = self._split_text(description, 4500)
-                translated_chunks = []
-
-                for chunk in chunks:
-                    chunk_result = self.translate(chunk, target_language, tier)
-                    translated_chunks.append(chunk_result["text"])
-                    total_cost += chunk_result["cost"]
-
-                results["description"] = " ".join(translated_chunks)
-            else:
-                desc_result = self.translate(description, target_language, tier)
-                results["description"] = desc_result["text"]
-                total_cost += desc_result["cost"]
+            desc_result = self.translate(
+                description, target_language, tier, user_id=user_id, video_id=video_id
+            )
+            results["description"] = desc_result["text"]
+            total_cost += desc_result["cost"]
 
         # Translate tags
         if tags:
-            # Translate tags in batch if allowed
-            if self._is_batch_translation_allowed(tier):
-                tags_results = self.translate_batch(tags, target_language, tier)
-                results["tags"] = [r["text"] for r in tags_results]
-                total_cost += sum(r["cost"] for r in tags_results)
-            else:
-                translated_tags = []
-                for tag in tags:
-                    tag_result = self.translate(tag, target_language, tier)
-                    translated_tags.append(tag_result["text"])
-                    total_cost += tag_result["cost"]
-                results["tags"] = translated_tags
+            translated_tags = []
+            for tag in tags[:20]:  # Limit to 20 tags
+                tag_result = self.translate(
+                    tag, target_language, tier, user_id=user_id, video_id=video_id
+                )
+                translated_tags.append(tag_result["text"])
+                total_cost += tag_result["cost"]
+            results["tags"] = translated_tags
 
         results["total_cost"] = total_cost
         results["target_language"] = target_language
-        results["original_title"] = title
-        results["original_description"] = description
-        results["original_tags"] = tags
-
         return results
 
     def _split_text(self, text: str, max_length: int) -> List[str]:
-        """Split text into chunks of maximum length."""
-        words = text.split()
+        """Split text into chunks by sentences."""
+        sentences = text.split(".")
         chunks = []
         current_chunk = []
         current_length = 0
 
-        for word in words:
-            word_length = len(word) + 1  # +1 for space
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
 
-            if current_length + word_length > max_length:
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                    current_chunk = [word]
-                    current_length = word_length
-                else:
-                    # Single word longer than max_length
-                    chunks.append(word)
-                    current_chunk = []
-                    current_length = 0
+            sentence_length = len(sentence) + 1
+            if current_length + sentence_length > max_length and current_chunk:
+                chunks.append(". ".join(current_chunk) + ".")
+                current_chunk = [sentence]
+                current_length = sentence_length
             else:
-                current_chunk.append(word)
-                current_length += word_length
+                current_chunk.append(sentence)
+                current_length += sentence_length
 
         if current_chunk:
-            chunks.append(" ".join(current_chunk))
+            chunks.append(". ".join(current_chunk) + ".")
 
         return chunks
+
+    def get_supported_languages(self) -> List[Dict[str, str]]:
+        """Get all supported languages for frontend dropdown."""
+        from core.constants import LANGUAGE_METADATA
+
+        languages = []
+        for code, info in LANGUAGE_METADATA.items():
+            languages.append(
+                {
+                    "code": code,
+                    "name": info["name"],
+                    "native": info["native"],
+                    "rtl": info.get("rtl", False),
+                }
+            )
+        languages.sort(key=lambda x: x["name"])
+        return languages
+
+    def clear_cache(self):
+        """Clear translation cache."""
+        if self._redis:
+            try:
+                keys = self._redis.keys("trans:*")
+                if keys:
+                    self._redis.delete(*keys)
+                    logger.info(f"Cleared {len(keys)} translation cache entries")
+            except Exception as e:
+                logger.error(f"Failed to clear cache: {e}")
+        logger.info("Translation cache cleared")

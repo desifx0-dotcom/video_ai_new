@@ -6,6 +6,7 @@ import os
 import json
 from pathlib import Path
 from datetime import datetime
+from core.domain.entities.user import Tier
 
 from services.user_service import UserService
 from services.tier_service import TierService
@@ -78,11 +79,10 @@ def upgrade_tier(user_id, tier):
         click.echo(f"   New Tier: {updated_user.tier}")
 
         # Get monthly limit from tier service
-        tier_info = tier_service.get_tier_info(tier)
-        if tier_info:
-            click.echo(
-                f'   Monthly Limit: {tier_info.get("monthly_videos", "N/A")} videos'
-            )
+        tier_spec = tier_service.get_tier(Tier(tier))
+        if tier_spec:
+            click.echo(f"   Monthly Limit: {tier_spec.videos_per_month} videos")
+            click.echo(f"   Credits per Month: {tier_spec.credits_per_month}")
     except Exception as e:
         click.echo(f"❌ Error upgrading tier: {str(e)}", err=True)
 

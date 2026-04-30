@@ -519,7 +519,7 @@
                                 Switch to Free
                             </button>
                             {% else %}
-                            <a href="{{ url_for('api.v1.routers.auth.register') }}" class="btn btn-pricing-outline">
+                            <a href="{{ url_for('register_page') }}" class="btn btn-pricing-outline">
                                 Get Started Free
                             </a>
                             {% endif %}
@@ -609,7 +609,7 @@
                                 Upgrade to Starter
                             </button>
                             {% else %}
-                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=starter" class="btn btn-pricing-primary">
+                            <a href="{{ url_for('register_page') }}?plan=starter" class="btn btn-pricing-primary">
                                 Start Free Trial
                             </a>
                             {% endif %}
@@ -706,7 +706,7 @@
                                 Upgrade to Pro
                             </button>
                             {% else %}
-                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=pro" class="btn btn-pricing-primary">
+                            <a href="{{ url_for('register_page') }}?plan=pro" class="btn btn-pricing-primary">
                                 Start Free Trial
                             </a>
                             {% endif %}
@@ -802,7 +802,7 @@
                                 Upgrade to Plus
                             </button>
                             {% else %}
-                            <a href="{{ url_for('api.v1.routers.auth.register') }}?plan=plus" class="btn btn-pricing-primary">
+                            <a href="{{ url_for('register_page') }}?plan=plus" class="btn btn-pricing-primary">
                                 Start Free Trial
                             </a>
                             {% endif %}
@@ -1311,17 +1311,17 @@
                     <p class="lead mb-4">Join thousands of creators using Video AI Studio to enhance their content.</p>
                     <div class="d-flex flex-column flex-md-row justify-content-center gap-3">
                         {% if current_user.is_authenticated %}
-                        <a href="{{ url_for('api.v1.routers.videos.upload') }}" class="btn btn-light btn-lg">
+                        <a href="{{ url_for('upload') }}" class="btn btn-light btn-lg">
                             <i class="fas fa-upload me-2"></i>Upload Your First Video
                         </a>
-                        <a href="{{ url_for('api.v1.routers.users.settings') }}#billing" class="btn btn-outline-light btn-lg">
+                        <a href="{{ url_for('settings') }}#billing" class="btn btn-outline-light btn-lg">
                             <i class="fas fa-credit-card me-2"></i>Upgrade Your Plan
                         </a>
                         {% else %}
-                        <a href="{{ url_for('api.v1.routers.auth.register') }}" class="btn btn-light btn-lg">
+                        <a href="{{ url_for('register_page') }}" class="btn btn-light btn-lg">
                             <i class="fas fa-rocket me-2"></i>Start Free Trial
                         </a>
-                        <a href="{{ url_for('api.v1.routers.auth.login') }}" class="btn btn-outline-light btn-lg">
+                        <a href="{{ url_for('login_page') }}" class="btn btn-outline-light btn-lg">
                             <i class="fas fa-sign-in-alt me-2"></i>Sign In
                         </a>
                         {% endif %}
@@ -1483,6 +1483,7 @@
         }
         
         function initiateCheckout(tier, price, interval) {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
             fetch('/api/v1/billing/checkout', {
                 method: 'POST',
                 headers: {
