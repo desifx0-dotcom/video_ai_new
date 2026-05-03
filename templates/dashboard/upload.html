@@ -266,21 +266,67 @@
                         <div class="collapse mt-2" id="advanced-options">
                             <div class="card card-body">
                                 <div class="row">
+
                                     <!-- Frame Rate -->
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Frame Rate (FPS)</label>
-                                        <select class="form-select" id="fps-select">
-                                            <option value="original">Original</option>
-                                            <option value="24">24 fps</option>
-                                            <option value="30">30 fps</option>
-                                            <option value="60" {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}>
-                                                60 fps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
-                                            </option>
-                                        </select>
-                                        <div class="form-text small text-muted">
-                                            Adjust output frame rate. Higher = smoother motion
+                                    <div class="row">
+                                        <!-- Frame Rate (Smoothness) - Keeps duration same -->
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">
+                                                <i class="fas fa-film me-1"></i> Smooth Playback (Frame Rate)
+                                            </label>
+                                            <select class="form-select" id="fps-select">
+                                                <option value="original">Original (Keep original FPS)</option>
+                                                <option value="24">24 fps (Cinematic)</option>
+                                                <option value="30">30 fps (Standard Video)</option>
+                                                <option value="60" {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}>
+                                                    60 fps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
+                                                </option>
+                                                <option value="120" {% if current_user.tier not in ['enterprise'] %}disabled{% endif %}>
+                                                    120 fps {% if current_user.tier not in ['enterprise'] %}(Enterprise){% endif %}
+                                                </option>
+                                            </select>
+                                            <div class="form-text small text-muted">
+                                                Changes frame rate while keeping video duration the same.<br>
+                                                Higher FPS = smoother motion
+                                            </div>
+                                        </div>
+
+                                        <!-- Speed Control (Time Remapping) - Changes duration -->
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">
+                                                <i class="fas fa-tachometer-alt me-1"></i> Video Speed (Time Remapping)
+                                            </label>
+                                            <select class="form-select" id="speed-mode-select">
+                                                <option value="normal">Normal Speed (1x)</option>
+                                                <option value="slow_2x">2x Slower (0.5x speed)</option>
+                                                <option value="slow_3x">3x Slower (0.33x speed)</option>
+                                                <option value="slow_4x">4x Slower (0.25x speed)</option>
+                                                <option value="fast_2x">2x Faster (2x speed)</option>
+                                                <option value="fast_3x">3x Faster (3x speed)</option>
+                                                <option value="fast_4x">4x Faster (4x speed)</option>
+                                                <option value="custom">Custom Speed...</option>
+                                            </select>
+                                            
+                                            <!-- Custom speed input (hidden by default) -->
+                                            <div id="custom-speed-container" style="display: none; margin-top: 10px;">
+                                                <input type="range" id="custom-speed-range" class="form-range" min="0.25" max="4.0" step="0.05" value="1.0">
+                                                <div class="d-flex justify-content-between mt-2">
+                                                    <span>0.25x (Very Slow)</span>
+                                                    <span><span id="speed-value-display">1.0</span>x (Normal)</span>
+                                                    <span>4.0x (Very Fast)</span>
+                                                </div>
+                                                <div class="form-text small text-muted mt-1">
+                                                    Values below 1.0 = slow motion, above 1.0 = fast forward
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="form-text small text-muted mt-2">
+                                                <i class="fas fa-clock me-1"></i> 
+                                                <span id="speed-effect-description">Speed affects video duration. 2x faster = half duration, 2x slower = double duration.</span>
+                                            </div>
                                         </div>
                                     </div>
+
 
                                     <!-- Audio Quality -->
                                     <div class="col-md-6 mb-3">
@@ -489,8 +535,6 @@
         </div>
     </div>
 </div>
-
-
 {% endblock %}
 
 
@@ -1517,6 +1561,7 @@ function showProcessingModal() {
 
 
 function startUpload(file) {
+    // Prevent any default behavior
     if (event) {
         event.preventDefault();
         event.stopPropagation();
@@ -1524,6 +1569,7 @@ function startUpload(file) {
 
     console.log("Starting upload for:", file.name);
     
+    // First, get the token
     ensureValidToken().then(validToken => {
         if (!validToken) {
             console.log("No valid token, aborting upload");
@@ -1531,30 +1577,36 @@ function startUpload(file) {
         }
 
         console.log("Valid token obtained, proceeding with upload");
-        
-        const formData = new FormData();
-        formData.append('file', file);
-        
+
+        // 🔥 FIX: Get options FIRST before using them!
         const options = getProcessingOptions();
         console.log("Processing options:", options);
+        
+        // NOW you can access options safely
+        if (options.speed !== undefined) {
+            console.log(`✅ Speed included in options: ${options.speed}x`);
+        } else {
+            console.warn("⚠️ Speed not found in options");
+        }
+
+        // Create FormData
+        const formData = new FormData();
+        formData.append('file', file);
 
         // Add all form fields
         formData.append('quality', options.quality);
         
-        // In startUpload function, when appending styles:
+        // Add styles (as array)
         if (options.styles && Array.isArray(options.styles) && options.styles.length > 0) {
             options.styles.forEach(style => {
                 formData.append('styles', style);
             });
-        } else {
-            // Ensure the field is not sent at all, or send empty
-            // Don't send 'styles' field if empty to avoid validation issues
         }
 
         if (options.translation_language) {
             formData.append('translation_language', options.translation_language);
         }
-        
+
         formData.append('thumbnail_style', options.thumbnail_style);
         formData.append('fps', options.fps);
         formData.append('audio_quality', options.audio_quality);
@@ -1579,7 +1631,7 @@ function startUpload(file) {
                 
                 updateUploadInfo(e.loaded, e.total, uploadSpeed);
                 console.log(`Upload progress: ${uploadProgress.toFixed(1)}%`);
-              }
+            }
         });
         
         xhr.onreadystatechange = function() {
@@ -1594,19 +1646,13 @@ function startUpload(file) {
                         const response = JSON.parse(xhr.responseText);
                         console.log("✅ Upload success with real data:", response);
                         
-                        // 🔥 STORE VIDEO ID
+                        // Store video ID
                         currentVideoId = response.id;
                         console.log("✅ Video ID stored:", currentVideoId);
                         
-                        // 🔥 CRITICAL FIX: ALWAYS call showUploadPreview with REAL data
-                        // This will overwrite the temp preview with real values
+                        // Update preview with real data
                         if (currentFile) {
                             console.log("🔄 Updating preview with REAL server data");
-                            console.log("   FPS from server:", response.original_fps);
-                            console.log("   Audio from server:", response.original_audio_quality);
-                            console.log("   Aspect from server:", response.original_aspect_ratio);
-                            
-                            // Force update the preview with real data
                             showUploadPreview(response, currentFile);
                         }
                         
@@ -2026,6 +2072,62 @@ function updateProcessingProgress() {
     }, 1000);
 }
 
+// Speed display update
+const speedModeSelect = document.getElementById('speed-mode-select');
+const customSpeedContainer = document.getElementById('custom-speed-container');
+const customSpeedRange = document.getElementById('custom-speed-range');
+const speedValueDisplay = document.getElementById('speed-value-display');
+const speedEffectDescription = document.getElementById('speed-effect-description');
+
+function getSpeedValue() {
+    const speedModeSelect = document.getElementById('speed-mode-select');
+    const customSpeedRange = document.getElementById('custom-speed-range');
+    
+    if (!speedModeSelect) return 1.0;
+    
+    const mode = speedModeSelect.value;
+    const speedMap = {
+        'normal': 1.0,
+        'slow_2x': 0.5,
+        'slow_3x': 0.33,
+        'slow_4x': 0.25,
+        'fast_2x': 2.0,
+        'fast_3x': 3.0,
+        'fast_4x': 4.0,
+        'custom': customSpeedRange ? parseFloat(customSpeedRange.value) : 1.0
+    };
+    
+    const speed = speedMap[mode] || 1.0;
+    console.log(`🎯 Speed value: ${speed}x (mode: ${mode})`);
+    return speed;
+}
+function updateSpeedDescription() {
+    const speed = getSpeedValue();
+    let description;
+    if (speed < 1.0) {
+        description = `🏃 ${(1/speed).toFixed(1)}x Slower — Video will be ${(1/speed).toFixed(1)}x longer in duration`;
+    } else if (speed > 1.0) {
+        description = `⚡ ${speed.toFixed(1)}x Faster — Video will be ${speed.toFixed(1)}x shorter in duration`;
+    } else {
+        description = `⏱️ Normal speed — Video duration unchanged`;
+    }
+    speedEffectDescription.innerHTML = `<i class="fas fa-clock me-1"></i> ${description}`;
+}
+
+speedModeSelect.addEventListener('change', function() {
+    if (this.value === 'custom') {
+        customSpeedContainer.style.display = 'block';
+    } else {
+        customSpeedContainer.style.display = 'none';
+        updateSpeedDescription();
+    }
+});
+
+customSpeedRange.addEventListener('input', function() {
+    speedValueDisplay.textContent = this.value;
+    updateSpeedDescription();
+});
+
 function getProcessingOptions() {
     const qualitySelect = document.getElementById('quality-select');
     let qualityValue = qualitySelect?.value || '720p';
@@ -2044,6 +2146,13 @@ function getProcessingOptions() {
     
     // Get thumbnail style
     let thumbnailStyle = document.getElementById('thumbnail-style')?.value || 'default';
+
+    // Get speed value using the same function
+    const speed = getSpeedValue();
+    
+    // DEBUG: Log the speed value
+    console.log("🎯 SPEED VALUE FROM getSpeedValue():", speed);
+
     
     // Map display values to schema values if needed
     const qualityMap = {
@@ -2065,7 +2174,9 @@ function getProcessingOptions() {
         auto_transcribe: document.getElementById('auto-transcribe')?.checked || false,
         generate_chapters: document.getElementById('generate-chapters')?.checked || false,
         remove_silence: document.getElementById('remove-silence')?.checked || false,
-        process_silent_video: document.getElementById('process-silent-video')?.checked || false
+        process_silent_video: document.getElementById('process-silent-video')?.checked || false,
+        //Speed control
+        speed: speed
     };
     
     console.log("📦 Final processing options:", options);
@@ -2427,72 +2538,6 @@ function showUploadPreview(videoData, file) {
     console.log("=".repeat(50));
 }
 
-// // Update video details with FPS and Audio Quality
-// function updateVideoDetailsDisplay(videoData, file) {
-//     // Get the video-info container
-//     const videoInfoDiv = document.querySelector('.video-info ul');
-//     if (!videoInfoDiv) {
-//         console.warn("⚠️ Video info container not found");
-//         return;
-//     }
-    
-//     // Check if FPS and Audio Quality items already exist
-//     const existingFPS = document.getElementById('preview-fps-item');
-//     const existingAudioQuality = document.getElementById('preview-audio-quality-item');
-    
-//     // Get values from videoData or extract from file
-//     let fps = videoData.fps || 'original';
-//     let audioQuality = videoData.audio_quality || 'original';
-//     let resolution = videoData.resolution || '';
-    
-//     // If FPS item doesn't exist, add it
-//     if (!existingFPS) {
-//         const fpsItem = document.createElement('li');
-//         fpsItem.id = 'preview-fps-item';
-//         fpsItem.innerHTML = `<strong>Frame Rate (FPS):</strong> <span id="preview-fps">${fps !== 'original' ? fps + ' fps' : fps}</span>`;
-        
-//         // Insert after resolution (which is the 4th item)
-//         const resolutionItem = document.getElementById('preview-resolution')?.closest('li');
-//         if (resolutionItem && resolutionItem.parentNode) {
-//             resolutionItem.insertAdjacentElement('afterend', fpsItem);
-//         } else {
-//             videoInfoDiv.appendChild(fpsItem);
-//         }
-//         console.log("✅ Added FPS display to video details");
-//     } else {
-//         // Update existing FPS
-//         const fpsSpan = document.getElementById('preview-fps');
-//         if (fpsSpan) {
-//             fpsSpan.textContent = fps !== 'original' ? `${fps} fps` : fps;
-//         }
-//     }
-    
-//     // If Audio Quality item doesn't exist, add it
-//     if (!existingAudioQuality) {
-//         const audioItem = document.createElement('li');
-//         audioItem.id = 'preview-audio-quality-item';
-//         audioItem.innerHTML = `<strong>Audio Quality:</strong> <span id="preview-audio-quality">${audioQuality !== 'original' ? audioQuality : 'Original'}</span>`;
-//         videoInfoDiv.appendChild(audioItem);
-//         console.log("✅ Added Audio Quality display to video details");
-//     } else {
-//         // Update existing Audio Quality
-//         const audioSpan = document.getElementById('preview-audio-quality');
-//         if (audioSpan) {
-//             audioSpan.textContent = audioQuality !== 'original' ? audioQuality : 'Original';
-//         }
-//     }
-    
-//     console.log("📊 Video details updated - FPS:", fps, "Audio:", audioQuality);
-// }
-
-// // Get FPS from video element
-// function getVideoFPS(videoElement) {
-//     // This is an estimate; actual FPS detection requires analyzing frames
-//     // For now, return 'original' or you can implement frame counting
-//     return 'original';
-// }
-
-// Display thumbnails in gallery
 function displayThumbnails(aiThumbnails, extractedThumbnails, videoId) {
     currentThumbnailId = videoId;
     

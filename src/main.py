@@ -1490,6 +1490,14 @@ def create_app(config_class=Config):
         video = video_service.get_video(video_id, user_id)
         if not video:
             return redirect(url_for("dashboard"))
+        
+        # Log the actual settings from database
+        logger.info(f"📊 RESULTS PAGE - Video settings from DB:")
+        logger.info(f"   output_quality: {video.output_quality}")
+        logger.info(f"   fps: {video.fps}")
+        logger.info(f"   audio_quality: {video.audio_quality}")
+        logger.info(f"   aspect_ratio: {video.aspect_ratio}")
+        logger.info(f"   applied_styles: {video.applied_styles}")
 
         user = user_service.get_user_by_id(user_id)
 
@@ -1640,56 +1648,40 @@ def create_app(config_class=Config):
             ),
         )
 
-    @app.route("/debug/video-info", methods=["POST"])
-    def debug_video_info():
-        """Debug endpoint to test video info extraction."""
-        from providers.ffmpeg_provider import FFmpegProvider
-
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-
-        # Save temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            file.save(tmp.name)
-            temp_path = tmp.name
-
-        try:
-            ffmpeg = FFmpegProvider()
-            metadata = ffmpeg.get_video_metadata(temp_path)
-
-            video_info = metadata.get("video", {})
-            audio_info = metadata.get("audio", {})
-
-            # Calculate aspect ratio
-            width = video_info.get("width", 0)
-            height = video_info.get("height", 0)
-            if width > 0 and height > 0:
-                from math import gcd
-
-                divisor = gcd(width, height)
-                aspect_ratio = f"{width//divisor}:{height//divisor}"
-            else:
-                aspect_ratio = "unknown"
-
-            return jsonify(
-                {
-                    "fps": video_info.get("fps", 0),
-                    "audio_bitrate": audio_info.get("bitrate", 0),
-                    "width": width,
-                    "height": height,
-                    "aspect_ratio": aspect_ratio,
-                    "duration": metadata.get("duration", 0),
-                    "raw_metadata": metadata,
-                }
-            )
-
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+    @app.route("/debug/video-db/<video_id>")
+    def debug_video_db(video_id):
+        """Debug endpoint to check video values in database."""
+        from flask import session, jsonify
+        from services.video_service import VideoService
+        from providers.firebase_provider import FirebaseProvider
+        
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Not logged in"}), 401
+        
+        # Get from database directly
+        db = FirebaseProvider()
+        video_data = db.get("videos", video_id)
+        
+        if not video_data:
+            return jsonify({"error": "Video not found"}), 404
+        
+        # Check if user owns this video
+        if video_data.get("user_id") != user_id:
+            return jsonify({"error": "Unauthorized"}), 403
+        
+        return jsonify({
+            "output_quality": video_data.get("output_quality"),
+            "fps": video_data.get("fps"),
+            "audio_quality": video_data.get("audio_quality"),
+            "aspect_ratio": video_data.get("aspect_ratio"),
+            "thumbnail_style": video_data.get("thumbnail_style"),
+            "applied_styles": video_data.get("applied_styles"),
+            "output_video_url": video_data.get("output_video_url"),
+            "processing_time": video_data.get("processing_time"),
+            "processing_started": video_data.get("processing_started"),
+            "processing_completed": video_data.get("processing_completed"),
+        })
 
     # Pricing page
     @app.route("/pricing")

@@ -457,22 +457,66 @@
                                     <span><span class="badge bg-primary">{{ video.output_quality|upper }}</span></span>
                                 </div>
                             </div>
+                            
+                            <!--Speed Display -->
+                            <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="text-muted">
+                                        <i class="fas fa-tachometer-alt" style="margin-right: 10px;"></i>Playback Speed:
+                                    </span>
+                                    <span>
+                                        {% if video.speed and video.speed != 1.0 %}
+                                            <span class="badge bg-info">
+                                                {{ video.speed }}x 
+                                                {% if video.speed < 1.0 %}
+                                                    (Slower - {{ (video.original_duration|default(video.duration) * (1/video.speed))|round(1) }}s)
+                                                {% else %}
+                                                    (Faster - {{ (video.original_duration|default(video.duration) / video.speed)|round(1) }}s)
+                                                {% endif %}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">Normal (1x)</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="text-muted small mt-1">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    {% if video.speed and video.speed != 1.0 %}
+                                        {% if video.speed < 1.0 %}
+                                            Video is {{ (1/video.speed)|round(1) }}x slower → {{ (video.duration * (1/video.speed))|round(1) }}s duration
+                                        {% else %}
+                                            Video is {{ video.speed }}x faster → {{ (video.duration / video.speed)|round(1) }}s duration
+                                        {% endif %}
+                                    {% else %}
+                                        Normal speed, duration unchanged
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Right Column -->
                         <div style="flex: 0 0 50%; padding: 0 20px;">
+                            <!-- Rename smooth Playback instead of FPS -->
                             <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #dee2e6;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span class="text-muted">
-                                        <i class="fas fa-video" style="margin-right: 10px;"></i>Frame Rate(FPS):
+                                        <i class="fas fa-film" style="margin-right: 10px;"></i>Smooth Playback (Frame Rate):
                                     </span>
                                     <span>
                                         {% if video.fps and video.fps != 'original' %}
-                                            {{ video.fps }} fps
+                                            <span class="badge bg-success">{{ video.fps }} fps</span>
                                         {% else %}
                                             <span class="text-muted">Original</span>
                                         {% endif %}
                                     </span>
+                                </div>
+                                <div class="text-muted small mt-1">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    {% if video.fps and video.fps != 'original' %}
+                                        Frame rate adjusted for smoother motion
+                                    {% else %}
+                                        Keeping original frame rate
+                                    {% endif %}
                                 </div>
                             </div>
                             
@@ -483,7 +527,7 @@
                                     </span>
                                     <span>
                                         {% if video.audio_quality and video.audio_quality != 'original' %}
-                                            {{ video.audio_quality }}
+                                            <span class="badge bg-success">{{ video.audio_quality }}</span>
                                         {% else %}
                                             <span class="text-muted">Original</span>
                                         {% endif %}
@@ -518,20 +562,51 @@
                         
                         <!-- Full Width Row -->
                         <div style="flex: 0 0 100%; padding: 0 20px; margin-top: 0.5rem;">
-                            <div style="padding-top: 0.75rem; border-top: 1px solid #dee2e6;">
+                            <!-- Styles Applied - First row -->
+                            <div style="padding-top: 0.75rem; border-top: 1px solid #dee2e6; margin-bottom: 1rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span class="text-muted">
-                                        <i class="fas fa-palette" style="margin-right: 10px;"></i>Styles Applied:
+                                        <i class="fas fa-palette" style="margin-right: 10px;"></i>Video Styles Applied:
                                     </span>
                                     <span>
                                         {% if video.applied_styles %}
                                             {% for style in video.applied_styles %}
-                                                <span class="badge bg-secondary me-1">{{ style }}</span>
+                                                <span class="badge bg-secondary me-1">{{ style|title }}</span>
                                             {% endfor %}
                                         {% else %}
                                             <span class="text-muted">None</span>
                                         {% endif %}
                                     </span>
+                                </div>
+                            </div>
+                            
+                            <!-- Combined Settings Summary -->
+                            <div style="padding-top: 0.5rem; border-top: 1px dashed #dee2e6; background: #f8f9fa; padding: 12px; border-radius: 8px;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="text-muted small">
+                                        <i class="fas fa-chart-line me-1"></i>Processing Summary:
+                                    </span>
+                                    <span class="small">
+                                        {% if video.output_quality != 'original' or (video.fps and video.fps != 'original') or (video.speed and video.speed != 1.0) %}
+                                            <span class="text-success">✓ Processed with custom settings</span>
+                                        {% else %}
+                                            <span class="text-muted">Original video (no modifications)</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="row small text-muted">
+                                    <div class="col-4">
+                                        <span>Video Quality:</span>
+                                        <strong>{{ video.output_quality|upper if video.output_quality != 'original' else 'Original' }}</strong>
+                                    </div>
+                                    <div class="col-4">
+                                        <span>Smooth Playback:</span>
+                                        <strong>{{ video.fps + ' fps' if video.fps and video.fps != 'original' else 'Original' }}</strong>
+                                    </div>
+                                    <div class="col-4">
+                                        <span>Speed:</span>
+                                        <strong>{{ video.speed|default('1') }}x</strong>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -546,7 +621,8 @@
                     </div>
                 </div>
             </div>
-        </div>
+
+            </div>
 
         <div class="col-lg-4">
             <!-- Quick Actions -->

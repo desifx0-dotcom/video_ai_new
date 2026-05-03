@@ -55,6 +55,17 @@ class VideoUploadSchema(Schema):
         validate=validate.OneOf(["original", "128k", "192k", "256k", "320k"]),
         missing="original",
     )
+
+    #time remapping/speed change
+    speed = fields.Float(
+        validate=validate.Range(min=0.25, max=4.0),
+        missing=1.0,
+        metadata={"description": "Speed multiplier (0.25x to 4.0x). 0.5 = slow motion, 2.0 = fast forward"}
+    )
+    speed_presets = fields.String(
+        validate=validate.OneOf(["original", "slow_2x", "slow_3x", "slow_4x", "fast_2x", "fast_3x", "fast_4x", "custom"]),
+        missing="original"
+    )
     aspect_ratio = fields.String(
         validate=validate.OneOf(
             ["original", "16:9", "9:16", "1:1", "4:5", "2:3", "3:2", "21:9", "5:4"]
@@ -134,6 +145,12 @@ class VideoProcessSchema(Schema):
     generate_chapters = fields.Boolean(missing=False)
     remove_silence = fields.Boolean(missing=False)
     process_silent_video = fields.Boolean(missing=False)
+     #Speed control
+    speed = fields.Float(
+        validate=validate.Range(min=0.25, max=4.0),
+        missing=1.0,
+        metadata={"description": "Speed multiplier (0.25x to 4.0x)"}
+    )
 
 
 class VideoResponseSchema(Schema):
