@@ -283,6 +283,7 @@ def cleanup_orphaned_files() -> Dict[str, Any]:
 
 @celery.task
 def reset_monthly_usage() -> Dict[str, Any]:
+
     """
     Reset monthly usage counters for all users.
     Runs on the first day of each month.
@@ -328,3 +329,43 @@ def reset_monthly_usage() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error during monthly usage reset: {str(e)}")
         return {'status': 'failed', 'error': str(e), 'stats': stats}
+    
+@celery.task
+def cleanup_old_thumbnails(max_age_hours: int = 24):
+    """Clean up thumbnail files older than max_age_hours."""
+    from pathlib import Path
+    import tempfile
+    from datetime import datetime, timedelta
+    
+    thumbnails_dir = Path(tempfile.gettempdir()) / 'video_ai_thumbnails'
+    if not thumbnails_dir.exists():
+        return
+    
+    cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+    deleted_count = 0
+    
+    for file in thumbnails_dir.glob("*.png"):
+        # Check if file has expiry file
+        expiry_file = thumbnails_dir / f"{file.name}.expiry"
+        if expiry_file.exists():
+            try:
+                with open(expiry_file, "r") as f:
+                    expiry_time = datetime.fromisoformat(f.read().strip())
+                if expiry_time < datetime.now():
+                    file.unlink()
+                    expiry_file.unlink()
+                    deleted_count += 1
+            except:
+                # If expiry file is corrupt, check modification time
+                mod_time = datetime.fromtimestamp(file.stat().st_mtime)
+                if mod_time < cutoff_time:
+                    file.unlink()
+                    deleted_count += 1
+        else:
+            # No expiry file, use file modification time
+            mod_time = datetime.fromtimestamp(file.stat().st_mtime)
+            if mod_time < cutoff_time:
+                file.unlink()
+                deleted_count += 1
+    
+    logger.info(f"Cleaned up {deleted_count} expired thumbnails")

@@ -1119,23 +1119,30 @@ def batch_process():
         logger.error(f"Batch process failed: {str(e)}")
         raise
 
-
 @router.route("/thumbnails/<path:thumbnail_path>", methods=["GET"])
 @jwt_required(optional=True)
 def serve_thumbnail(thumbnail_path):
     """Serve thumbnail images."""
     import os
     from flask import send_file, abort
-
-    # Handle Windows paths with backslashes
+    
+    # Handle URL decoding
+    import urllib.parse
+    thumbnail_path = urllib.parse.unquote(thumbnail_path)
+    
+    # Handle Windows paths
     if os.name == "nt":
         thumbnail_path = thumbnail_path.replace("/", "\\")
-
+    
+    # Check if file exists
     if not os.path.exists(thumbnail_path):
+        print(f"❌ Thumbnail not found: {thumbnail_path}")
         abort(404)
-
+    
+    # Log success
+    print(f"📸 Serving thumbnail: {thumbnail_path}")
+    
     return send_file(thumbnail_path, mimetype="image/png", as_attachment=False)
-
 
 @router.route("/batch/delete", methods=["POST"])
 @jwt_required()
@@ -1508,3 +1515,47 @@ def format_srt_time(seconds):
     milliseconds = int((seconds - int(seconds)) * 1000)
 
     return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
+
+@router.route("/<video_id>/thumbnails/status", methods=["GET"])
+@jwt_required()
+def check_thumbnails_status(video_id):
+    """Check if thumbnails are ready for serving."""
+    user_id = get_jwt_identity()
+    
+    try:
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+        
+        status = {
+            "ai_thumbnails": [],
+            "extracted_thumbnails": [],
+            "ready": False
+        }
+        
+        # Check each AI thumbnail
+        for thumb in getattr(video, 'ai_thumbnails', []):
+            thumb_path = thumb if isinstance(thumb, str) else thumb.get('path', '')
+            exists = os.path.exists(thumb_path) if thumb_path else False
+            status["ai_thumbnails"].append({
+                "path": thumb_path,
+                "exists": exists,
+                "url": f"/api/v1/videos/thumbnails/{thumb_path}" if thumb_path else None
+            })
+        
+        # Check extracted thumbnails
+        for thumb in getattr(video, 'extracted_thumbnails', []):
+            exists = os.path.exists(thumb) if thumb else False
+            status["extracted_thumbnails"].append({
+                "path": thumb,
+                "exists": exists,
+                "url": f"/api/v1/videos/thumbnails/{thumb}" if thumb else None
+            })
+        
+        status["ready"] = all(t["exists"] for t in status["ai_thumbnails"]) if status["ai_thumbnails"] else True
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to check thumbnails status: {e}")
+        return jsonify({"error": str(e)}), 500

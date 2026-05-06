@@ -635,35 +635,78 @@ class ThumbnailService:
         return text[:150]
 
     def _save_thumbnail(self, image_data, filename: str) -> str:
-        """Save thumbnail image to temporary file."""
+        """
+        Save thumbnail image to temporary file with longer TTL.
+        """
         import base64
-
-        temp_dir = tempfile.mkdtemp(prefix="video_ai_thumbnails_")
-        filepath = os.path.join(temp_dir, f"{filename}.png")
-
+        import tempfile
+        from datetime import datetime, timedelta
+        
+        # Create thumbnails directory (still temp, but with organization)
+        thumbnails_dir = Path(tempfile.gettempdir()) / 'video_ai_thumbnails'
+        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create unique filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = uuid.uuid4().hex[:8]
+        safe_filename = f"{filename}_{timestamp}_{unique_id}.png"
+        filepath = thumbnails_dir / safe_filename
+        
+        # Decode and save
         if isinstance(image_data, str) and image_data.startswith("data:image"):
             import re
-
             match = re.match(r"data:image/(.+?);base64,(.+)", image_data)
             if match:
                 image_data = base64.b64decode(match.group(2))
         elif isinstance(image_data, str):
             return image_data
-
+        
         with open(filepath, "wb") as f:
             f.write(image_data)
-
-        return filepath
+        
+        # Store metadata with expiry (24 hours)
+        expiry_time = datetime.now() + timedelta(hours=24)
+        expiry_file = thumbnails_dir / f"{safe_filename}.expiry"
+        with open(expiry_file, "w") as f:
+            f.write(expiry_time.isoformat())
+        
+        logger.info(f"✅ Thumbnail saved: {filepath} (expires in 24 hours)")
+        
+        # Return ABSOLUTE path - your serve_thumbnail needs this
+        return str(filepath.absolute())
 
     def get_thumbnail_history(self, video_id: str) -> List[Dict[str, Any]]:
         """Get thumbnail generation history for a video."""
+        history = []
+        
         if self._redis:
             import json
-
             key = f"thumb:{video_id}:history"
-            history = self._redis.lrange(key, 0, -1)
-            return [json.loads(h.decode()) for h in history] if history else []
-        return self._generated_thumbnails.get(video_id, [])
+            redis_history = self._redis.lrange(key, 0, -1)
+            history = [json.loads(h.decode()) for h in redis_history] if redis_history else []
+        else:
+            history = self._generated_thumbnails.get(video_id, [])
+        
+        # Convert to relative paths if needed and ensure they exist
+        valid_history = []
+        base_url = os.getenv('APP_URL', 'http://localhost:5000')
+        
+        for thumb in history:
+            if isinstance(thumb, dict):
+                path = thumb.get('path', '')
+                # Replace absolute paths with relative
+                if path.startswith('C:\\') or path.startswith('/tmp'):
+                    # Convert to relative path for URL
+                    path = path.replace('\\', '/')
+                    thumb['url'] = f"{base_url}/api/v1/videos/thumbnails/{path}"
+                else:
+                    thumb['url'] = f"{base_url}/api/v1/videos/thumbnails/{path}"
+                
+                # Also store the original path for serving
+                thumb['file_path'] = path
+                valid_history.append(thumb)
+        
+        return valid_history
 
     def get_regeneration_count(self, video_id: str) -> int:
         """Get number of regenerations for a video."""
@@ -714,3 +757,4 @@ class ThumbnailService:
         new_count = self._regeneration_count.get(video_id, 0) + 1
         self._regeneration_count[video_id] = new_count
         return new_count
+

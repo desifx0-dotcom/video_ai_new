@@ -116,13 +116,74 @@ def create_app(config_class=Config):
         )
         app.config["REDIS_CLIENT"] = None
 
-    # Initialize rate limiter
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri=redis_url if redis_client else "memory://",
-    )
+   # CUSTOM RATE LIMIT FUNCTION WITH CENTRALIZED EXEMPTIONS
+    def get_rate_limit():
+        """Return rate limit based on request path."""
+        path = request.path
+        
+        # CENTRALIZED CONFIGURATION - Add/remove paths here
+        # Format: (path_pattern, limit)
+        # limit = None means no limit, otherwise format like "100 per hour"
+        EXEMPT_RULES = [
+            # Static and media files - no limits
+            ('/static/', None),
+            ('/api/v1/videos/thumbnails/', None),
+            ('/processed/', None),
+            ('/preview/', None),
+            ('/uploads/', None),
+            
+            # Health and monitoring - no limits
+            ('/health', None),
+            ('/metrics', None),
+            ('/status', None),
+            
+            # Auth endpoints - moderate limits
+            ('/auth/login', '10 per minute, 100 per hour'),
+            ('/auth/register', '5 per hour, 10 per day'),
+            ('/auth/forgot-password', '3 per hour'),
+            ('/auth/reset-password', '3 per hour'),
+            
+            # API endpoints - standard limits
+            ('/api/v1/videos/upload', '5 per minute, 50 per hour'),
+            ('/api/v1/videos/process', '10 per minute, 100 per hour'),
+            
+            # Dashboard and upload pages - moderate limits
+            ('/dashboard', '100 per minute'),
+            ('/upload', '30 per minute'),
+            ('/history', '100 per minute'),
+            ('/settings', '50 per minute'),
+        ]
+        
+        # Check each rule
+        for pattern, limit in EXEMPT_RULES:
+            if path == pattern or path.startswith(pattern):
+                if limit is None:
+                    # Return a very high limit (effectively no limit)
+                    return "1000000 per hour"
+                return limit
+        
+        # Default limit for all other endpoints
+        return "200 per day, 50 per hour"
+    
+    # Initialize rate limiter with custom function
+    try:
+        limiter = Limiter(
+            app=app,
+            key_func=get_remote_address,
+            default_limits=[],  # Empty default, we use the custom function
+            storage_uri=redis_url if redis_client else "memory://",
+            application_limits=[get_rate_limit]
+        )
+        logger.info("✅ Rate limiter initialized with centralized exemptions")
+    except TypeError as e:
+        # Fallback for older versions
+        logger.warning(f"Rate limiter initialization with custom function failed: {e}, using fallback")
+        limiter = Limiter(
+            app=app,
+            key_func=get_remote_address,
+            default_limits=["200 per day", "50 per hour"],
+            storage_uri=redis_url if redis_client else "memory://",
+        )
 
     app.config.from_object(config_class)
     config_class.init_app(app)

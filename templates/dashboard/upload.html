@@ -2476,13 +2476,13 @@ function showUploadPreview(videoData, file) {
     // Duration and Resolution
     const resolutionEl = document.getElementById('preview-resolution');
     const durationEl = document.getElementById('preview-duration');
-    
+
     // Always update duration if available in response
     if (videoData.duration && durationEl) {
         durationEl.textContent = formatDuration(videoData.duration);
         console.log("✅ Set duration from response:", formatDuration(videoData.duration));
     }
-    
+
     // Create video preview URL (only if not already showing the same file)
     try {
         if (videoPreview.src && videoPreview.src !== '') {
@@ -2524,11 +2524,27 @@ function showUploadPreview(videoData, file) {
         if (durationEl) durationEl.textContent = formatDuration(videoData.duration || 0);
         if (resolutionEl) resolutionEl.textContent = videoData.original_resolution || 'unknown';
     }
+
+    // Give the server a moment to fully write files
+    setTimeout(() => {
+        if (videoData.ai_thumbnails && videoData.ai_thumbnails.length > 0) {
+            console.log("🎨 Displaying thumbnails from API response after delay");
+            displayThumbnails(
+                videoData.ai_thumbnails,
+                videoData.extracted_thumbnails || [],
+                videoData.id
+            );
+        } else if (currentVideoId) {
+            console.log("🔄 Fetching thumbnails from API after delay for video:", currentVideoId);
+            setTimeout(() => fetchThumbnails(currentVideoId), 500);
+        }
+    }, 500); // 500ms delay to ensure files are written
     
+
     // Show preview, hide progress
     progressDiv.classList.add('d-none');
     previewDiv.classList.remove('d-none');
-    
+
     // for frontend error("video details" section)
     console.log("=".repeat(50));
     console.log("✅ PREVIEW DISPLAYED with values:");
@@ -2538,53 +2554,167 @@ function showUploadPreview(videoData, file) {
     console.log("=".repeat(50));
 }
 
+// function to fetch thumbnails separately
+async function fetchThumbnails(videoId) {
+    try {
+        const response = await fetch(`/api/v1/videos/${videoId}/thumbnails`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log("📸 Fetched thumbnails:", data);
+            displayThumbnails(
+                data.ai_thumbnails || [],
+                data.extracted_thumbnails || [],
+                videoId
+            );
+        }
+    } catch (error) {
+        console.error("Failed to fetch thumbnails:", error);
+    }
+}
+
 function displayThumbnails(aiThumbnails, extractedThumbnails, videoId) {
+    console.log("🎨 displayThumbnails called");
+    console.log("AI Thumbnails:", aiThumbnails);
+    console.log("Extracted Thumbnails:", extractedThumbnails);
+    
     currentThumbnailId = videoId;
     
-    // Show the thumbnail section
     const thumbnailSection = document.getElementById('thumbnail-section');
     if (thumbnailSection) thumbnailSection.style.display = 'block';
     
-    // Display AI thumbnails
+    function getThumbnailUrl(thumb) {
+        if (typeof thumb === 'string') {
+            return `/api/v1/videos/thumbnails/${encodeURIComponent(thumb)}`;
+        }
+        if (thumb.url) return thumb.url;
+        if (thumb.path) return `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path)}`;
+        return null;
+    }
+    
+    function getThumbnailId(thumb, index) {
+        if (typeof thumb === 'string') return `thumb_${index}`;
+        return thumb.id || `thumb_${index}`;
+    }
+    
+    // Helper function to load image with retry
+    function loadImageWithRetry(imgElement, url, maxRetries = 3, retryDelay = 500) {
+        let retryCount = 0;
+        
+        function attemptLoad() {
+            const img = new Image();
+            img.onload = () => {
+                imgElement.src = url;
+                imgElement.style.opacity = '1';
+                console.log(`✅ Thumbnail loaded: ${url}`);
+                imgElement.dispatchEvent(new Event('thumbnail-loaded'));
+            };
+            img.onerror = () => {
+                retryCount++;
+                if (retryCount < maxRetries) {
+                    console.log(`⚠️ Thumbnail load failed (attempt ${retryCount}/${maxRetries}), retrying...`, url);
+                    setTimeout(attemptLoad, retryDelay * retryCount);
+                } else {
+                    console.error(`❌ Thumbnail failed after ${maxRetries} retries:`, url);
+                    imgElement.src = '/static/images/placeholder-thumbnail.png';
+                    imgElement.style.opacity = '0.5';
+                }
+            };
+            img.src = url;
+        }
+        
+        attemptLoad();
+    }
+    
+    // Display AI thumbnails with retry
     const aiGrid = document.getElementById('ai-thumbnails-grid');
     const aiCount = document.getElementById('ai-thumbnail-count');
     
     if (aiGrid && aiThumbnails && aiThumbnails.length > 0) {
         aiCount.textContent = aiThumbnails.length;
-        aiGrid.innerHTML = aiThumbnails.map((thumb, index) => `
-            <div class="thumbnail-card" data-thumbnail-id="${thumb.id}" data-thumbnail-type="ai">
-                <img src="${thumb.url}" alt="Thumbnail ${index + 1}" class="thumbnail-image">
-                <div class="thumbnail-badge">AI #${index + 1}</div>
-                <div class="thumbnail-actions">
-                    <button class="btn-icon" onclick="selectThumbnail('${thumb.id}', 'ai')" title="Select as main">
-                        <i class="fas fa-check"></i>
-                    </button>
-                    <button class="btn-icon" onclick="downloadThumbnail('${thumb.url}')" title="Download">
-                        <i class="fas fa-download"></i>
-                    </button>
-                </div>
-            </div>
-        `).join('');
+        aiGrid.innerHTML = '';
         
-        // Show regenerate button for paid tiers
+        aiThumbnails.forEach((thumb, index) => {
+            const thumbUrl = getThumbnailUrl(thumb);
+            const thumbId = getThumbnailId(thumb, index);
+            
+            if (!thumbUrl) return;
+            
+            const card = document.createElement('div');
+            card.className = 'thumbnail-card';
+            card.setAttribute('data-thumbnail-id', thumbId);
+            card.setAttribute('data-thumbnail-type', 'ai');
+            
+            const img = document.createElement('img');
+            img.className = 'thumbnail-image';
+            img.style.opacity = '0';
+            img.style.transition = 'opacity 0.3s ease';
+            img.alt = `Thumbnail ${index + 1}`;
+            
+            const badge = document.createElement('div');
+            badge.className = 'thumbnail-badge';
+            badge.textContent = `AI #${index + 1}`;
+            
+            const actions = document.createElement('div');
+            actions.className = 'thumbnail-actions';
+            actions.innerHTML = `
+                <button class="btn-icon" onclick="selectThumbnail('${thumbId}', 'ai', '${thumbUrl}')" title="Select as main">
+                    <i class="fas fa-check"></i>
+                </button>
+                <button class="btn-icon" onclick="downloadThumbnail('${thumbUrl}')" title="Download">
+                    <i class="fas fa-download"></i>
+                </button>
+            `;
+            
+            card.appendChild(img);
+            card.appendChild(badge);
+            card.appendChild(actions);
+            aiGrid.appendChild(card);
+            
+            // Load image with retry
+            loadImageWithRetry(img, thumbUrl, 5, 300);
+        });
+        
         const regenContainer = document.getElementById('regenerate-thumbnail-btn-container');
-        if (regenContainer && userTier !== 'free') {
+        if (regenContainer && userTier !== 'free' && userTier !== 'starter') {
             regenContainer.style.display = 'block';
-            // Get remaining regenerations from API
             fetchRemainingRegenerations(currentThumbnailId);
         }
     }
     
     // Store extracted thumbnails for pagination
     if (extractedThumbnails && extractedThumbnails.length > 0) {
-        allExtractedThumbnails = extractedThumbnails;
+        allExtractedThumbnails = extractedThumbnails.map((thumb, index) => {
+            if (typeof thumb === 'string') {
+                return {
+                    id: `extracted_${index}`,
+                    url: `/api/v1/videos/thumbnails/${encodeURIComponent(thumb)}`,
+                    path: thumb
+                };
+            }
+            if (thumb.url) return thumb;
+            if (thumb.path) {
+                return {
+                    id: thumb.id || `extracted_${index}`,
+                    url: `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path)}`,
+                    path: thumb.path
+                };
+            }
+            return thumb;
+        });
+        
         document.getElementById('extracted-count').textContent = extractedThumbnails.length;
-        renderExtractedThumbnailsPage();
+        currentThumbnailPage = 1;
+        renderExtractedThumbnailsPageWithRetry();
     }
 }
 
-// Render current page of extracted thumbnails
-function renderExtractedThumbnailsPage() {
+// Updated renderExtractedThumbnailsPageWithRetry
+function renderExtractedThumbnailsPageWithRetry() {
     const grid = document.getElementById('extracted-thumbnails-grid');
     if (!grid) return;
     
@@ -2597,20 +2727,73 @@ function renderExtractedThumbnailsPage() {
         return;
     }
     
-    grid.innerHTML = pageThumbnails.map((thumb, idx) => `
-        <div class="thumbnail-card" data-thumbnail-id="${thumb.id}" data-thumbnail-type="extracted">
-            <img src="${thumb.url}" alt="Frame ${start + idx + 1}" class="thumbnail-image">
-            <div class="thumbnail-badge">Frame ${start + idx + 1}</div>
-            <div class="thumbnail-actions">
-                <button class="btn-icon" onclick="selectThumbnail('${thumb.id}', 'extracted')" title="Select as main">
-                    <i class="fas fa-check"></i>
-                </button>
-                <button class="btn-icon" onclick="downloadThumbnail('${thumb.url}')" title="Download">
-                    <i class="fas fa-download"></i>
-                </button>
-            </div>
-        </div>
-    `).join('');
+    grid.innerHTML = '';
+    
+    pageThumbnails.forEach((thumb, idx) => {
+        const thumbUrl = thumb.url || `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path || thumb)}`;
+        const thumbId = thumb.id || `extracted_${start + idx}`;
+        
+        const card = document.createElement('div');
+        card.className = 'thumbnail-card';
+        card.setAttribute('data-thumbnail-id', thumbId);
+        card.setAttribute('data-thumbnail-type', 'extracted');
+        
+        const img = document.createElement('img');
+        img.className = 'thumbnail-image';
+        img.style.opacity = '0';
+        img.style.transition = 'opacity 0.3s ease';
+        img.alt = `Frame ${start + idx + 1}`;
+        
+        const badge = document.createElement('div');
+        badge.className = 'thumbnail-badge';
+        badge.textContent = `Frame ${start + idx + 1}`;
+        
+        const actions = document.createElement('div');
+        actions.className = 'thumbnail-actions';
+        actions.innerHTML = `
+            <button class="btn-icon" onclick="selectThumbnail('${thumbId}', 'extracted', '${thumbUrl}')" title="Select as main">
+                <i class="fas fa-check"></i>
+            </button>
+            <button class="btn-icon" onclick="downloadThumbnail('${thumbUrl}')" title="Download">
+                <i class="fas fa-download"></i>
+            </button>
+        `;
+        
+        card.appendChild(img);
+        card.appendChild(badge);
+        card.appendChild(actions);
+        grid.appendChild(card);
+        
+        // Load image with retry
+        function loadWithRetry(retries = 5, delay = 300) {
+            let attempt = 0;
+            
+            function tryLoad() {
+                const testImg = new Image();
+                testImg.onload = () => {
+                    img.src = thumbUrl;
+                    img.style.opacity = '1';
+                    console.log(`✅ Frame ${start + idx + 1} loaded`);
+                };
+                testImg.onerror = () => {
+                    attempt++;
+                    if (attempt < retries) {
+                        console.log(`⚠️ Frame ${start + idx + 1} load failed (attempt ${attempt}/${retries}), retrying...`);
+                        setTimeout(tryLoad, delay * attempt);
+                    } else {
+                        console.error(`❌ Frame ${start + idx + 1} failed after ${retries} retries`);
+                        img.src = '/static/images/placeholder-thumbnail.png';
+                        img.style.opacity = '0.5';
+                    }
+                };
+                testImg.src = thumbUrl;
+            }
+            
+            tryLoad();
+        }
+        
+        loadWithRetry();
+    });
     
     // Update pagination controls
     const totalPages = Math.ceil(allExtractedThumbnails.length / thumbnailsPerPage);
@@ -2629,7 +2812,53 @@ function renderExtractedThumbnailsPage() {
     }
 }
 
-// Pagination functions
+// Update selectThumbnail to handle the actual API call
+async function selectThumbnail(thumbnailId, type, thumbnailUrl) {
+    console.log(`🎯 Selecting thumbnail: ${thumbnailId} (${type})`);
+    
+    try {
+        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/thumbnails/select`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            },
+            body: JSON.stringify({ 
+                thumbnail_id: thumbnailId, 
+                type: type,
+                thumbnail_url: thumbnailUrl 
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            showAlert('Thumbnail selected successfully!', 'success');
+            
+            // Update UI to show selected state
+            document.querySelectorAll('.thumbnail-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            const selectedCard = document.querySelector(`.thumbnail-card[data-thumbnail-id="${thumbnailId}"]`);
+            if (selectedCard) {
+                selectedCard.classList.add('selected');
+            }
+            
+            // Update the video preview thumbnail if needed
+            const videoPlayer = document.getElementById('video-preview');
+            if (videoPlayer && thumbnailUrl) {
+                // Optionally update poster image
+                videoPlayer.poster = thumbnailUrl;
+            }
+        } else {
+            const error = await response.json();
+            showAlert(error.message || 'Failed to select thumbnail', 'danger');
+        }
+    } catch (error) {
+        console.error('Error selecting thumbnail:', error);
+        showAlert('Failed to select thumbnail', 'danger');
+    }
+}
+
 function previousThumbnailPage() {
     if (currentThumbnailPage > 1) {
         currentThumbnailPage--;
