@@ -2097,10 +2097,13 @@ function getSpeedValue() {
         'custom': customSpeedRange ? parseFloat(customSpeedRange.value) : 1.0
     };
     
-    const speed = speedMap[mode] || 1.0;
+    let speed = speedMap[mode] || 1.0;
+    // Ensure speed is a number, not string
+    speed = parseFloat(speed);
     console.log(`🎯 Speed value: ${speed}x (mode: ${mode})`);
     return speed;
 }
+
 function updateSpeedDescription() {
     const speed = getSpeedValue();
     let description;
@@ -2176,7 +2179,8 @@ function getProcessingOptions() {
         remove_silence: document.getElementById('remove-silence')?.checked || false,
         process_silent_video: document.getElementById('process-silent-video')?.checked || false,
         //Speed control
-        speed: speed
+        speed: speed,
+
     };
     
     console.log("📦 Final processing options:", options);

@@ -106,7 +106,7 @@ def process_video_async(
     Args:
         video_id: Video ID
         user_id: User ID
-        options: Processing options (quality, style, aspect_ratio, etc.)
+        options: Processing options (quality, style, aspect_ratio, speed, etc.)
     """
     options = options or {}
     from services.user_service import UserService
@@ -119,6 +119,8 @@ def process_video_async(
     logger.info(f"   fps: {options.get('fps')}")
     logger.info(f"   audio_quality: {options.get('audio_quality')}")
     logger.info(f"   aspect_ratio: {options.get('aspect_ratio')}")
+    logger.info(f"   speed: {options.get('speed')}")
+    logger.info(f"   speed_presets: {options.get('speed_presets')}")
     logger.info(f"   thumbnail_style: {options.get('thumbnail_style')}")
     logger.info(f"   styles: {options.get('styles')}")
     logger.info(f"   process_silent_video: {options.get('process_silent_video')}")
@@ -164,6 +166,20 @@ def process_video_async(
 
         # ========== APPLY FRONTEND OPTIONS TO VIDEO OBJECT ==========
         settings_changed = False
+        
+        # 🔥 SPEED - Extract from options
+        speed_value = options.get("speed")
+        if speed_value is None:
+            speed_value = options.get("speed_presets")
+            if speed_value and isinstance(speed_value, str):
+                speed_value = float(speed_value.replace('x', ''))
+        if speed_value is None:
+            speed_value = 1.0
+        
+        if speed_value != 1.0:
+            video.speed = speed_value
+            logger.info(f"✅ Setting speed from frontend: {speed_value}x")
+            settings_changed = True
         
         if options.get("quality") and options["quality"] != "original":
             video.output_quality = options["quality"]
@@ -247,6 +263,20 @@ def process_video_async(
         )
         _generate_thumbnails(video, options, user_id)
 
+        # Step 5: Apply video styles
+        if video.applied_styles and len(video.applied_styles) > 0:
+            _send_ws_update(
+                video_id,
+                user_id,
+                "processing",
+                75,
+                "applying_styles",
+                "Applying video styles...",
+            )
+            _apply_video_styles(video, video.applied_styles)
+            video_service.update_video(video)
+            logger.info(f"💾 Saved to database after styles: {video.applied_styles}")
+
         # Step 6: Apply aspect ratio
         if video.aspect_ratio and video.aspect_ratio != "original":
             _send_ws_update(
@@ -258,7 +288,6 @@ def process_video_async(
                 "Adjusting aspect ratio...",
             )
             _apply_aspect_ratio(video, video.aspect_ratio)
-            # Force database save after aspect ratio
             video_service.update_video(video)
             logger.info(f"💾 Saved to database after aspect ratio: {video.aspect_ratio}")
 
@@ -268,26 +297,26 @@ def process_video_async(
                 video_id, user_id, "processing", 85, "fps", "Adjusting frame rate..."
             )
             _apply_fps(video, video.fps)
-            # 🔥 Force database save after FPS
             video_service.update_video(video)
             logger.info(f"💾 Saved to database after FPS: {video.fps}")
 
-
-        # After getting options, log the speed
-        logger.info(f"🎯 Speed from options: {options.get('speed', 'NOT FOUND')}")
-        
         # Step 7.5: Apply Speed (Time Remapping)
-        if options.get("speed") and options["speed"] != 1.0:
-            logger.info(f"🎬 Applying speed change: {options['speed']}x")
+        logger.info(f"🎯 Speed from options: {speed_value}")
+        
+        if speed_value != 1.0:
+            logger.info(f"🎬 Applying speed change: {speed_value}x")
             _send_ws_update(
                 video_id, user_id, "processing", 87, "speed", 
-                f"Applying speed change: {options['speed']}x"
+                f"Applying speed change: {speed_value}x"
             )
-            _apply_speed(video, options["speed"])
-            video_service.update_video(video)
-            logger.info(f"💾 Saved to database after speed: {options['speed']}x")
+            success = _apply_speed(video, float(speed_value))
+            if success:
+                video_service.update_video(video)
+                logger.info(f"💾 Saved to database after speed: {speed_value}x")
+            else:
+                logger.warning(f"⚠️ Speed change failed, continuing with original video")
         else:
-            logger.info(f"🎬 No speed change (speed={options.get('speed', 'None')})")
+            logger.info(f"🎬 No speed change (speed={speed_value})")
 
         # Step 8: Apply audio quality
         if video.audio_quality and video.audio_quality != "original":
@@ -300,7 +329,6 @@ def process_video_async(
                 "Adjusting audio quality...",
             )
             _apply_audio_quality(video, video.audio_quality)
-            # Force database save after audio
             video_service.update_video(video)
             logger.info(f"💾 Saved to database after audio: {video.audio_quality}")
 
@@ -315,25 +343,8 @@ def process_video_async(
                 "Applying output quality...",
             )
             _apply_quality(video, video.output_quality)
-            # 🔥 Force database save after quality
             video_service.update_video(video)
             logger.info(f"💾 Saved to database after quality: {video.output_quality}")
-
-                # Step 5: Apply video styles
-        
-        if video.applied_styles and len(video.applied_styles) > 0:
-            _send_ws_update(
-                video_id,
-                user_id,
-                "processing",
-                75,
-                "applying_styles",
-                "Applying video styles...",
-            )
-            _apply_video_styles(video, video.applied_styles)
-            # Force database save after styles
-            video_service.update_video(video)
-            logger.info(f"💾 Saved to database after styles: {video.applied_styles}")
 
         # Step 10: Finalize
         _send_ws_update(
@@ -356,6 +367,7 @@ def process_video_async(
         logger.info(f"   fps: {video.fps}")
         logger.info(f"   audio_quality: {video.audio_quality}")
         logger.info(f"   aspect_ratio: {video.aspect_ratio}")
+        logger.info(f"   speed: {getattr(video, 'speed', 1.0)}")
         logger.info(f"   output_path: {output_path}")
 
         # Log final settings
@@ -366,6 +378,7 @@ def process_video_async(
         logger.info(f"   fps: {video.fps}")
         logger.info(f"   audio_quality: {video.audio_quality}")
         logger.info(f"   aspect_ratio: {video.aspect_ratio}")
+        logger.info(f"   speed: {getattr(video, 'speed', 1.0)}x")
         logger.info(f"   thumbnail_style: {video.thumbnail_style}")
         logger.info(f"   applied_styles: {video.applied_styles}")
         logger.info("=" * 80)
@@ -429,7 +442,7 @@ def process_video_async(
             "error": str(e),
             "retries_exhausted": True,
         }
-
+    
 # Helper functions (regular functions, not async)
 def _process_silent_video(video, options):
     """
@@ -1309,55 +1322,50 @@ def _apply_speed(video, speed):
     import os
     import subprocess
     import json
-    import uuid
 
     try:
-        input_path = (
-            video.output_path
-            if hasattr(video, "output_path") and video.output_path
-            else video.original_path
-        )
+        # Get current video path
+        input_path = video.output_path if hasattr(video, "output_path") and video.output_path else video.original_path
 
         if not input_path or not os.path.exists(input_path):
             logger.error(f"[SPEED] Input path does not exist: {input_path}")
             return False
-        
-        if speed == 1.0:
+
+        if speed == 1.0 or speed is None:
             logger.info(f"[SPEED] Speed unchanged (1.0x), skipping")
             return True
-        
-        # Get original duration
-        probe_cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "json", input_path
-        ]
-        
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
-        original_duration = 0
-        
-        if result.returncode == 0:
-            info = json.loads(result.stdout)
-            original_duration = float(info.get('format', {}).get('duration', 0))
-        
-        # Calculate new duration
-        new_duration = original_duration / speed if speed != 0 else original_duration
-        logger.info(f"[SPEED] Original duration: {original_duration:.2f}s")
-        logger.info(f"[SPEED] Speed: {speed}x → New duration: {new_duration:.2f}s")
-        
-        # For speed > 1.0 (faster), use setpts; for slow motion, use different approach
+
+        # Get original duration for logging
+        try:
+            probe_cmd = [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "json", input_path
+            ]
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                info = json.loads(result.stdout)
+                original_duration = float(info.get('format', {}).get('duration', 0))
+                logger.info(f"[SPEED] Original duration: {original_duration:.2f}s")
+        except:
+            original_duration = 0
+
+        # Prepare output path
         base_name = os.path.splitext(input_path)[0]
         output_path = f"{base_name}_speed_{speed}x.mp4"
 
-        # Build FFmpeg command for speed change
+        # FFMPEG COMMAND
+        # Using setpts for video and atempo for audio separately
         if speed > 1.0:
-            # Fast forward - drop frames
-            pts_multiplier = 1.0 / speed
+            # Fast forward
+            video_filter = f"setpts={1.0/speed}*PTS"
+            audio_filter = f"atempo={speed}"
+            
             cmd = [
                 "ffmpeg", "-i", input_path,
-                "-filter_complex", f"[0:v]setpts={pts_multiplier}*PTS[v];[0:a]atempo={speed}[a]",
-                "-map", "[v]", "-map", "[a]",
+                "-vf", video_filter,
+                "-af", audio_filter,
                 "-c:v", "libx264",
-                "-preset", "medium",
+                "-preset", "fast",
                 "-crf", "23",
                 "-c:a", "aac",
                 "-b:a", "128k",
@@ -1365,51 +1373,71 @@ def _apply_speed(video, speed):
                 "-y", output_path
             ]
         else:
-            # Slow motion - duplicate frames (requires multiple atempo filters)
-            # FFmpeg atempo max is 2.0, so chain them
-            atempo_filters = []
-            remaining = 1.0 / speed
-            while remaining > 2.0:
-                atempo_filters.append("atempo=2.0")
-                remaining /= 2.0
-            if remaining > 0:
-                atempo_filters.append(f"atempo={remaining}")
+            # Slow motion (speed < 1.0)
+            # For slow motion, atempo can't go below 0.5, so we need a different approach
+            slow_factor = 1.0 / speed  # e.g., 0.5 speed = 2.0 slow_factor
             
-            atempo_chain = ",".join(atempo_filters)
+            video_filter = f"setpts={slow_factor}*PTS"
+            
+            # For audio slow motion, we need to chain atempo filters
+            # Max atempo is 2.0, so we chain multiple if needed
+            remaining = slow_factor
+            audio_filters = []
+            while remaining > 2.0:
+                audio_filters.append("atempo=2.0")
+                remaining /= 2.0
+            if remaining > 0.5:
+                audio_filters.append(f"atempo={remaining}")
+            else:
+                # If below 0.5, use a different approach
+                audio_filters.append(f"atempo=0.5")
+            
+            audio_filter = ",".join(audio_filters)
             
             cmd = [
                 "ffmpeg", "-i", input_path,
-                "-filter_complex", f"[0:v]setpts={1.0/speed}*PTS[v];[0:a]{atempo_chain}[a]",
-                "-map", "[v]", "-map", "[a]",
+                "-vf", video_filter,
+                "-af", audio_filter,
                 "-c:v", "libx264",
-                "-preset", "medium",
+                "-preset", "fast",
                 "-crf", "23",
                 "-c:a", "aac",
                 "-b:a", "128k",
                 "-movflags", "+faststart",
                 "-y", output_path
             ]
-        
-        logger.info(f"[SPEED] Running speed change: {speed}x")
-        
+
+        logger.info(f"[SPEED] Running: {' '.join(cmd[:10])}...")  # Log first part
+        logger.info(f"[SPEED] Speed: {speed}x → Output: {output_path}")
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        
+
         if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            # Update video object
             video.output_path = output_path
-            video.speed = speed
-            video.duration = new_duration  # Update duration
             video.output_video_url = output_path
-            video_service.update_video(video)
-            logger.info(f"[SPEED] ✅ Success! speed={speed}x, new duration={new_duration:.2f}s")
+            video.speed = speed
+            
+            # Update duration estimate
+            if original_duration > 0:
+                video.duration = original_duration / speed if speed != 0 else original_duration
+                logger.info(f"[SPEED] New duration: {video.duration:.2f}s")
+            
+            logger.info(f"[SPEED] ✅ Successfully applied {speed}x speed change")
             return True
         else:
-            logger.error(f"[SPEED] ❌ FFmpeg error: {result.stderr[:300]}")
+            logger.error(f"[SPEED] ❌ FFmpeg error: {result.stderr[:500]}")
             return False
-            
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"[SPEED] Timeout expired for speed change")
+        return False
     except Exception as e:
         logger.error(f"[SPEED] Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-
+    
 def _apply_audio_quality(video, quality):
     """Apply audio quality and update output_path - FIXED to actually update video."""
     import os

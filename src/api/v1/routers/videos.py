@@ -348,6 +348,9 @@ def process_video(video_id):
             video.remove_silence = options["remove_silence"]
         if options.get("translation_language"):
             video.translation_language = options["translation_language"]
+        if options.get("speed") is not None:
+            video.speed = options["speed"]
+            logger.info(f"✅ Setting speed from frontend: {video.speed}x")
 
         # Check if this is a reprocessing (video already completed)
         is_reprocessing = video.status == "completed"
@@ -402,6 +405,7 @@ def process_video(video_id):
             "translation_language": video.translation_language,
             "is_reprocessing": is_reprocessing,
             "send_email_notification": options.get("send_email_notification", False),
+            "speed": float(options.get("speed", 1.0)),
         }
 
         logger.info(f"📤 Sending to Celery with options: {celery_options}")
