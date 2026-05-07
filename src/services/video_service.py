@@ -184,7 +184,8 @@ class VideoService:
             video_id = str(uuid.uuid4())
 
             # Create permanent upload directory
-            upload_dir = Path(tempfile.gettempdir()) / "video_ai" / "uploads" / video_id
+            user_video_dir = self.get_user_video_base_dir(user_id)
+            upload_dir = user_video_dir / video_id
             upload_dir.mkdir(parents=True, exist_ok=True)
             upload_path = upload_dir / "original.mp4"
 
@@ -1197,3 +1198,15 @@ class VideoService:
         except Exception as e:
             logger.error(f"Failed to add chapters to video: {e}")
             return False
+
+    def get_user_video_base_dir(self, user_id: str) -> Path:
+        """Get user's local video directory (persistent, not temp)."""
+        from pathlib import Path
+        import os
+        
+        # Use user's home directory for persistent storage
+        home = Path.home()
+        video_dir = home / "Video AI Studio" / "videos" / user_id
+        video_dir.mkdir(parents=True, exist_ok=True)
+        
+        return video_dir
