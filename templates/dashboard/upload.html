@@ -1947,6 +1947,78 @@ function startPolling(videoId) {
     setTimeout(poll, delay);
 }
 
+// Improved polling with exponential backoff
+function pollVideoStatus(videoId, maxAttempts = 60, initialDelay = 2000) {
+    let attempt = 0;
+    let delay = initialDelay;
+    
+    function poll() {
+        fetch(`/api/v1/videos/${videoId}/status`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log(`📊 Status update: ${data.status} - ${data.progress}%`);
+            
+            // Update progress bar
+            updateProgressBar(data.progress);
+            updateStatusMessage(data.status, data.current_step);
+            
+            if (data.status === 'completed') {
+                console.log('✅ Video processing complete!');
+                showVideoResults(videoId, data.output_url);
+                return;
+            } else if (data.status === 'failed') {
+                console.error('❌ Video processing failed:', data.error_message);
+                showError(data.error_message);
+                return;
+            }
+            
+            // Continue polling with exponential backoff
+            attempt++;
+            if (attempt < maxAttempts) {
+                // Increase delay gradually (max 30 seconds)
+                delay = Math.min(delay * 1.5, 30000);
+                setTimeout(poll, delay);
+            }
+        })
+        .catch(error => {
+            console.error('Polling error:', error);
+            attempt++;
+            if (attempt < maxAttempts) {
+                setTimeout(poll, delay);
+            }
+        });
+    }
+    
+    poll();
+}
+
+// set up WebSocket for real-time updates
+function setupWebSocket(videoId) {
+    const socket = io({
+        transports: ['websocket', 'polling'],
+        auth: { token: localStorage.getItem('access_token') }
+    });
+    
+    socket.on('connect', () => {
+        console.log('🔌 WebSocket connected');
+        socket.emit('join', { room: `video_${videoId}` });
+    });
+    
+    socket.on('video_status_update', (data) => {
+        console.log(`📡 WebSocket update: ${data.status} - ${data.progress}%`);
+        updateProgressBar(data.progress);
+        updateStatusMessage(data.status, data.step);
+        
+        if (data.status === 'completed') {
+            showVideoResults(videoId, data.output_url);
+        }
+    });
+    
+    return socket;
+}
+
 function updateProcessingModal(progress, step) {
     const progressBar = document.querySelector('#processing-modal .progress-bar');
     if (progressBar) {
@@ -2030,6 +2102,20 @@ function handleProcessingFailed(error) {
         `;
     }
     showAlert('Video processing failed. Please try again.', 'danger');
+}
+
+function handleUploadSuccess(response) {
+    const videoId = response.id;
+    
+    // Show progress section
+    showProcessingUI();
+    
+    // Start polling and WebSocket
+    pollVideoStatus(videoId);
+    setupWebSocket(videoId);
+    
+    // Don't redirect! Let user watch progress
+    // window.location.href = '/results'; // ← REMOVE THIS
 }
 
 function handleTimeout() {

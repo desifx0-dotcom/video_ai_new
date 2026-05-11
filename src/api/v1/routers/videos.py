@@ -1304,6 +1304,63 @@ def get_video_stats():
         logger.error(f"Get video stats failed: {str(e)}")
         raise
 
+@router.route("/<video_id>/status", methods=["GET"])
+@jwt_required()
+def get_video_status(video_id):
+    """Get video processing status with proper progress."""
+    user_id = get_jwt_identity()
+    
+    try:
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+        
+        # Get progress from database or video object
+        progress = getattr(video, 'progress', 0)
+        status = getattr(video, 'status', 'pending')
+        current_step = getattr(video, 'current_step', None)
+        
+        # Progress mapping if not set
+        if progress == 0:
+            progress_map = {
+                'uploaded': 5,
+                'queued': 10,
+                'processing': 15,
+                'analyzing': 25,
+                'transcribing': 40,
+                'generating_metadata': 50,
+                'generating_thumbnails': 60,
+                'applying_styles': 75,
+                'translating': 85,
+                'compressing': 95,
+                'completed': 100,
+                'failed': 0
+            }
+            progress = progress_map.get(status, 0)
+        
+        # Calculate estimated time if processing
+        estimated_seconds = 0
+        if status == 'processing' and progress > 0 and progress < 100:
+            elapsed = (datetime.utcnow() - video.created_at).total_seconds() if video.created_at else 60
+            if progress > 0:
+                estimated_seconds = int((elapsed / progress) * (100 - progress))
+        
+        return jsonify({
+            "video_id": video.id,
+            "status": status,
+            "progress": progress,
+            "current_step": current_step,
+            "estimated_time_remaining": estimated_seconds,
+            "output_url": video.output_video_url if status == 'completed' else None,
+            "error_message": getattr(video, 'error_message', None),
+            "created_at": video.created_at.isoformat() if video.created_at else None,
+            "updated_at": video.updated_at.isoformat() if video.updated_at else None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Get video status failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 @router.route("/<video_id>/regenerations-remaining", methods=["GET"])
 @jwt_required()

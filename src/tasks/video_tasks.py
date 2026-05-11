@@ -101,52 +101,49 @@ def process_video_async(
     self, video_id: str, user_id: str, options: Dict[str, Any] = None
 ):
     """
-    Process video asynchronously.
-
-    Args:
-        video_id: Video ID
-        user_id: User ID
-        options: Processing options (quality, style, aspect_ratio, speed, etc.)
+    Process video asynchronously - PRODUCTION OPTIMIZED ORDER.
+    
+    Processing order (optimal for quality & performance):
+    1. Speed change (affects timing, not resolution)
+    2. FPS change (affects timing)
+    3. Audio quality (independent)
+    4. Video styles (visual effects)
+    5. Quality scaling (final resolution)
+    6. Aspect ratio (final reshape - LAST)
     """
     options = options or {}
     from services.user_service import UserService
 
-    # 🔥 DEBUG: Log received options
+    # Log received options
     logger.info("=" * 80)
     logger.info(f"📥 VIDEO PROCESSING STARTED for {video_id}")
-    logger.info(f"📥 Received options from Celery task:")
-    logger.info(f"   quality: {options.get('quality')}")
-    logger.info(f"   fps: {options.get('fps')}")
-    logger.info(f"   audio_quality: {options.get('audio_quality')}")
-    logger.info(f"   aspect_ratio: {options.get('aspect_ratio')}")
-    logger.info(f"   speed: {options.get('speed')}")
-    logger.info(f"   speed_presets: {options.get('speed_presets')}")
-    logger.info(f"   thumbnail_style: {options.get('thumbnail_style')}")
-    logger.info(f"   styles: {options.get('styles')}")
-    logger.info(f"   process_silent_video: {options.get('process_silent_video')}")
+    logger.info(f"📥 Received options:")
+    for key in ['quality', 'fps', 'audio_quality', 'aspect_ratio', 'speed', 'speed_presets', 'thumbnail_style', 'styles']:
+        logger.info(f"   {key}: {options.get(key)}")
     logger.info("=" * 80)
 
     notification_service = NotificationService()
     user_service = UserService()
-
     send_email_notification = options.get("send_email_notification", False)
 
     try:
-        logger.info(
-            f"Starting video processing for video_id: {video_id}, user_id: {user_id}"
-        )
-        logger.info(f"Processing options: {options}")
+        logger.info(f"Starting video processing for video_id: {video_id}, user_id: {user_id}")
 
         # Send initial WebSocket update
-        _send_ws_update(
-            video_id, user_id, "queued", 10, "queued", "Video queued for processing"
-        )
+        _send_ws_update(video_id, user_id, "queued", 5, "queued", "Video queued for processing")
 
+        #  INITIAL STATUS - QUEUED
+        video_service.update_processing_status(video_id, "queued", 5, "queued")
+        
         # Update task state
         self.update_state(
             state="PROGRESS",
-            meta={"current": "starting", "total": 100, "status": "Processing video..."},
+            meta={"current": "starting", "total": 100, "status": "Initializing..."}
         )
+
+        #  STATUS - ANALYZING
+        video_service.update_processing_status(video_id, "processing", 10, "analyzing")
+        _send_ws_update(video_id, user_id, "processing", 10, "analyzing", "Analyzing video...")
 
         # Get video data
         video = video_service.get_video_by_id(video_id)
@@ -159,15 +156,14 @@ def process_video_async(
         # Detect if video is silent
         if not hasattr(video, "is_silent"):
             from services.silent_video_service import SilentVideoService
-
             silent_service = SilentVideoService()
             video.is_silent = silent_service.is_silent_video(video.original_path)
             logger.info(f"Video {video_id} silent detection: {video.is_silent}")
 
-        # ========== APPLY FRONTEND OPTIONS TO VIDEO OBJECT ==========
+        # ========== STEP 1: EXTRACT AND SAVE USER SETTINGS ==========
         settings_changed = False
         
-        # 🔥 SPEED - Extract from options
+        # 1.1 SPEED (extract from options)
         speed_value = options.get("speed")
         if speed_value is None:
             speed_value = options.get("speed_presets")
@@ -178,181 +174,148 @@ def process_video_async(
         
         if speed_value != 1.0:
             video.speed = speed_value
-            logger.info(f"✅ Setting speed from frontend: {speed_value}x")
+            logger.info(f"✅ Setting speed: {speed_value}x")
             settings_changed = True
         
-        if options.get("quality") and options["quality"] != "original":
-            video.output_quality = options["quality"]
-            logger.info(f"✅ Setting quality from frontend: {options['quality']}")
-            settings_changed = True
-
+        # 1.2 FPS
         if options.get("fps") and options["fps"] != "original":
             video.fps = options["fps"]
-            logger.info(f"✅ Setting FPS from frontend: {options['fps']}")
+            logger.info(f"✅ Setting FPS: {options['fps']}")
             settings_changed = True
 
+        # 1.3 Audio Quality
         if options.get("audio_quality") and options["audio_quality"] != "original":
             video.audio_quality = options["audio_quality"]
-            logger.info(f"✅ Setting audio quality from frontend: {options['audio_quality']}")
+            logger.info(f"✅ Setting audio quality: {options['audio_quality']}")
             settings_changed = True
 
-        if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
-            video.aspect_ratio = options["aspect_ratio"]
-            logger.info(f"✅ Setting aspect ratio from frontend: {options['aspect_ratio']}")
+        # 1.4 Output Quality
+        if options.get("quality") and options["quality"] != "original":
+            video.output_quality = options["quality"]
+            logger.info(f"✅ Setting output quality: {options['quality']}")
             settings_changed = True
 
+        # 1.5 Thumbnail Style (metadata only)
         if options.get("thumbnail_style"):
             video.thumbnail_style = options["thumbnail_style"]
-            logger.info(f"✅ Setting thumbnail style from frontend: {options['thumbnail_style']}")
+            logger.info(f"✅ Setting thumbnail style: {options['thumbnail_style']}")
             settings_changed = True
 
+        # 1.6 Video Styles
         if options.get("styles") and len(options["styles"]) > 0:
             video.applied_styles = options["styles"]
-            logger.info(f"✅ Setting video styles from frontend: {options['styles']}")
+            logger.info(f"✅ Setting video styles: {options['styles']}")
             settings_changed = True
 
-        # Save settings to database BEFORE any processing
+        # 1.7 Aspect Ratio (save for last)
+        if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
+            video.aspect_ratio = options["aspect_ratio"]
+            logger.info(f"✅ Setting aspect ratio (will apply last): {options['aspect_ratio']}")
+            settings_changed = True
+
+        # Save all settings to database before processing
         if settings_changed:
             video_service.update_video(video)
-            logger.info(f"💾 Saved video settings to database BEFORE processing")
+            logger.info(f"💾 Saved video settings to database")
 
-        # Send progress update
-        _send_ws_update(
-            video_id, user_id, "processing", 15, "analyzing", "Analyzing video..."
-        )
+        # ========== STEP 2: SILENT VIDEO OR TRANSCRIPTION ==========
+        _send_ws_update(video_id, user_id, "processing", 10, "analyzing", "Analyzing video...")
+        self.update_state(state="PROGRESS", meta={"current": "analyzing", "total": 100, "status": "Analyzing video..."})
 
-        # Process based on video type
         video_type = options.get("video_type", "speech")
 
-        # Step 1: Handle silent video processing
         if options.get("process_silent_video") or video_type == "silent":
             logger.info(f"Processing silent video: {video_id}")
+            # STATUS - PROCESSING SILENT
+            video_service.update_processing_status(video_id, "processing", 20, "silent_analysis")
             _process_silent_video(video, options)
         else:
-            # Step 2: Transcribe audio
             if video_type == "speech" and options.get("auto_transcribe", True):
-                _send_ws_update(
-                    video_id,
-                    user_id,
-                    "processing",
-                    40,
-                    "transcribing",
-                    "Transcribing audio...",
-                )
+                # STATUS - TRANSCRIBING
+                video_service.update_processing_status(video_id, "processing", 30, "transcribing")
+                _send_ws_update(video_id, user_id, "processing", 25, "transcribing", "Transcribing audio...")
+                self.update_state(state="PROGRESS", meta={"current": "transcribing", "total": 100, "status": "Transcribing audio..."})
                 _transcribe_video(video, options)
 
-        # Step 3: Generate metadata
-        _send_ws_update(
-            video_id,
-            user_id,
-            "processing",
-            50,
-            "generating_metadata",
-            "Generating title and description...",
-        )
+        # ========== STEP 3: GENERATE METADATA ==========
+         # STATUS - GENERATING METADATA
+        video_service.update_processing_status(video_id, "processing", 40, "metadata")
+        _send_ws_update(video_id, user_id, "processing", 35, "generating_metadata", "Generating title and description...")
+        self.update_state(state="PROGRESS", meta={"current": "metadata", "total": 100, "status": "Generating metadata..."})
         _generate_metadata(video, options)
 
-        # Step 4: Generate thumbnails
-        _send_ws_update(
-            video_id,
-            user_id,
-            "processing",
-            60,
-            "generating_thumbnails",
-            "Creating thumbnails...",
-        )
+        # ========== STEP 4: GENERATE THUMBNAILS ==========
+                # STATUS - GENERATING THUMBNAILS
+        video_service.update_processing_status(video_id, "processing", 50, "thumbnails")
+        _send_ws_update(video_id, user_id, "processing", 45, "generating_thumbnails", "Creating thumbnails...")
+        self.update_state(state="PROGRESS", meta={"current": "thumbnails", "total": 100, "status": "Generating thumbnails..."})
         _generate_thumbnails(video, options, user_id)
 
-        # Step 5: Apply video styles
-        if video.applied_styles and len(video.applied_styles) > 0:
-            _send_ws_update(
-                video_id,
-                user_id,
-                "processing",
-                75,
-                "applying_styles",
-                "Applying video styles...",
-            )
-            _apply_video_styles(video, video.applied_styles)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved to database after styles: {video.applied_styles}")
-
-        # Step 6: Apply aspect ratio
-        if video.aspect_ratio and video.aspect_ratio != "original":
-            _send_ws_update(
-                video_id,
-                user_id,
-                "processing",
-                80,
-                "aspect_ratio",
-                "Adjusting aspect ratio...",
-            )
-            _apply_aspect_ratio(video, video.aspect_ratio)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved to database after aspect ratio: {video.aspect_ratio}")
-
-        # Step 7: Apply FPS
-        if video.fps and video.fps != "original":
-            _send_ws_update(
-                video_id, user_id, "processing", 85, "fps", "Adjusting frame rate..."
-            )
-            _apply_fps(video, video.fps)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved to database after FPS: {video.fps}")
-
-        # Step 7.5: Apply Speed (Time Remapping)
-        logger.info(f"🎯 Speed from options: {speed_value}")
-        
+        # ========== STEP 5: APPLY SPEED (timing change) ==========
         if speed_value != 1.0:
             logger.info(f"🎬 Applying speed change: {speed_value}x")
-            _send_ws_update(
-                video_id, user_id, "processing", 87, "speed", 
-                f"Applying speed change: {speed_value}x"
-            )
+            video_service.update_processing_status(video_id, "processing", 60, "speed")
+            _send_ws_update(video_id, user_id, "processing", 55, "speed", f"Applying speed change: {speed_value}x")
+            self.update_state(state="PROGRESS", meta={"current": "speed", "total": 100, "status": f"Adjusting speed to {speed_value}x..."})
             success = _apply_speed(video, float(speed_value))
             if success:
                 video_service.update_video(video)
-                logger.info(f"💾 Saved to database after speed: {speed_value}x")
+                logger.info(f"💾 Saved after speed: {speed_value}x")
             else:
-                logger.warning(f"⚠️ Speed change failed, continuing with original video")
-        else:
-            logger.info(f"🎬 No speed change (speed={speed_value})")
+                logger.warning(f"⚠️ Speed change failed, continuing")
 
-        # Step 8: Apply audio quality
+        # ========== STEP 6: APPLY FPS (timing change) ==========
+        if video.fps and video.fps != "original":
+            video_service.update_processing_status(video_id, "processing", 70, "fps")
+            _send_ws_update(video_id, user_id, "processing", 65, "fps", f"Adjusting frame rate to {video.fps} fps")
+            self.update_state(state="PROGRESS", meta={"current": "fps", "total": 100, "status": f"Adjusting frame rate to {video.fps} fps..."})
+            _apply_fps(video, video.fps)
+            video_service.update_video(video)
+            logger.info(f"💾 Saved after FPS: {video.fps}")
+
+        # ========== STEP 7: APPLY AUDIO QUALITY ==========
         if video.audio_quality and video.audio_quality != "original":
-            _send_ws_update(
-                video_id,
-                user_id,
-                "processing",
-                90,
-                "audio",
-                "Adjusting audio quality...",
-            )
+            video_service.update_processing_status(video_id, "processing", 75, "audio")
+            _send_ws_update(video_id, user_id, "processing", 75, "audio", f"Adjusting audio quality to {video.audio_quality}")
+            self.update_state(state="PROGRESS", meta={"current": "audio", "total": 100, "status": "Adjusting audio quality..."})
             _apply_audio_quality(video, video.audio_quality)
             video_service.update_video(video)
-            logger.info(f"💾 Saved to database after audio: {video.audio_quality}")
+            logger.info(f"💾 Saved after audio: {video.audio_quality}")
 
-        # Step 9: Apply quality (final)
+        # ========== STEP 8: APPLY VIDEO STYLES ==========
+        if video.applied_styles and len(video.applied_styles) > 0:
+            video_service.update_processing_status(video_id, "processing", 80, "styles")
+            _send_ws_update(video_id, user_id, "processing", 82, "styles", "Applying video styles...")
+            self.update_state(state="PROGRESS", meta={"current": "styles", "total": 100, "status": "Applying video styles..."})
+            _apply_video_styles(video, video.applied_styles)
+            video_service.update_video(video)
+            logger.info(f"💾 Saved after styles: {video.applied_styles}")
+
+        # ========== STEP 9: APPLY QUALITY SCALING ==========
         if video.output_quality and video.output_quality != "original":
-            _send_ws_update(
-                video_id,
-                user_id,
-                "processing",
-                92,
-                "quality",
-                "Applying output quality...",
-            )
+            video_service.update_processing_status(video_id, "processing", 85, "quality")
+            _send_ws_update(video_id, user_id, "processing", 88, "quality", f"Scaling to {video.output_quality}")
+            self.update_state(state="PROGRESS", meta={"current": "quality", "total": 100, "status": f"Scaling to {video.output_quality}..."})
             _apply_quality(video, video.output_quality)
             video_service.update_video(video)
-            logger.info(f"💾 Saved to database after quality: {video.output_quality}")
+            logger.info(f"💾 Saved after quality: {video.output_quality}")
 
-        # Step 10: Finalize
-        _send_ws_update(
-            video_id, user_id, "processing", 95, "finalizing", "Finalizing output..."
-        )
+        # ========== STEP 10: APPLY ASPECT RATIO (LAST - final reshape) ==========
+        if video.aspect_ratio and video.aspect_ratio != "original":
+            video_service.update_processing_status(video_id, "processing", 90, "aspect_ratio")
+            _send_ws_update(video_id, user_id, "processing", 94, "aspect_ratio", f"Changing aspect ratio to {video.aspect_ratio}")
+            self.update_state(state="PROGRESS", meta={"current": "aspect_ratio", "total": 100, "status": f"Changing aspect ratio to {video.aspect_ratio}..."})
+            _apply_aspect_ratio(video, video.aspect_ratio)
+            video_service.update_video(video)
+            logger.info(f"💾 Saved after aspect ratio: {video.aspect_ratio}")
+
+        # ========== STEP 11: FINALIZE ==========
+        video_service.update_processing_status(video_id, "processing", 95, "finalizing")
+        _send_ws_update(video_id, user_id, "processing", 98, "finalizing", "Finalizing output...")
+        self.update_state(state="PROGRESS", meta={"current": "finalizing", "total": 100, "status": "Finalizing output..."})
         output_path = _finalize_video(video, options)
 
-        # Final database update with all processed values
+        # ========== STEP 12: COMPLETE ==========
         video.status = "completed"
         video.processing_completed = datetime.utcnow()
         if video.processing_started:
@@ -360,16 +323,8 @@ def process_video_async(
         video.output_video_url = output_path
         video.output_path = output_path
         
-        # One final save with ALL settings
         video_service.update_video(video)
-        logger.info(f"💾 FINAL DATABASE SAVE with all settings:")
-        logger.info(f"   quality: {video.output_quality}")
-        logger.info(f"   fps: {video.fps}")
-        logger.info(f"   audio_quality: {video.audio_quality}")
-        logger.info(f"   aspect_ratio: {video.aspect_ratio}")
-        logger.info(f"   speed: {getattr(video, 'speed', 1.0)}")
-        logger.info(f"   output_path: {output_path}")
-
+        
         # Log final settings
         logger.info("=" * 80)
         logger.info(f"✅ VIDEO PROCESSING COMPLETED for {video_id}")
@@ -379,33 +334,19 @@ def process_video_async(
         logger.info(f"   audio_quality: {video.audio_quality}")
         logger.info(f"   aspect_ratio: {video.aspect_ratio}")
         logger.info(f"   speed: {getattr(video, 'speed', 1.0)}x")
-        logger.info(f"   thumbnail_style: {video.thumbnail_style}")
-        logger.info(f"   applied_styles: {video.applied_styles}")
+        logger.info(f"   output_path: {output_path}")
         logger.info("=" * 80)
 
-        # Send completion notification via WebSocket
-        _send_ws_completed(
-            video_id,
-            user_id,
-            video.output_video_url,
-            video.processing_time,
-            video.total_cost,
-        )
+        # Send completion notification
+        _send_ws_completed(video_id, user_id, video.output_video_url, video.processing_time, video.total_cost)
 
-        # Verify the video has the correct output path
+        # Verify output path
         if not video.output_video_url or not os.path.exists(video.output_video_url):
             final_output = video.output_path if hasattr(video, "output_path") and video.output_path else None
-            
             if final_output and os.path.exists(final_output):
                 video.output_video_url = final_output
                 video_service.update_video(video)
                 logger.info(f"[FIX] Set output_video_url to: {final_output}")
-            else:
-                logger.error(f"[FIX] No valid output file found for video {video_id}")
-
-        # Log the final output location
-        logger.info(f"✅ FINAL OUTPUT URL: {video.output_video_url}")
-        logger.info(f"✅ FINAL OUTPUT PATH: {video.output_path if hasattr(video, 'output_path') else 'None'}")
 
         return {
             "success": True,
@@ -416,33 +357,23 @@ def process_video_async(
 
     except ProcessingError as e:
         logger.error(f"Video processing failed: {str(e)}")
-        _send_ws_failed(video_id, user_id, str(e), 0, True)
+        _send_ws_failed(video_id, user_id, str(e), self.request.retries, self.request.retries < self.max_retries)
 
         if self.request.retries < self.max_retries:
             raise self.retry(countdown=60 * (self.request.retries + 1))
 
-        return {
-            "success": False,
-            "video_id": video_id,
-            "error": str(e),
-            "retries_exhausted": True,
-        }
+        return {"success": False, "video_id": video_id, "error": str(e), "retries_exhausted": True}
 
     except Exception as e:
         logger.error(f"Video processing failed: {str(e)}")
         logger.error(f"Full traceback: {traceback.format_exc()}")
-        _send_ws_failed(video_id, user_id, str(e), 0, True)
+        _send_ws_failed(video_id, user_id, str(e), self.request.retries, self.request.retries < self.max_retries)
 
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
 
-        return {
-            "success": False,
-            "video_id": video_id,
-            "error": str(e),
-            "retries_exhausted": True,
-        }
-    
+        return {"success": False, "video_id": video_id, "error": str(e), "retries_exhausted": True}
+
 # Helper functions (regular functions, not async)
 def _process_silent_video(video, options):
     """

@@ -755,6 +755,52 @@ class VideoService:
             logger.error(f"Error getting processing status: {e}")
             return None
 
+    def update_processing_status(self, video_id: str, status: str, progress: int, step: str = None):
+        """Update video processing status in database."""
+        try:
+            if not self.db:
+                return
+            
+            updates = {
+                "status": status,
+                "progress": progress,
+                "current_step": step,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            self.db.save("videos", video_id, updates)
+            logger.info(f"📊 Status update for {video_id}: {status} - {progress}% - {step}")
+            
+            # Also emit WebSocket update
+            self._emit_status_update(video_id, status, progress, step)
+            
+        except Exception as e:
+            logger.error(f"Failed to update status: {e}")
+
+    def _emit_status_update(self, video_id: str, status: str, progress: int, step: str = None):
+        """Emit WebSocket status update."""
+        try:
+            from api.websocket import socketio
+            from services.user_service import UserService
+            
+            # Get user_id for this video
+            video_data = self.db.get("videos", video_id)
+            if video_data:
+                user_id = video_data.get("user_id")
+                if socketio:
+                    socketio.emit(
+                        "video_status_update",
+                        {
+                            "video_id": video_id,
+                            "status": status,
+                            "progress": progress,
+                            "step": step,
+                            "timestamp": datetime.utcnow().isoformat()
+                        },
+                        room=user_id
+                    )
+        except Exception as e:
+            logger.warning(f"WebSocket emit failed: {e}")
+
     def get_user_videos_count(self, user_id: str) -> int:
         """Get total count of videos for a user."""
         try:
