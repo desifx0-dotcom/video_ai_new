@@ -1026,7 +1026,10 @@ def _apply_video_styles(video, styles):
         traceback.print_exc()
 
 def _apply_aspect_ratio(video, aspect_ratio):
-    """Apply aspect ratio with smart scaling for large videos."""
+    """
+    Actually change the video container resolution to target aspect ratio.
+    Uses letterboxing (keeps all content, no cropping).
+    """
     import os
     import subprocess
     import json
@@ -1058,10 +1061,10 @@ def _apply_aspect_ratio(video, aspect_ratio):
             orig_height = info.get('streams', [{}])[0].get('height', 1080)
             logger.info(f"[ASPECT] Original resolution: {orig_width}x{orig_height}")
 
-        # Aspect ratio dimensions
+        # Target dimensions for each aspect ratio
         aspect_map = {
             "16:9": (1920, 1080),
-            "9:16": (1080, 1920),
+            "9:16": (1080, 1920),   # This will CHANGE your video to 1080x1920
             "1:1": (1080, 1080),
             "4:5": (1080, 1350),
             "2:3": (1080, 1620),
@@ -1075,107 +1078,89 @@ def _apply_aspect_ratio(video, aspect_ratio):
             return False
 
         target_width, target_height = aspect_map[aspect_ratio]
+        
+        logger.info(f"[ASPECT] 🎯 CHANGING VIDEO RESOLUTION to: {target_width}x{target_height}")
+        logger.info(f"[ASPECT] Original: {orig_width}x{orig_height} → Target: {target_width}x{target_height}")
 
-        # Determine working path (scale down if needed)
-        working_path = input_path
+        # Create output path with new resolution
         temp_dir = os.path.dirname(input_path)
-        temp_files = []
+        output_filename = f"{uuid.uuid4().hex[:8]}_{aspect_ratio.replace(':', 'x')}.mp4"
+        output_path = os.path.join(temp_dir, output_filename)
 
-        # 🔥 FORCE SCALE for large videos (>1080p)
-        if orig_width > 1920 or orig_height > 1080:
-            scaled_path = os.path.join(temp_dir, f"temp_aspect_scaled_{uuid.uuid4().hex[:8]}.mp4")
-            temp_files.append(scaled_path)
-            
-            logger.info(f"[ASPECT] 📐 Scaling {orig_width}x{orig_height} → 1280x720 for processing")
-            
-            scale_cmd = [
-                "ffmpeg", "-i", input_path,
-                "-vf", "scale=1280:720",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
-                "-c:a", "copy",
-                "-y", scaled_path
-            ]
-            
-            scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
-            
-            if scale_result.returncode == 0 and os.path.exists(scaled_path):
-                working_path = scaled_path
-                logger.info(f"[ASPECT] ✅ Scaled to 720p")
-            else:
-                logger.warning(f"[ASPECT] Scaling failed, continuing at original resolution")
+        # Calculate scaling to fit within target (letterbox, no crop)
+        # This scales the video to fit INSIDE the target dimensions
+        scale_to_fit_width = target_width / orig_width
+        scale_to_fit_height = target_height / orig_height
+        scale_factor = min(scale_to_fit_width, scale_to_fit_height)  # Use min to fit within
+        
+        scaled_width = int(orig_width * scale_factor)
+        scaled_height = int(orig_height * scale_factor)
+        
+        # Ensure dimensions are even (required for h.264)
+        scaled_width = scaled_width if scaled_width % 2 == 0 else scaled_width + 1
+        scaled_height = scaled_height if scaled_height % 2 == 0 else scaled_height + 1
+        
+        logger.info(f"[ASPECT] Scaling video to: {scaled_width}x{scaled_height}")
+        logger.info(f"[ASPECT] Padding to: {target_width}x{target_height}")
 
-        # Apply aspect ratio
-        base_name = os.path.splitext(working_path)[0]
-        safe_ratio = aspect_ratio.replace(':', '_')
-        output_path = f"{base_name}_aspect_{safe_ratio}.mp4"
-        temp_files.append(output_path)
-
-        logger.info(f"[ASPECT] Applying aspect ratio {aspect_ratio}")
+        # CRITICAL: This actually changes the output resolution!
+        scale_and_pad = (
+            f"scale={scaled_width}:{scaled_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2"
+        )
 
         cmd = [
-            "ffmpeg", "-i", working_path,
-            "-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
+            "ffmpeg", "-i", input_path,
+            "-vf", scale_and_pad,
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # 🔥 Use ultrafast for memory efficiency
+            "-preset", "fast",
             "-crf", "23",
-            "-c:a", "copy",
+            "-c:a", "aac",
+            "-b:a", "128k",
             "-movflags", "+faststart",
-            "-y", output_path,
+            "-y", output_path
         ]
 
+        logger.info(f"[ASPECT] Running FFmpeg command...")
+        
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
         if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            # If we scaled, keep the processed version (aspect ratio already applied)
-            final_path = output_path
+            # Verify the output resolution
+            verify_cmd = [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "json", output_path
+            ]
+            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
             
-            # Restore resolution if we scaled down
-            if working_path != input_path and (orig_width > 1920 or orig_height > 1080):
-                restore_path = output_path.replace(".mp4", f"_restored.mp4")
-                temp_files.append(restore_path)
+            if verify_result.returncode == 0:
+                info = json.loads(verify_result.stdout)
+                actual_width = info.get('streams', [{}])[0].get('width', 0)
+                actual_height = info.get('streams', [{}])[0].get('height', 0)
+                logger.info(f"[ASPECT] ✅ Output resolution: {actual_width}x{actual_height}")
                 
-                logger.info(f"[ASPECT] 🔄 Restoring to original resolution {orig_width}x{orig_height}")
-                
-                restore_cmd = [
-                    "ffmpeg", "-i", output_path,
-                    "-vf", f"scale={orig_width}:{orig_height}:force_original_aspect_ratio=decrease,pad={orig_width}:{orig_height}:(ow-iw)/2:(oh-ih)/2",
-                    "-c:v", "libx264",
-                    "-preset", "fast",
-                    "-crf", "23",
-                    "-c:a", "copy",
-                    "-y", restore_path
-                ]
-                
-                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
-                
-                if restore_result.returncode == 0 and os.path.exists(restore_path):
-                    final_path = restore_path
-                    logger.info(f"[ASPECT] ✅ Restored to {orig_width}x{orig_height}")
+                if actual_width == target_width and actual_height == target_height:
+                    logger.info(f"[ASPECT] ✅ SUCCESS! Video resolution changed to {target_width}x{target_height}")
                 else:
-                    logger.warning(f"[ASPECT] Restore failed, keeping processed version")
+                    logger.warning(f"[ASPECT] Output resolution {actual_width}x{actual_height} != target {target_width}x{target_height}")
             
-            video.output_path = final_path
+            # Update video object
+            video.output_path = output_path
             video.aspect_ratio = aspect_ratio
             video_service.update_video(video)
-            logger.info(f"[ASPECT] ✅ Success! aspect={aspect_ratio}")
             
-            # Cleanup temp files
-            for temp_file in temp_files:
-                if temp_file != video.output_path and os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except:
-                        pass
+            logger.info(f"[ASPECT] ✅ Final output: {output_path}")
+            logger.info(f"[ASPECT] ✅ New resolution: {target_width}x{target_height}")
             
             return True
         else:
-            logger.error(f"[ASPECT] ❌ FFmpeg error: {result.stderr[:300]}")
+            logger.error(f"[ASPECT] ❌ FFmpeg error: {result.stderr[:500]}")
             return False
 
     except Exception as e:
         logger.error(f"[ASPECT] Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def _apply_fps(video, fps):
