@@ -1315,52 +1315,123 @@ def get_video_status(video_id):
         if not video:
             return jsonify({"error": "Video not found"}), 404
         
-        # Get progress from database or video object
-        progress = getattr(video, 'progress', 0)
+        # Safely get attributes with defaults
         status = getattr(video, 'status', 'pending')
-        current_step = getattr(video, 'current_step', None)
         
-        # Progress mapping if not set
+        # Handle VideoStatus enum (convert to string if needed)
+        if hasattr(status, 'value'):
+            status = status.value
+        
+        # Get progress - try multiple sources
+        progress = getattr(video, 'progress', 0)
         if progress == 0:
+            # Fallback progress mapping
             progress_map = {
                 'uploaded': 5,
                 'queued': 10,
+                'pending': 10,
                 'processing': 15,
                 'analyzing': 25,
                 'transcribing': 40,
                 'generating_metadata': 50,
                 'generating_thumbnails': 60,
                 'applying_styles': 75,
+                'applying_filters': 85,
                 'translating': 85,
                 'compressing': 95,
                 'completed': 100,
-                'failed': 0
+                'failed': 0,
+                'error': 0
             }
             progress = progress_map.get(status, 0)
         
+        # Get current step
+        current_step = getattr(video, 'current_step', None)
+        if not current_step:
+            # Map status to step name
+            step_map = {
+                'uploaded': 'uploaded',
+                'queued': 'queued',
+                'processing': 'processing',
+                'analyzing': 'analyzing',
+                'transcribing': 'transcribing',
+                'generating_metadata': 'generating_metadata',
+                'generating_thumbnails': 'generating_thumbnails',
+                'applying_styles': 'applying_styles',
+                'applying_filters': 'applying_filters',
+                'completed': 'completed',
+                'failed': 'failed'
+            }
+            current_step = step_map.get(status, status)
+        
         # Calculate estimated time if processing
         estimated_seconds = 0
-        if status == 'processing' and progress > 0 and progress < 100:
-            elapsed = (datetime.utcnow() - video.created_at).total_seconds() if video.created_at else 60
-            if progress > 0:
-                estimated_seconds = int((elapsed / progress) * (100 - progress))
+        if status in ['processing', 'queued', 'analyzing', 'transcribing', 'generating_metadata', 'generating_thumbnails', 'applying_styles', 'applying_filters']:
+            try:
+                created_at = getattr(video, 'created_at', None)
+                if created_at:
+                    # Handle datetime objects
+                    if hasattr(created_at, 'isoformat'):
+                        elapsed = (datetime.utcnow() - created_at).total_seconds()
+                    else:
+                        elapsed = 60
+                else:
+                    elapsed = 60
+                
+                if progress > 0:
+                    estimated_seconds = int((elapsed / progress) * (100 - progress))
+                else:
+                    estimated_seconds = 120  # Default 2 minutes
+            except:
+                estimated_seconds = 120
+        
+        # Get output URL safely
+        output_url = getattr(video, 'output_video_url', None)
+        if not output_url:
+            output_url = getattr(video, 'output_path', None)
+        
+        # Get timestamps safely
+        created_at_str = None
+        updated_at_str = None
+        try:
+            created_at = getattr(video, 'created_at', None)
+            if created_at:
+                if hasattr(created_at, 'isoformat'):
+                    created_at_str = created_at.isoformat()
+                elif isinstance(created_at, str):
+                    created_at_str = created_at
+        except:
+            pass
+        
+        try:
+            updated_at = getattr(video, 'updated_at', None)
+            if updated_at:
+                if hasattr(updated_at, 'isoformat'):
+                    updated_at_str = updated_at.isoformat()
+                elif isinstance(updated_at, str):
+                    updated_at_str = updated_at
+        except:
+            pass
         
         return jsonify({
-            "video_id": video.id,
+            "video_id": video_id,
             "status": status,
             "progress": progress,
             "current_step": current_step,
             "estimated_time_remaining": estimated_seconds,
-            "output_url": video.output_video_url if status == 'completed' else None,
+            "output_url": output_url if status == 'completed' else None,
             "error_message": getattr(video, 'error_message', None),
-            "created_at": video.created_at.isoformat() if video.created_at else None,
-            "updated_at": video.updated_at.isoformat() if video.updated_at else None
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
         }), 200
         
     except Exception as e:
-        logger.error(f"Get video status failed: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
+        logger.error(f"Get video status failed for {video_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": str(e),
+            "video_id": video_id,
+            "status": "error"
+        }), 500
 
 @router.route("/<video_id>/regenerations-remaining", methods=["GET"])
 @jwt_required()

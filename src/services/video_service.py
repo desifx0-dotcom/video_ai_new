@@ -493,7 +493,7 @@ class VideoService:
             return None
 
     def get_video_by_id(self, video_id: str) -> Optional[Any]:
-        """Get a video by ID (no user check - for internal use)."""
+        """Get video by ID (without user check)."""
         try:
             if not self.db:
                 return None
@@ -502,42 +502,31 @@ class VideoService:
             if not video_data:
                 return None
 
-            print(
-                f"🔍 DEBUG: Retrieved video {video_id}, original_path: {video_data.get('original_path')}"
-            )
-            print(f"🔍 DEBUG: output_video_url: {video_data.get('output_video_url')}")
-
-            # Convert dictionary to Video entity
             from core.domain.entities.video import Video
 
-            # Parse datetime fields
             def parse_datetime(value):
                 if not value:
                     return None
                 if isinstance(value, str):
                     try:
-                        from datetime import datetime
-
                         return datetime.fromisoformat(value.replace("Z", "+00:00"))
                     except:
                         return None
                 return value
 
-            # Create Video entity from dictionary
-            video = Video(
+            return Video(
                 id=video_data.get("id"),
                 user_id=video_data.get("user_id"),
-                original_filename=video_data.get("original_filename"),
+                original_filename=video_data.get("original_filename", ""),
                 original_path=video_data.get("original_path"),
-                file_size=video_data.get("file_size"),
-                duration=video_data.get("duration"),
-                mime_type=video_data.get("mime_type", "video/mp4"),
+                file_size=video_data.get("file_size", 0),
+                duration=video_data.get("duration", 0),
+                mime_type=video_data.get("mime_type", ""),
                 status=video_data.get("status", "uploaded"),
-                video_type=video_data.get("video_type", "speech"),
+                video_type=video_data.get("video_type", "unknown"),
                 title=video_data.get("title"),
                 description=video_data.get("description"),
                 transcription=video_data.get("transcription"),
-                transcription_language=video_data.get("transcription_language"),
                 tags=video_data.get("tags", []),
                 ai_thumbnails=video_data.get("ai_thumbnails", []),
                 extracted_thumbnails=video_data.get("extracted_thumbnails", []),
@@ -550,15 +539,10 @@ class VideoService:
                 created_at=parse_datetime(video_data.get("created_at")),
                 updated_at=parse_datetime(video_data.get("updated_at")),
                 processing_started=parse_datetime(video_data.get("processing_started")),
-                processing_completed=parse_datetime(
-                    video_data.get("processing_completed")
-                ),
+                processing_completed=parse_datetime(video_data.get("processing_completed")),
                 error_message=video_data.get("error_message"),
                 retry_count=video_data.get("retry_count", 0),
             )
-
-            return video
-
         except Exception as e:
             logger.error(f"Error getting video {video_id}: {e}")
             return None
@@ -723,25 +707,38 @@ class VideoService:
             if video_data.get("user_id") != user_id:
                 return None
 
-            # Progress mapping
+            # Enhanced progress mapping with all possible statuses
             status_progress = {
                 "uploaded": 5,
                 "queued": 10,
+                "pending": 10,
                 "processing": 15,
                 "analyzing": 25,
                 "transcribing": 40,
+                "generating_metadata": 50,
                 "generating_title": 50,
                 "generating_thumbnails": 60,
                 "applying_styles": 75,
+                "applying_filters": 85,
                 "translating": 85,
                 "compressing": 95,
                 "completed": 100,
                 "failed": 0,
+                "error": 0
             }
 
             status = video_data.get("status", "uploaded")
             progress = status_progress.get(status, 0)
-
+            
+            # If there's a progress field in the data, use it
+            if video_data.get("progress"):
+                progress = video_data.get("progress")
+            
+            # Get output URL
+            output_url = video_data.get("output_video_url")
+            if not output_url:
+                output_url = video_data.get("output_path")
+            
             return {
                 "video_id": video_id,
                 "status": status,
@@ -749,12 +746,14 @@ class VideoService:
                 "error_message": video_data.get("error_message"),
                 "current_step": video_data.get("current_step", ""),
                 "estimated_time": video_data.get("estimated_time_remaining", 0),
+                "output_url": output_url if status == "completed" else None
             }
 
         except Exception as e:
             logger.error(f"Error getting processing status: {e}")
             return None
 
+    # In video_service.py
     def update_processing_status(self, video_id: str, status: str, progress: int, step: str = None):
         """Update video processing status in database."""
         try:
@@ -767,11 +766,17 @@ class VideoService:
                 "current_step": step,
                 "updated_at": datetime.utcnow().isoformat()
             }
-            self.db.save("videos", video_id, updates)
-            logger.info(f"📊 Status update for {video_id}: {status} - {progress}% - {step}")
             
-            # Also emit WebSocket update
+            # If status is completed, also set processing_completed timestamp
+            if status == "completed":
+                updates["processing_completed"] = datetime.utcnow().isoformat()
+            
+            self.db.save("videos", video_id, updates)
+            
+            # Emit WebSocket update
             self._emit_status_update(video_id, status, progress, step)
+            
+            logger.info(f"📊 Status update for {video_id}: {status} - {progress}% - {step}")
             
         except Exception as e:
             logger.error(f"Failed to update status: {e}")

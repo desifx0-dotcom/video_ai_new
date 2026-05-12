@@ -101,15 +101,11 @@ def process_video_async(
     self, video_id: str, user_id: str, options: Dict[str, Any] = None
 ):
     """
-    Process video asynchronously - PRODUCTION OPTIMIZED ORDER.
+    Process video asynchronously - PRODUCTION OPTIMIZED.
     
-    Processing order (optimal for quality & performance):
-    1. Speed change (affects timing, not resolution)
-    2. FPS change (affects timing)
-    3. Audio quality (independent)
-    4. Video styles (visual effects)
-    5. Quality scaling (final resolution)
-    6. Aspect ratio (final reshape - LAST)
+    Processing order:
+    1. Metadata & AI generation (silent/speech detection, transcription, metadata, thumbnails)
+    2. ALL video filters applied in SINGLE PASS (speed, fps, styles, quality, aspect ratio)
     """
     options = options or {}
     from services.user_service import UserService
@@ -117,6 +113,7 @@ def process_video_async(
     # Log received options
     logger.info("=" * 80)
     logger.info(f"📥 VIDEO PROCESSING STARTED for {video_id}")
+    logger.info(f"📥 User ID: {user_id}")
     logger.info(f"📥 Received options:")
     for key in ['quality', 'fps', 'audio_quality', 'aspect_ratio', 'speed', 'speed_presets', 'thumbnail_style', 'styles']:
         logger.info(f"   {key}: {options.get(key)}")
@@ -132,7 +129,7 @@ def process_video_async(
         # Send initial WebSocket update
         _send_ws_update(video_id, user_id, "queued", 5, "queued", "Video queued for processing")
 
-        #  INITIAL STATUS - QUEUED
+        # INITIAL STATUS - QUEUED
         video_service.update_processing_status(video_id, "queued", 5, "queued")
         
         # Update task state
@@ -141,7 +138,7 @@ def process_video_async(
             meta={"current": "starting", "total": 100, "status": "Initializing..."}
         )
 
-        #  STATUS - ANALYZING
+        # STATUS - ANALYZING
         video_service.update_processing_status(video_id, "processing", 10, "analyzing")
         _send_ws_update(video_id, user_id, "processing", 10, "analyzing", "Analyzing video...")
 
@@ -176,44 +173,58 @@ def process_video_async(
             video.speed = speed_value
             logger.info(f"✅ Setting speed: {speed_value}x")
             settings_changed = True
+        else:
+            video.speed = 1.0
         
         # 1.2 FPS
         if options.get("fps") and options["fps"] != "original":
             video.fps = options["fps"]
             logger.info(f"✅ Setting FPS: {options['fps']}")
             settings_changed = True
+        else:
+            video.fps = "original"
 
         # 1.3 Audio Quality
         if options.get("audio_quality") and options["audio_quality"] != "original":
             video.audio_quality = options["audio_quality"]
             logger.info(f"✅ Setting audio quality: {options['audio_quality']}")
             settings_changed = True
+        else:
+            video.audio_quality = "original"
 
         # 1.4 Output Quality
         if options.get("quality") and options["quality"] != "original":
             video.output_quality = options["quality"]
             logger.info(f"✅ Setting output quality: {options['quality']}")
             settings_changed = True
+        else:
+            video.output_quality = "original"
 
         # 1.5 Thumbnail Style (metadata only)
         if options.get("thumbnail_style"):
             video.thumbnail_style = options["thumbnail_style"]
             logger.info(f"✅ Setting thumbnail style: {options['thumbnail_style']}")
             settings_changed = True
+        else:
+            video.thumbnail_style = "default"
 
         # 1.6 Video Styles
         if options.get("styles") and len(options["styles"]) > 0:
             video.applied_styles = options["styles"]
             logger.info(f"✅ Setting video styles: {options['styles']}")
             settings_changed = True
+        else:
+            video.applied_styles = []
 
         # 1.7 Aspect Ratio (save for last)
         if options.get("aspect_ratio") and options["aspect_ratio"] != "original":
             video.aspect_ratio = options["aspect_ratio"]
             logger.info(f"✅ Setting aspect ratio (will apply last): {options['aspect_ratio']}")
             settings_changed = True
+        else:
+            video.aspect_ratio = "original"
 
-        # Save all settings to database before processing
+        # Save all settings to database
         if settings_changed:
             video_service.update_video(video)
             logger.info(f"💾 Saved video settings to database")
@@ -226,102 +237,46 @@ def process_video_async(
 
         if options.get("process_silent_video") or video_type == "silent":
             logger.info(f"Processing silent video: {video_id}")
-            # STATUS - PROCESSING SILENT
             video_service.update_processing_status(video_id, "processing", 20, "silent_analysis")
+            _send_ws_update(video_id, user_id, "processing", 20, "silent_analysis", "Analyzing silent video content...")
             _process_silent_video(video, options)
         else:
             if video_type == "speech" and options.get("auto_transcribe", True):
-                # STATUS - TRANSCRIBING
                 video_service.update_processing_status(video_id, "processing", 30, "transcribing")
                 _send_ws_update(video_id, user_id, "processing", 25, "transcribing", "Transcribing audio...")
                 self.update_state(state="PROGRESS", meta={"current": "transcribing", "total": 100, "status": "Transcribing audio..."})
                 _transcribe_video(video, options)
 
         # ========== STEP 3: GENERATE METADATA ==========
-         # STATUS - GENERATING METADATA
         video_service.update_processing_status(video_id, "processing", 40, "metadata")
         _send_ws_update(video_id, user_id, "processing", 35, "generating_metadata", "Generating title and description...")
         self.update_state(state="PROGRESS", meta={"current": "metadata", "total": 100, "status": "Generating metadata..."})
         _generate_metadata(video, options)
 
         # ========== STEP 4: GENERATE THUMBNAILS ==========
-                # STATUS - GENERATING THUMBNAILS
         video_service.update_processing_status(video_id, "processing", 50, "thumbnails")
         _send_ws_update(video_id, user_id, "processing", 45, "generating_thumbnails", "Creating thumbnails...")
         self.update_state(state="PROGRESS", meta={"current": "thumbnails", "total": 100, "status": "Generating thumbnails..."})
         _generate_thumbnails(video, options, user_id)
 
-        # ========== STEP 5: APPLY SPEED (timing change) ==========
-        if speed_value != 1.0:
-            logger.info(f"🎬 Applying speed change: {speed_value}x")
-            video_service.update_processing_status(video_id, "processing", 60, "speed")
-            _send_ws_update(video_id, user_id, "processing", 55, "speed", f"Applying speed change: {speed_value}x")
-            self.update_state(state="PROGRESS", meta={"current": "speed", "total": 100, "status": f"Adjusting speed to {speed_value}x..."})
-            success = _apply_speed(video, float(speed_value))
-            if success:
-                video_service.update_video(video)
-                logger.info(f"💾 Saved after speed: {speed_value}x")
-            else:
-                logger.warning(f"⚠️ Speed change failed, continuing")
+        # ========== STEP 5: APPLY ALL VIDEO FILTERS (SINGLE PASS) ==========
+        video_service.update_processing_status(video_id, "processing", 85, "applying_filters")
+        _send_ws_update(video_id, user_id, "processing", 85, "applying_filters", "Applying video effects...")
+        self.update_state(state="PROGRESS", meta={"current": "applying_filters", "total": 100, "status": "Applying video effects..."})
 
-        # ========== STEP 6: APPLY FPS (timing change) ==========
-        if video.fps and video.fps != "original":
-            video_service.update_processing_status(video_id, "processing", 70, "fps")
-            _send_ws_update(video_id, user_id, "processing", 65, "fps", f"Adjusting frame rate to {video.fps} fps")
-            self.update_state(state="PROGRESS", meta={"current": "fps", "total": 100, "status": f"Adjusting frame rate to {video.fps} fps..."})
-            _apply_fps(video, video.fps)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved after FPS: {video.fps}")
+        output_path = _apply_all_filters_production(video, options)
 
-        # ========== STEP 7: APPLY AUDIO QUALITY ==========
-        if video.audio_quality and video.audio_quality != "original":
-            video_service.update_processing_status(video_id, "processing", 75, "audio")
-            _send_ws_update(video_id, user_id, "processing", 75, "audio", f"Adjusting audio quality to {video.audio_quality}")
-            self.update_state(state="PROGRESS", meta={"current": "audio", "total": 100, "status": "Adjusting audio quality..."})
-            _apply_audio_quality(video, video.audio_quality)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved after audio: {video.audio_quality}")
+        if not output_path:
+            raise ProcessingError("Failed to apply video filters")
 
-        # ========== STEP 8: APPLY VIDEO STYLES ==========
-        if video.applied_styles and len(video.applied_styles) > 0:
-            video_service.update_processing_status(video_id, "processing", 80, "styles")
-            _send_ws_update(video_id, user_id, "processing", 82, "styles", "Applying video styles...")
-            self.update_state(state="PROGRESS", meta={"current": "styles", "total": 100, "status": "Applying video styles..."})
-            _apply_video_styles(video, video.applied_styles)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved after styles: {video.applied_styles}")
-
-        # ========== STEP 9: APPLY QUALITY SCALING ==========
-        if video.output_quality and video.output_quality != "original":
-            video_service.update_processing_status(video_id, "processing", 85, "quality")
-            _send_ws_update(video_id, user_id, "processing", 88, "quality", f"Scaling to {video.output_quality}")
-            self.update_state(state="PROGRESS", meta={"current": "quality", "total": 100, "status": f"Scaling to {video.output_quality}..."})
-            _apply_quality(video, video.output_quality)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved after quality: {video.output_quality}")
-
-        # ========== STEP 10: APPLY ASPECT RATIO (LAST - final reshape) ==========
-        if video.aspect_ratio and video.aspect_ratio != "original":
-            video_service.update_processing_status(video_id, "processing", 90, "aspect_ratio")
-            _send_ws_update(video_id, user_id, "processing", 94, "aspect_ratio", f"Changing aspect ratio to {video.aspect_ratio}")
-            self.update_state(state="PROGRESS", meta={"current": "aspect_ratio", "total": 100, "status": f"Changing aspect ratio to {video.aspect_ratio}..."})
-            _apply_aspect_ratio(video, video.aspect_ratio)
-            video_service.update_video(video)
-            logger.info(f"💾 Saved after aspect ratio: {video.aspect_ratio}")
-
-        # ========== STEP 11: FINALIZE ==========
-        video_service.update_processing_status(video_id, "processing", 95, "finalizing")
-        _send_ws_update(video_id, user_id, "processing", 98, "finalizing", "Finalizing output...")
-        self.update_state(state="PROGRESS", meta={"current": "finalizing", "total": 100, "status": "Finalizing output..."})
-        output_path = _finalize_video(video, options)
-
-        # ========== STEP 12: COMPLETE ==========
+        # ========== STEP 6: COMPLETE ==========
         video.status = "completed"
         video.processing_completed = datetime.utcnow()
         if video.processing_started:
             video.processing_time = (video.processing_completed - video.processing_started).total_seconds()
         video.output_video_url = output_path
         video.output_path = output_path
+        video.output_video_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
         
         video_service.update_video(video)
         
@@ -334,19 +289,13 @@ def process_video_async(
         logger.info(f"   audio_quality: {video.audio_quality}")
         logger.info(f"   aspect_ratio: {video.aspect_ratio}")
         logger.info(f"   speed: {getattr(video, 'speed', 1.0)}x")
+        logger.info(f"   styles: {video.applied_styles}")
         logger.info(f"   output_path: {output_path}")
+        logger.info(f"   output_size: {video.output_video_size:,} bytes")
         logger.info("=" * 80)
 
         # Send completion notification
         _send_ws_completed(video_id, user_id, video.output_video_url, video.processing_time, video.total_cost)
-
-        # Verify output path
-        if not video.output_video_url or not os.path.exists(video.output_video_url):
-            final_output = video.output_path if hasattr(video, "output_path") and video.output_path else None
-            if final_output and os.path.exists(final_output):
-                video.output_video_url = final_output
-                video_service.update_video(video)
-                logger.info(f"[FIX] Set output_video_url to: {final_output}")
 
         return {
             "success": True,
@@ -365,7 +314,7 @@ def process_video_async(
         return {"success": False, "video_id": video_id, "error": str(e), "retries_exhausted": True}
 
     except Exception as e:
-        logger.error(f"Video processing failed: {str(e)}")
+        logger.error(f"Unexpected error in video processing: {str(e)}")
         logger.error(f"Full traceback: {traceback.format_exc()}")
         _send_ws_failed(video_id, user_id, str(e), self.request.retries, self.request.retries < self.max_retries)
 
@@ -769,752 +718,344 @@ def emit_websocket_update(video_id, user_id, status, progress):
     except Exception as e:
         logger.warning(f"WebSocket emit failed for video {video_id}: {e}")
 
-def _apply_video_styles(video, styles):
+def _apply_all_filters_production(video, options):
     """
-    PRODUCTION SMART VERSION:
-    1. Scales DOWN to 720p for memory-efficient processing
-    2. Applies styles to the scaled version
-    3. Scales BACK UP to original resolution (preserves quality!)
+    SINGLE-PASS: ONE FFmpeg command, ONE output file, ALL features applied.
+    With progress tracking and detailed error logging.
     """
     import os
     import subprocess
-    import time
     import json
-    import uuid
+    import glob
 
-    try:
-        input_path = video.output_path if hasattr(video, "output_path") and video.output_path else video.original_path
+    logger.info("=" * 80)
+    logger.info("[MASTER] 🎬 SINGLE-PASS FILTER APPLICATION")
+    
+    input_path = video.original_path
+    if not input_path or not os.path.exists(input_path):
+        logger.error(f"[MASTER] Input not found: {input_path}")
+        return None
 
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[STYLES] Input not found: {input_path}")
-            return
-
-        # ========== 1. Get ORIGINAL resolution ==========
-        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                     "-show_entries", "stream=width,height", "-of", "json", input_path]
+    # ========== 1. COLLECT ALL FEATURES FOR FILENAME ==========
+    features_parts = []
+    video_short_id = video.id[:8]
+    
+    quality = getattr(video, 'output_quality', 'original')
+    if quality and quality != 'original':
+        features_parts.append(quality)
+    
+    aspect_ratio = getattr(video, 'aspect_ratio', 'original')
+    if aspect_ratio and aspect_ratio != 'original':
+        features_parts.append(aspect_ratio.replace(':', 'x'))
+    
+    speed = getattr(video, 'speed', 1.0)
+    if speed != 1.0:
+        speed_str = f"{speed}x".replace('.', '_')
+        features_parts.append(f"speed_{speed_str}")
+    
+    fps = getattr(video, 'fps', 'original')
+    if fps and fps != 'original' and fps.isdigit():
+        features_parts.append(f"fps_{fps}")
+    
+    styles = getattr(video, 'applied_styles', [])
+    if styles:
+        style_names = [s[:8] for s in styles[:2]]
+        features_parts.append(f"style_{'_'.join(style_names)}")
+    
+    audio_quality = getattr(video, 'audio_quality', 'original')
+    if audio_quality and audio_quality != 'original':
+        features_parts.append(f"audio_{audio_quality}")
+    
+    if features_parts:
+        features_str = "_".join(features_parts)
+        output_filename = f"final_{video_short_id}_{features_str}.mp4"
+    else:
+        output_filename = f"final_{video_short_id}_original.mp4"
+    
+    output_path = os.path.join(os.path.dirname(input_path), output_filename)
+    
+    logger.info(f"[MASTER] 📝 Output: {output_filename}")
+    
+    # UPDATE: Start processing
+    video_service.update_processing_status(video.id, "processing", 86, "applying_speed")
+    
+    # ========== 2. BUILD FILTER CHAIN - ONE FILTER AT A TIME ==========
+    current_input = input_path
+    temp_files = []
+    
+    # 2.1 Apply SPEED first (if needed)
+    if speed != 1.0:
+        temp_speed = output_path.replace(".mp4", "_temp_speed.mp4")
+        temp_files.append(temp_speed)
         
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        logger.info(f"[MASTER] Step 1: Applying speed {speed}x")
+        video_service.update_processing_status(video.id, "processing", 87, "applying_speed")
         
-        original_width = 1920
-        original_height = 1080
+        # Build audio filter for speed
+        if speed > 2.0:
+            audio_filter = f"atempo=2.0,atempo={speed/2.0}"
+        elif speed < 0.5:
+            audio_filter = f"atempo=0.5,atempo={speed/0.5}"
+        else:
+            audio_filter = f"atempo={speed}"
         
-        if result.returncode == 0:
-            info = json.loads(result.stdout)
-            original_width = info.get('streams', [{}])[0].get('width', 1920)
-            original_height = info.get('streams', [{}])[0].get('height', 1080)
-            logger.info(f"[STYLES] 📐 ORIGINAL resolution: {original_width}x{original_height}")
-
-        # ========== 2. CREATE scaled version for processing ==========
-        temp_dir = os.path.dirname(input_path)
-        scaled_path = os.path.join(temp_dir, f"temp_scaled_{uuid.uuid4().hex[:8]}.mp4")
-        
-        logger.info(f"[STYLES] 📐 TEMPORARILY scaling down to 1280x720 for processing (memory efficient)")
-        
-        scale_cmd = [
-            "ffmpeg", "-i", input_path,
-            "-vf", "scale=1280:720",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "18",
-            "-c:a", "copy",
-            "-y", scaled_path
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-filter_complex", f"[0:v]setpts={1.0/speed}*PTS[v];[0:a]{audio_filter}[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-y", temp_speed
         ]
         
-        scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
-        if scale_result.returncode != 0 or not os.path.exists(scaled_path):
-            logger.warning(f"[STYLES] Scaling failed, continuing with original resolution")
-            working_path = input_path
-            needs_restore = False
-        else:
-            working_path = scaled_path
-            needs_restore = True
-            logger.info(f"[STYLES] ✅ Scaled to 720p for processing")
+        if result.returncode != 0:
+            logger.error(f"[MASTER] Speed failed: {result.stderr[:500]}")
+            return None
+        
+        current_input = temp_speed
+        logger.info(f"[MASTER] ✅ Speed applied")
+    
+    # 2.2 Apply FPS (if needed)
+    if fps != 'original' and fps.isdigit():
+        temp_fps = output_path.replace(".mp4", "_temp_fps.mp4")
+        temp_files.append(temp_fps)
+        
+        logger.info(f"[MASTER] Step 2: Applying FPS {fps}")
+        video_service.update_processing_status(video.id, "processing", 88, "applying_fps")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-vf", f"fps={fps}",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            "-y", temp_fps
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            logger.error(f"[MASTER] FPS failed: {result.stderr[:500]}")
+            return None
+        
+        current_input = temp_fps
+        logger.info(f"[MASTER] ✅ FPS applied")
+    
+    # 2.3 Apply VIDEO STYLES (if any)
+    style_filters = {
+                "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=-0.3",
+                "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
+                "educational": "eq=brightness=0.02:contrast=1.08:saturation=1.05",
+                "gaming": "eq=saturation=1.25:contrast=1.1:brightness=0.03",
+                "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
+                "travel": "eq=saturation=1.15:contrast=1.05:brightness=0.05",
+                "professional": "eq=contrast=1.05:saturation=0.95",
+                "documentary": "eq=brightness=0:contrast=1.02:saturation=0.92",
+                "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
+                "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
+                "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
+                "cinematic_pro": "eq=brightness=0.04:contrast=1.2:saturation=1.05",
+                "artistic": "eq=saturation=1.15:contrast=1.08:brightness=0.02",
+                "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
+                "futuristic": "eq=saturation=1.2:contrast=1.12:brightness=0.04",
+            }
 
-        # ========== 3. Apply styles to scaled version ==========
-        style_filters = {
-            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
-            "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
-            "educational": "eq=brightness=0.02:contrast=1.08:saturation=1.05",
-            "gaming": "eq=saturation=1.25:contrast=1.1:brightness=0.03",
-            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
-            "travel": "eq=saturation=1.15:contrast=1.05:brightness=0.05",
-            "professional": "eq=contrast=1.05:saturation=0.95",
-            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.92",
-            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
-            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
-            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
-            "cinematic_pro": "eq=brightness=0.04:contrast=1.2:saturation=1.05",
-            "artistic": "eq=saturation=1.15:contrast=1.08:brightness=0.02",
-            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
-            "futuristic": "eq=saturation=1.2:contrast=1.12:brightness=0.04",
-        }
-
-        style_names = {
-            "cinematic": "Cinematic", "bright": "Bright & Vibrant",
-            "educational": "Educational", "gaming": "Gaming",
-            "vlog": "Vlog", "travel": "Travel",
-            "professional": "Professional", "documentary": "Documentary",
-            "wedding": "Wedding", "corporate": "Corporate",
-            "real_estate": "Real Estate", "cinematic_pro": "Cinematic Pro",
-            "artistic": "Artistic", "retro": "Retro", "futuristic": "Futuristic",
-        }
-
-        applied = []
-        current_input = working_path
-
-        for style_name in styles:
-            filter_chain = style_filters.get(style_name)
-            if not filter_chain:
-                continue
-
-            display_name = style_names.get(style_name, style_name)
-            base_name = os.path.splitext(current_input)[0]
-            output_path = f"{base_name}_styled_{style_name}.mp4"
-
-            logger.info(f"[STYLES] Applying '{display_name}' to scaled video")
-
+    if styles:
+        style_filter = []
+        for style in styles:
+            if style in style_filters:
+                style_filter.append(style_filters[style])
+        
+        if style_filter:
+            temp_style = output_path.replace(".mp4", "_temp_style.mp4")
+            temp_files.append(temp_style)
+            
+            logger.info(f"[MASTER] Step 3: Applying styles: {styles}")
+            video_service.update_processing_status(video.id, "processing", 89, "applying_styles")
+            
             cmd = [
                 "ffmpeg", "-i", current_input,
-                "-vf", filter_chain,
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "20",
+                "-vf", ",".join(style_filter),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "copy",
-                "-movflags", "+faststart",
-                "-y", output_path,
+                "-y", temp_style
             ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-
-            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                if current_input != working_path and os.path.exists(current_input):
-                    try:
-                        os.remove(current_input)
-                    except:
-                        pass
-                current_input = output_path
-                applied.append(style_name)
-                logger.info(f"[STYLES] ✅ Applied '{display_name}' to scaled version")
-            else:
-                logger.error(f"[STYLES] ❌ Failed to apply '{display_name}'")
-                break
-
-        # ========== 4. RESTORE to original resolution ==========
-        if applied and needs_restore and os.path.exists(current_input):
-            final_output = current_input.replace("_styled_", f"_styled_final_{original_width}x{original_height}_")
             
-            logger.info(f"[STYLES] 🔄 RESTORING to original resolution {original_width}x{original_height}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
-            restore_cmd = [
+            if result.returncode != 0:
+                logger.error(f"[MASTER] Style failed: {result.stderr[:500]}")
+                return None
+            
+            current_input = temp_style
+            logger.info(f"[MASTER] ✅ Styles applied")
+    
+    # 2.4 Apply QUALITY (downscale if needed)
+    quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
+    if quality in quality_map:
+        target_height = quality_map[quality]
+        
+        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height", "-of", "json", current_input]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        
+        current_height = 1080
+        if probe_result.returncode == 0:
+            info = json.loads(probe_result.stdout)
+            current_height = info.get('streams', [{}])[0].get('height', 1080)
+        
+        if target_height < current_height:
+            temp_quality = output_path.replace(".mp4", "_temp_quality.mp4")
+            temp_files.append(temp_quality)
+            
+            logger.info(f"[MASTER] Step 4: Scaling to {quality} ({target_height}p)")
+            video_service.update_processing_status(video.id, "processing", 91, "applying_quality")
+            
+            cmd = [
                 "ffmpeg", "-i", current_input,
-                "-vf", f"scale={original_width}:{original_height}:force_original_aspect_ratio=decrease,pad={original_width}:{original_height}:(ow-iw)/2:(oh-ih)/2",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "18",
+                "-vf", f"scale=-2:{target_height}",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "copy",
-                "-movflags", "+faststart",
-                "-y", final_output
+                "-y", temp_quality
             ]
             
-            restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
-            if restore_result.returncode == 0 and os.path.exists(final_output):
-                # Update video to use the restored high-quality version
-                video.output_path = final_output
-                logger.info(f"[STYLES] ✅ RESTORED to {original_width}x{original_height}")
-                
-                # Clean up styled version (no longer needed)
-                if os.path.exists(current_input) and current_input != final_output:
-                    try:
-                        os.remove(current_input)
-                    except:
-                        pass
-            else:
-                # Restore failed, keep the styled version
-                video.output_path = current_input
-                logger.warning(f"[STYLES] Restore failed, keeping scaled version")
-        elif applied:
-            video.output_path = current_input
-
-        # Update video
-        if applied:
-            video.applied_styles = applied
-            video_service.update_video(video)
-            logger.info(f"[STYLES] ✅ Final resolution: {original_width}x{original_height}")
-            logger.info(f"[STYLES] ✅ Styles applied: {applied}")
-
-        # ========== 5. Cleanup ==========
-        if needs_restore and os.path.exists(scaled_path):
+            if result.returncode != 0:
+                logger.error(f"[MASTER] Quality scaling failed: {result.stderr[:500]}")
+                return None
+            
+            current_input = temp_quality
+            logger.info(f"[MASTER] ✅ Quality applied")
+    
+    # 2.5 Apply AUDIO QUALITY (if needed)
+    audio_bitrate_map = {"128k": "128k", "192k": "192k", "256k": "256k", "320k": "320k"}
+    audio_bitrate = audio_bitrate_map.get(audio_quality, None)
+    
+    if audio_bitrate and audio_quality != 'original':
+        temp_audio = output_path.replace(".mp4", "_temp_audio.mp4")
+        temp_files.append(temp_audio)
+        
+        logger.info(f"[MASTER] Step 5: Applying audio quality {audio_bitrate}")
+        video_service.update_processing_status(video.id, "processing", 93, "applying_audio")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", audio_bitrate,
+            "-y", temp_audio
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            logger.error(f"[MASTER] Audio quality failed: {result.stderr[:500]}")
+            return None
+        
+        current_input = temp_audio
+        logger.info(f"[MASTER] ✅ Audio quality applied")
+    
+    # 2.6 Apply ASPECT RATIO (last step)
+    aspect_dimensions = {
+        "16:9": (1920, 1080),
+        "9:16": (1080, 1920),
+        "1:1": (1080, 1080),
+        "4:5": (1080, 1350),
+        "2:3": (1080, 1620),
+    }
+    
+    if aspect_ratio in aspect_dimensions:
+        target_w, target_h = aspect_dimensions[aspect_ratio]
+        
+        logger.info(f"[MASTER] Step 6: Applying aspect ratio {aspect_ratio} ({target_w}x{target_h})")
+        video_service.update_processing_status(video.id, "processing", 95, "applying_aspect_ratio")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            "-y", output_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            logger.error(f"[MASTER] Aspect ratio failed: {result.stderr[:500]}")
+            return None
+    else:
+        # No aspect ratio change, just copy the final file
+        import shutil
+        shutil.copy2(current_input, output_path)
+    
+    # ========== 3. CLEANUP TEMP FILES ==========
+    for temp_file in temp_files:
+        if os.path.exists(temp_file) and temp_file != output_path:
             try:
-                os.remove(scaled_path)
+                os.remove(temp_file)
+                logger.info(f"[CLEANUP] Deleted: {os.path.basename(temp_file)}")
             except:
                 pass
-
-    except Exception as e:
-        logger.error(f"[STYLES] Failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-def _apply_aspect_ratio(video, aspect_ratio):
-    """
-    Actually change the video container resolution to target aspect ratio.
-    Uses letterboxing (keeps all content, no cropping).
-    """
-    import os
-    import subprocess
-    import json
-    import uuid
-
-    try:
-        input_path = (
-            video.output_path
-            if hasattr(video, "output_path") and video.output_path
-            else video.original_path
-        )
-
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[ASPECT] Input path does not exist: {input_path}")
-            return False
-
-        # Get original resolution
-        probe_cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height", "-of", "json", input_path
-        ]
-        
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
-        orig_width, orig_height = 1920, 1080
-        
-        if result.returncode == 0:
-            info = json.loads(result.stdout)
-            orig_width = info.get('streams', [{}])[0].get('width', 1920)
-            orig_height = info.get('streams', [{}])[0].get('height', 1080)
-            logger.info(f"[ASPECT] Original resolution: {orig_width}x{orig_height}")
-
-        # Target dimensions for each aspect ratio
-        aspect_map = {
-            "16:9": (1920, 1080),
-            "9:16": (1080, 1920),   # This will CHANGE your video to 1080x1920
-            "1:1": (1080, 1080),
-            "4:5": (1080, 1350),
-            "2:3": (1080, 1620),
-            "3:2": (1920, 1280),
-            "21:9": (2560, 1080),
-            "5:4": (1280, 1024),
-        }
-
-        if aspect_ratio not in aspect_map:
-            logger.warning(f"[ASPECT] Unknown aspect ratio: {aspect_ratio}")
-            return False
-
-        target_width, target_height = aspect_map[aspect_ratio]
-        
-        logger.info(f"[ASPECT] 🎯 CHANGING VIDEO RESOLUTION to: {target_width}x{target_height}")
-        logger.info(f"[ASPECT] Original: {orig_width}x{orig_height} → Target: {target_width}x{target_height}")
-
-        # Create output path with new resolution
-        temp_dir = os.path.dirname(input_path)
-        output_filename = f"{uuid.uuid4().hex[:8]}_{aspect_ratio.replace(':', 'x')}.mp4"
-        output_path = os.path.join(temp_dir, output_filename)
-
-        # Calculate scaling to fit within target (letterbox, no crop)
-        # This scales the video to fit INSIDE the target dimensions
-        scale_to_fit_width = target_width / orig_width
-        scale_to_fit_height = target_height / orig_height
-        scale_factor = min(scale_to_fit_width, scale_to_fit_height)  # Use min to fit within
-        
-        scaled_width = int(orig_width * scale_factor)
-        scaled_height = int(orig_height * scale_factor)
-        
-        # Ensure dimensions are even (required for h.264)
-        scaled_width = scaled_width if scaled_width % 2 == 0 else scaled_width + 1
-        scaled_height = scaled_height if scaled_height % 2 == 0 else scaled_height + 1
-        
-        logger.info(f"[ASPECT] Scaling video to: {scaled_width}x{scaled_height}")
-        logger.info(f"[ASPECT] Padding to: {target_width}x{target_height}")
-
-        # CRITICAL: This actually changes the output resolution!
-        scale_and_pad = (
-            f"scale={scaled_width}:{scaled_height}:force_original_aspect_ratio=decrease,"
-            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2"
-        )
-
-        cmd = [
-            "ffmpeg", "-i", input_path,
-            "-vf", scale_and_pad,
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-y", output_path
-        ]
-
-        logger.info(f"[ASPECT] Running FFmpeg command...")
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            # Verify the output resolution
-            verify_cmd = [
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=width,height", "-of", "json", output_path
-            ]
-            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
-            
-            if verify_result.returncode == 0:
-                info = json.loads(verify_result.stdout)
-                actual_width = info.get('streams', [{}])[0].get('width', 0)
-                actual_height = info.get('streams', [{}])[0].get('height', 0)
-                logger.info(f"[ASPECT] ✅ Output resolution: {actual_width}x{actual_height}")
-                
-                if actual_width == target_width and actual_height == target_height:
-                    logger.info(f"[ASPECT] ✅ SUCCESS! Video resolution changed to {target_width}x{target_height}")
-                else:
-                    logger.warning(f"[ASPECT] Output resolution {actual_width}x{actual_height} != target {target_width}x{target_height}")
-            
-            # Update video object
-            video.output_path = output_path
-            video.aspect_ratio = aspect_ratio
-            video_service.update_video(video)
-            
-            logger.info(f"[ASPECT] ✅ Final output: {output_path}")
-            logger.info(f"[ASPECT] ✅ New resolution: {target_width}x{target_height}")
-            
-            return True
-        else:
-            logger.error(f"[ASPECT] ❌ FFmpeg error: {result.stderr[:500]}")
-            return False
-
-    except Exception as e:
-        logger.error(f"[ASPECT] Exception: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-def _apply_fps(video, fps):
-    """Apply FPS change with smart scaling for large videos."""
-    import os
-    import subprocess
-    import json
-    import uuid
-
-    try:
-        input_path = (
-            video.output_path
-            if hasattr(video, "output_path") and video.output_path
-            else video.original_path
-        )
-
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[FPS] Input path does not exist: {input_path}")
-            return False
-
-        # Get original resolution
-        probe_cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height", "-of", "json", input_path
-        ]
-        
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
-        width, height = 1920, 1080
-        
-        if result.returncode == 0:
-            info = json.loads(result.stdout)
-            width = info.get('streams', [{}])[0].get('width', 1920)
-            height = info.get('streams', [{}])[0].get('height', 1080)
-            logger.info(f"[FPS] Original resolution: {width}x{height}")
-
-        # Determine working path (scale down if needed)
-        working_path = input_path
-        temp_dir = os.path.dirname(input_path)
-        temp_files = []
-
-        # 🔥 FORCE SCALE for large videos (>1080p)
-        if width > 1920 or height > 1080:
-            scaled_path = os.path.join(temp_dir, f"temp_fps_scaled_{uuid.uuid4().hex[:8]}.mp4")
-            temp_files.append(scaled_path)
-            
-            logger.info(f"[FPS] 📐 Scaling {width}x{height} → 1280x720 for processing")
-            
-            scale_cmd = [
-                "ffmpeg", "-i", input_path,
-                "-vf", "scale=1280:720",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
-                "-c:a", "copy",
-                "-y", scaled_path
-            ]
-            
-            scale_result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=120)
-            
-            if scale_result.returncode == 0 and os.path.exists(scaled_path):
-                working_path = scaled_path
-                logger.info(f"[FPS] ✅ Scaled to 720p")
-            else:
-                logger.warning(f"[FPS] Scaling failed, continuing at original resolution")
-
-        # Apply FPS
-        base_name = os.path.splitext(working_path)[0]
-        output_path = f"{base_name}_fps_{fps}.mp4"
-        temp_files.append(output_path)
-
-        logger.info(f"[FPS] Applying FPS {fps}")
-
-        cmd = [
-            "ffmpeg", "-i", working_path,
-            "-vf", f"fps={fps}",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",  # 🔥 Use ultrafast for memory efficiency
-            "-crf", "23",            # 🔥 Higher CRF = less memory
-            "-c:a", "copy",
-            "-movflags", "+faststart",
-            "-y", output_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            # If we scaled, we need to scale back to original resolution
-            final_path = output_path
-            
-            if working_path != input_path and (width > 1920 or height > 1080):
-                restore_path = output_path.replace(".mp4", f"_restored.mp4")
-                temp_files.append(restore_path)
-                
-                logger.info(f"[FPS] 🔄 Restoring to original resolution {width}x{height}")
-                
-                restore_cmd = [
-                    "ffmpeg", "-i", output_path,
-                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
-                    "-c:v", "libx264",
-                    "-preset", "fast",
-                    "-crf", "23",
-                    "-c:a", "copy",
-                    "-y", restore_path
-                ]
-                
-                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=180)
-                
-                if restore_result.returncode == 0 and os.path.exists(restore_path):
-                    final_path = restore_path
-                    logger.info(f"[FPS] ✅ Restored to {width}x{height}")
-                else:
-                    logger.warning(f"[FPS] Restore failed, keeping processed version")
-            
-            video.output_path = final_path
-            video.fps = fps
-            video.output_video_url = final_path
-            video_service.update_video(video)
-            logger.info(f"[FPS] ✅ Restored to {width}x{height} and set output_url to {final_path}")
-            logger.info(f"[FPS] ✅ Success! fps={fps}")
-            
-            # Cleanup temp files
-            for temp_file in temp_files:
-                if temp_file != video.output_path and os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except:
-                        pass
-            
-            return True
-        else:
-            logger.error(f"[FPS] ❌ FFmpeg error: {result.stderr[:300]}")
-            return False
-
-    except Exception as e:
-        logger.error(f"[FPS] Exception: {e}")
-        return False
-
-def _apply_speed(video, speed):
-    """
-    Apply time remapping (speed change) to video.
-    speed < 1.0 = slow motion (longer duration)
-    speed > 1.0 = fast motion (shorter duration)
-    """
-    import os
-    import subprocess
-    import json
-
-    try:
-        # Get current video path
-        input_path = video.output_path if hasattr(video, "output_path") and video.output_path else video.original_path
-
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[SPEED] Input path does not exist: {input_path}")
-            return False
-
-        if speed == 1.0 or speed is None:
-            logger.info(f"[SPEED] Speed unchanged (1.0x), skipping")
-            return True
-
-        # Get original duration for logging
-        try:
-            probe_cmd = [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "json", input_path
-            ]
-            result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode == 0:
-                info = json.loads(result.stdout)
-                original_duration = float(info.get('format', {}).get('duration', 0))
-                logger.info(f"[SPEED] Original duration: {original_duration:.2f}s")
-        except:
-            original_duration = 0
-
-        # Prepare output path
-        base_name = os.path.splitext(input_path)[0]
-        output_path = f"{base_name}_speed_{speed}x.mp4"
-
-        # FFMPEG COMMAND
-        # Using setpts for video and atempo for audio separately
-        if speed > 1.0:
-            # Fast forward
-            video_filter = f"setpts={1.0/speed}*PTS"
-            audio_filter = f"atempo={speed}"
-            
-            cmd = [
-                "ffmpeg", "-i", input_path,
-                "-vf", video_filter,
-                "-af", audio_filter,
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "+faststart",
-                "-y", output_path
-            ]
-        else:
-            # Slow motion (speed < 1.0)
-            # For slow motion, atempo can't go below 0.5, so we need a different approach
-            slow_factor = 1.0 / speed  # e.g., 0.5 speed = 2.0 slow_factor
-            
-            video_filter = f"setpts={slow_factor}*PTS"
-            
-            # For audio slow motion, we need to chain atempo filters
-            # Max atempo is 2.0, so we chain multiple if needed
-            remaining = slow_factor
-            audio_filters = []
-            while remaining > 2.0:
-                audio_filters.append("atempo=2.0")
-                remaining /= 2.0
-            if remaining > 0.5:
-                audio_filters.append(f"atempo={remaining}")
-            else:
-                # If below 0.5, use a different approach
-                audio_filters.append(f"atempo=0.5")
-            
-            audio_filter = ",".join(audio_filters)
-            
-            cmd = [
-                "ffmpeg", "-i", input_path,
-                "-vf", video_filter,
-                "-af", audio_filter,
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "+faststart",
-                "-y", output_path
-            ]
-
-        logger.info(f"[SPEED] Running: {' '.join(cmd[:10])}...")  # Log first part
-        logger.info(f"[SPEED] Speed: {speed}x → Output: {output_path}")
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            # Update video object
-            video.output_path = output_path
-            video.output_video_url = output_path
-            video.speed = speed
-            
-            # Update duration estimate
-            if original_duration > 0:
-                video.duration = original_duration / speed if speed != 0 else original_duration
-                logger.info(f"[SPEED] New duration: {video.duration:.2f}s")
-            
-            logger.info(f"[SPEED] ✅ Successfully applied {speed}x speed change")
-            return True
-        else:
-            logger.error(f"[SPEED] ❌ FFmpeg error: {result.stderr[:500]}")
-            return False
-
-    except subprocess.TimeoutExpired:
-        logger.error(f"[SPEED] Timeout expired for speed change")
-        return False
-    except Exception as e:
-        logger.error(f"[SPEED] Exception: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
     
-def _apply_audio_quality(video, quality):
-    """Apply audio quality and update output_path - FIXED to actually update video."""
+    # Clean up old final files
+    for old_file in glob.glob(os.path.join(os.path.dirname(input_path), f"*{video_short_id}*.mp4")):
+        if old_file != output_path and old_file != input_path:
+            try:
+                os.remove(old_file)
+                logger.info(f"[CLEANUP] Deleted old: {os.path.basename(old_file)}")
+            except:
+                pass
+    
+    # ========== 4. UPDATE VIDEO OBJECT ==========
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        video.output_path = output_path
+        video.output_video_url = output_path
+        video.output_video_size = os.path.getsize(output_path)
+        video_service.update_video(video)
+        
+        # 🔥 CRITICAL: Set final status to COMPLETED with 100% progress
+        video_service.update_processing_status(video.id, "completed", 100, "completed")
+        
+        logger.info(f"[MASTER] ✅ FINAL OUTPUT: {output_filename}")
+        logger.info(f"[MASTER] ✅ File size: {video.output_video_size:,} bytes")
+        return output_path
+    
+    logger.error(f"[MASTER] ❌ Failed to create output file")
+    return None
+
+def _cleanup_duplicate_files(video, final_path, original_path):
+    """Clean up duplicate intermediate files created by previous processing."""
     import os
-    import subprocess
-
+    import glob
+    import shutil
+    
     try:
-        input_path = video.output_path if hasattr(video, "output_path") and video.output_path else video.original_path
-
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[AUDIO] Input path does not exist: {input_path}")
-            return False
-
-        base_name = os.path.splitext(input_path)[0]
-        output_path = f"{base_name}_audio_{quality}.mp4"
-
-        logger.info(f"[AUDIO] Input: {input_path}")
-        logger.info(f"[AUDIO] Output: {output_path}")
-
-        bitrate_map = {"128k": "128k", "192k": "192k", "256k": "256k", "320k": "320k"}
-        bitrate = bitrate_map.get(quality, "192k")
-
-        cmd = [
-            "ffmpeg", "-i", input_path,
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", bitrate,
-            "-y", output_path
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            # 🔥 CRITICAL: Update ALL output fields
-            video.output_path = output_path
-            video.audio_quality = quality
-            video.output_video_url = output_path
-            video.output_video_size = os.path.getsize(output_path)
-            video_service.update_video(video)
+        base_dir = os.path.dirname(original_path)
+        video_id_pattern = video.id[:8]
+        
+        # Find all files related to this video
+        pattern = os.path.join(base_dir, f"*{video_id_pattern}*.mp4")
+        all_files = glob.glob(pattern)
+        
+        deleted_count = 0
+        for file_path in all_files:
+            # Keep only original and final output
+            if file_path == original_path or file_path == final_path:
+                continue
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+                logger.info(f"[CLEANUP] Deleted: {os.path.basename(file_path)}")
+            except Exception as e:
+                logger.warning(f"[CLEANUP] Failed to delete {file_path}: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"[CLEANUP] Deleted {deleted_count} intermediate files")
             
-            logger.info(f"[AUDIO] ✅ Success! New output_path: {video.output_path}")
-            logger.info(f"[AUDIO] ✅ Updated output_video_url: {video.output_video_url}")
-            return True
-        else:
-            logger.error(f"[AUDIO] ❌ FFmpeg error: {result.stderr[:300]}")
-            return False
-
     except Exception as e:
-        logger.error(f"[AUDIO] Exception: {e}")
-        return False
-
-def _apply_quality(video, quality):
-    """Apply quality scaling while respecting original resolution"""
-    import os
-    import subprocess
-
-    try:
-        input_path = (
-            video.output_path
-            if hasattr(video, "output_path") and video.output_path
-            else video.original_path
-        )
-
-        if not input_path or not os.path.exists(input_path):
-            logger.error(f"[QUALITY] Input not found: {input_path}")
-            return False
-
-        # Get original resolution
-        probe_cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=p=0",
-            input_path,
-        ]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
-
-        if result.returncode == 0 and result.stdout:
-            parts = result.stdout.strip().split(",")
-            orig_width, orig_height = int(parts[0]), int(parts[1])
-        else:
-            orig_width, orig_height = 1920, 1080
-
-        logger.info(f"[QUALITY] Original resolution: {orig_width}x{orig_height}")
-
-        # Quality to max dimensions mapping
-        quality_max = {
-            "480p": (854, 480),
-            "720p": (1280, 720),
-            "1080p": (1920, 1080),
-            "2K": (2560, 1440),
-            "4k": (3840, 2160),
-            "4K+HDR": "3840:2160",
-            "8K": "7680:4320",
-        }
-
-        max_w, max_h = quality_max.get(quality, (orig_width, orig_height))
-
-        #  NEVER upscale beyond original
-        target_width = min(max_w, orig_width)
-        target_height = min(max_h, orig_height)
-
-        # If target is same as original, skip
-        if target_width >= orig_width and target_height >= orig_height:
-            logger.info(
-                f"[QUALITY] Target quality {quality} exceeds original, keeping original resolution"
-            )
-            video.output_quality = quality
-            video_service.update_video(video)
-            return True
-
-        logger.info(f"[QUALITY] Scaling to {target_width}x{target_height}")
-
-        base_name = os.path.splitext(input_path)[0]
-        output_path = f"{base_name}_{quality}.mp4"
-
-        cmd = [
-            "ffmpeg",
-            "-i",
-            input_path,
-            "-vf",
-            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",  # Use "fast" instead of "medium" to reduce memory
-            "-crf",
-            "23",  # Higher CRF = less memory, still good quality
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-y",
-            output_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-
-        if (
-            result.returncode == 0
-            and os.path.exists(output_path)
-            and os.path.getsize(output_path) > 0
-        ):
-            video.output_path = output_path
-            video.output_quality = quality
-            video_service.update_video(video)
-            logger.info(f"[QUALITY] ✅ Success!")
-            return True
-        else:
-            logger.error(f"[QUALITY] FFmpeg error: {result.stderr[:500]}")
-            return False
-
-    except Exception as e:
-        logger.error(f"[QUALITY] Exception: {e}")
-        return False
-
+        logger.warning(f"[CLEANUP] Error during cleanup: {e}")
 
 def _generate_chapters(video):
     """Generate chapters."""
@@ -1563,84 +1104,38 @@ def _translate_content(video, target_language):
         # Don't fail the whole process for translation
 
 
-def _finalize_video(video, options):
-    """Finalize video output - SAVE to all needed fields."""
+def _cleanup_intermediate_files(video, final_path):
+    """
+    Clean up intermediate processing files to save disk space.
+    """
     import os
-    import subprocess
-
-    current_path = (
-        video.output_path
-        if hasattr(video, "output_path") and video.output_path
-        else video.original_path
-    )
-
-    if not current_path or not os.path.exists(current_path):
-        logger.error(f"[FINAL] Current path does not exist: {current_path}")
-        return None
-
-    logger.info(f"[FINAL] Starting with: {current_path}")
-    logger.info(f"[FINAL] User settings: aspect={video.aspect_ratio}, fps={video.fps}, audio={video.audio_quality}")
-
-    quality = getattr(video, "output_quality", options.get("quality", "720p"))
-
-    # Apply quality if specified
-    if quality and quality != "original":
-        base_name = os.path.splitext(current_path)[0]
-        quality_path = f"{base_name}_{quality}.mp4"
-
-        logger.info(f"[FINAL] Applying quality {quality}")
-
-        quality_resolutions = {
-            "480p": "854:480",
-            "720p": "1280:720",
-            "1080p": "1920:1080",
-            "2K": "2560:1440",
-            "4k": "3840:2160",
-            "4K+HDR": "3840:2160",
-            "8K": "7680:4320",
-        }
-
-        resolution = quality_resolutions.get(quality, "1280:720")
-
-        cmd = [
-            "ffmpeg",
-            "-i",
-            current_path,
-            "-vf", f"scale={resolution}",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-y", quality_path,
-        ]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-            if result.returncode == 0 and os.path.exists(quality_path):
-                current_path = quality_path
-                video.output_quality = quality
-                logger.info(f"[FINAL] ✅ Quality {quality} applied")
-            else:
-                logger.warning(f"[FINAL] Quality change failed: {result.stderr}")
-        except Exception as e:
-            logger.warning(f"[FINAL] Quality change error: {e}")
-
-    # Save the final path to ALL relevant fields
-    video.output_path = current_path
-    video.output_video_url = current_path
-    video.output_video_size = os.path.getsize(current_path) if os.path.exists(current_path) else 0
+    import glob
+    import shutil
     
-    # Update the database immediately
-    video_service.update_video(video)
-    
-    logger.info(f"[FINAL] ✅ Final video: {video.output_path}")
-    logger.info(f"[FINAL] ✅ File size: {video.output_video_size} bytes")
-    logger.info(f"[FINAL] ✅ Final settings: quality={video.output_quality}, aspect={video.aspect_ratio}, fps={video.fps}, audio={video.audio_quality}")
-
-    return current_path
-
+    try:
+        base_dir = os.path.dirname(video.original_path)
+        video_id_pattern = video.id[:8]
+        
+        # Find all files related to this video
+        pattern = os.path.join(base_dir, f"*{video_id_pattern}*.mp4")
+        all_files = glob.glob(pattern)
+        
+        deleted_count = 0
+        for file_path in all_files:
+            # Don't delete the original or the final output
+            if file_path == video.original_path or file_path == final_path:
+                continue
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"[CLEANUP] Failed to delete {file_path}: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"[CLEANUP] Deleted {deleted_count} intermediate files")
+            
+    except Exception as e:
+        logger.warning(f"[CLEANUP] Error during cleanup: {e}")
 
 def _get_quality_resolution(quality):
     """Get resolution string for quality."""

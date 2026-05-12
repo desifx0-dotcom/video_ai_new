@@ -163,7 +163,7 @@ def create_app(config_class=Config):
                 return limit
         
         # Default limit for all other endpoints
-        return "200 per day, 50 per hour"
+        return "1000 per day, 200 per hour"
     
     # Initialize rate limiter with custom function
     try:
