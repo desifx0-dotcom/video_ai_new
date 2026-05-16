@@ -17,8 +17,17 @@ from services.notification_service import (
     NotificationType,
     NotificationChannel,
 )
+
 from core.exceptions import ProcessingError
 logger = logging.getLogger(__name__)
+
+
+try:
+    from api.websocket import socketio
+except ImportError:
+    socketio = None
+    logger.warning("SocketIO not available - WebSocket updates disabled")
+
 
 video_service = VideoService()
 
@@ -74,6 +83,7 @@ def _send_ws_update(video_id, user_id, status, progress, step=None, message=None
         send_video_update(video_id, user_id, status, progress, step, message)
     except Exception as e:
         logger.warning(f"Failed to send WebSocket update: {e}")
+        
 
 def _send_ws_completed(video_id, user_id, url, proc_time, cost):
     """Send WebSocket completion safely."""
@@ -727,8 +737,7 @@ def emit_websocket_update(video_id, user_id, status, progress):
 
 def _apply_all_filters_production(video, options):
     """
-    SINGLE-PASS: ONE FFmpeg command, ONE output file, ALL features applied.
-    With proper error handling and fallbacks.
+    MULTI-PASS: Apply filters in stages to avoid FFmpeg crashes.
     """
     import os
     import subprocess
@@ -737,7 +746,7 @@ def _apply_all_filters_production(video, options):
     import shutil
 
     logger.info("=" * 80)
-    logger.info("[MASTER] 🎬 SINGLE-PASS FILTER APPLICATION")
+    logger.info("[MASTER] 🎬 MULTI-PASS FILTER APPLICATION")
     logger.info(f"[DEBUG] Before applying filters - video attributes:")
     logger.info(f"   quality: {video.output_quality}")
     logger.info(f"   fps: {video.fps}")
@@ -751,107 +760,180 @@ def _apply_all_filters_production(video, options):
         return None
 
     # ========== 1. COLLECT ALL FEATURES ==========
-    features_parts = []
     video_short_id = video.id[:8]
     
     quality = getattr(video, 'output_quality', 'original')
-    if quality and quality != 'original':
-        features_parts.append(quality)
-    
     aspect_ratio = getattr(video, 'aspect_ratio', 'original')
-    if aspect_ratio and aspect_ratio != 'original':
-        features_parts.append(aspect_ratio.replace(':', 'x'))
-    
     speed = getattr(video, 'speed', 1.0)
-    if speed != 1.0:
-        speed_str = f"{speed}x".replace('.', '_')
-        features_parts.append(f"speed_{speed_str}")
-    
     fps = getattr(video, 'fps', 'original')
-    if fps and fps != 'original' and str(fps).isdigit():
-        features_parts.append(f"fps_{fps}")
-    
     styles = getattr(video, 'applied_styles', [])
-    if styles:
-        style_names = [s[:8] for s in styles[:2]]
-        features_parts.append(f"style_{'_'.join(style_names)}")
-    
     audio_quality = getattr(video, 'audio_quality', 'original')
-    if audio_quality and audio_quality != 'original':
-        features_parts.append(f"audio_{audio_quality}")
     
-    if features_parts:
-        features_str = "_".join(features_parts)
-        output_filename = f"final_{video_short_id}_{features_str}.mp4"
-    else:
-        output_filename = f"final_{video_short_id}_original.mp4"
+    # ========== 2. APPLY FILTERS IN STAGES ==========
+    current_input = input_path
+    temp_files = []
     
-    output_path = os.path.join(os.path.dirname(input_path), output_filename)
-    
-    logger.info(f"[MASTER] 📝 Output: {output_filename}")
-    
-    # ========== 2. BUILD VIDEO FILTERS ==========
-    video_filters = []
-    audio_filters = []
-    
-    # 2.1 SPEED filter (using setpts for video, atempo for audio)
+    # Stage 1: Apply SPEED (if needed)
     if speed != 1.0:
-        # Validate speed (FFmpeg atempo only supports 0.5 to 2.0)
-        if speed < 0.5:
-            logger.warning(f"Speed {speed} too low, using 0.5x")
-            speed = 0.5
-        elif speed > 2.0:
-            logger.warning(f"Speed {speed} too high, will use multiple atempo filters")
-            # For speed > 2.0, chain atempo filters
-            audio_filters.append(f"atempo=2.0,atempo={speed/2.0}")
-        else:
-            audio_filters.append(f"atempo={speed}")
+        temp_speed = os.path.join(os.path.dirname(input_path), f"temp_speed_{video_short_id}.mp4")
+        temp_files.append(temp_speed)
         
-        video_filters.append(f"setpts={1.0/speed}*PTS")
-        logger.info(f"[MASTER] ✓ Speed filter: {speed}x")
+        logger.info(f"[MASTER] Stage 1: Applying speed {speed}x")
+        
+        # Handle audio tempo
+        if speed < 0.5:
+            audio_filter = f"atempo=0.5,atempo={speed/0.5}"
+        elif speed > 2.0:
+            audio_filter = f"atempo=2.0,atempo={speed/2.0}"
+        else:
+            audio_filter = f"atempo={speed}"
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-filter_complex", f"[0:v]setpts={1.0/speed}*PTS[v];[0:a]{audio_filter}[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-y", temp_speed
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"[MASTER] Speed stage failed: {result.stderr[:500]}")
+            # Continue without speed change
+        else:
+            current_input = temp_speed
+            logger.info(f"[MASTER] ✅ Speed applied")
     
-    # 2.2 FPS filter
+    # Stage 2: Apply FPS (if needed)
     if fps and fps != 'original' and str(fps).isdigit():
-        video_filters.append(f"fps={fps}")
-        logger.info(f"[MASTER] ✓ FPS filter: {fps}")
+        temp_fps = os.path.join(os.path.dirname(input_path), f"temp_fps_{video_short_id}.mp4")
+        temp_files.append(temp_fps)
+        
+        logger.info(f"[MASTER] Stage 2: Applying FPS {fps}")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-vf", f"fps={fps}",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            "-y", temp_fps
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"[MASTER] FPS stage failed: {result.stderr[:500]}")
+        else:
+            current_input = temp_fps
+            logger.info(f"[MASTER] ✅ FPS applied")
     
-    # 2.3 STYLE filters
+    # Stage 3: Apply VIDEO STYLES (one at a time)
     style_filters = {
-        "cinematic": "eq=saturation=1.15:contrast=1.08,edgedetect=low=0.1:high=0.3",
-        "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
-        "educational": "eq=brightness=0.02:contrast=1.08:saturation=1.05",
-        "gaming": "eq=saturation=1.25:contrast=1.1:brightness=0.03",
+        # ========== FREE TIER STYLES ==========
+        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+        "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
+        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05",
         "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
-        "travel": "eq=saturation=1.15:contrast=1.05:brightness=0.05",
-        "professional": "eq=contrast=1.05:saturation=0.95",
-        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.92",
+        
+        # ========== STARTER TIER STYLES ==========
+        "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03",
+        "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05",
+        
+        # ========== PRO TIER STYLES ==========
+        "professional": "eq=contrast=1.08:saturation=0.98",
+        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95",
         "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
         "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
         "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
-        "cinematic_pro": "eq=brightness=0.04:contrast=1.2:saturation=1.05",
-        "artistic": "eq=saturation=1.15:contrast=1.08:brightness=0.02",
+        "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
+        "action": "eq=contrast=1.2:brightness=0.03",
+        "minimalist": "eq=saturation=0.92:contrast=1.05",
+        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
+        
+        # ========== PLUS TIER STYLES ==========
+        "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12",
+        "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
         "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
-        "futuristic": "eq=saturation=1.2:contrast=1.12:brightness=0.04",
+        "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
+        "cartoon": "eq=saturation=1.2:contrast=1.1",
+        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
+        "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
+        "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
+        "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1",
+        "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05",
+        "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02",
+        "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+        "black_and_white": "hue=s=0,eq=contrast=1.1",
+        
+        # ========== ENTERPRISE TIER STYLES ==========
+        "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15",
+        "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08",
+        "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05",
+        "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
+        "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
     }
-
+    
     if styles:
-        applied_styles = []
         for style in styles:
             if style in style_filters:
-                applied_styles.append(style_filters[style])
-        
-        if applied_styles:
-            video_filters.append(",".join(applied_styles))
-            logger.info(f"[MASTER] ✓ Style filters: {styles}")
+                temp_style = os.path.join(os.path.dirname(input_path), f"temp_style_{style}_{video_short_id}.mp4")
+                temp_files.append(temp_style)
+                
+                filter_str = style_filters[style]
+                logger.info(f"[MASTER] Stage 3: Applying style '{style}'")
+                
+                cmd = [
+                    "ffmpeg", "-i", current_input,
+                    "-vf", filter_str,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "copy",
+                    "-y", temp_style
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    logger.error(f"[MASTER] Style '{style}' failed: {result.stderr[:500]}")
+                else:
+                    current_input = temp_style
+                    logger.info(f"[MASTER] ✅ Style '{style}' applied")
     
-    # 2.4 QUALITY scaling (if downscaling)
+    # Stage 4: Apply QUALITY scaling (if downscaling)
     quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
     if quality in quality_map:
         target_height = quality_map[quality]
-        video_filters.append(f"scale=-2:{target_height}")
-        logger.info(f"[MASTER] ✓ Quality filter: {quality} ({target_height}p)")
+        
+        # Get current height to check if we need to scale
+        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=height", "-of", "json", current_input]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        
+        current_height = 1080
+        if probe_result.returncode == 0:
+            info = json.loads(probe_result.stdout)
+            current_height = info.get('streams', [{}])[0].get('height', 1080)
+        
+        if target_height < current_height:
+            temp_quality = os.path.join(os.path.dirname(input_path), f"temp_quality_{video_short_id}.mp4")
+            temp_files.append(temp_quality)
+            
+            logger.info(f"[MASTER] Stage 4: Scaling to {quality}")
+            
+            cmd = [
+                "ffmpeg", "-i", current_input,
+                "-vf", f"scale=-2:{target_height}",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy",
+                "-y", temp_quality
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                logger.error(f"[MASTER] Quality scaling failed: {result.stderr[:500]}")
+            else:
+                current_input = temp_quality
+                logger.info(f"[MASTER] ✅ Quality applied")
     
-    # 2.5 ASPECT RATIO (last filter)
+    # Stage 5: Apply ASPECT RATIO (last stage)
     aspect_dimensions = {
         "16:9": (1920, 1080),
         "9:16": (1080, 1920),
@@ -862,87 +944,104 @@ def _apply_all_filters_production(video, options):
     
     if aspect_ratio in aspect_dimensions:
         target_w, target_h = aspect_dimensions[aspect_ratio]
-        video_filters.append(f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2")
-        logger.info(f"[MASTER] ✓ Aspect ratio: {aspect_ratio} ({target_w}x{target_h})")
+        temp_aspect = os.path.join(os.path.dirname(input_path), f"temp_aspect_{video_short_id}.mp4")
+        temp_files.append(temp_aspect)
+        
+        logger.info(f"[MASTER] Stage 5: Applying aspect ratio {aspect_ratio}")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            "-y", temp_aspect
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"[MASTER] Aspect ratio failed: {result.stderr[:500]}")
+        else:
+            current_input = temp_aspect
+            logger.info(f"[MASTER] ✅ Aspect ratio applied")
     
-    # ========== 3. BUILD FFMPEG COMMAND ==========
-    video_filter_str = ",".join(video_filters) if video_filters else "null"
-    audio_filter_str = ",".join(audio_filters) if audio_filters else "null"
-    
-    # Update progress
-    video_service.update_processing_status(video.id, "processing", 86, "building_filters")
-    
-    # Build the command
-    cmd = ["ffmpeg", "-i", input_path, "-y"]
-    
-    # Add video filters
-    if video_filters:
-        cmd.extend(["-vf", video_filter_str])
-    
-    # Add audio filters
-    if audio_filters:
-        cmd.extend(["-af", audio_filter_str])
-    
-    # Video codec settings
-    cmd.extend([
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-    ])
-    
-    # Audio codec settings
+    # Stage 6: Apply AUDIO QUALITY (if needed)
     audio_bitrate_map = {"128k": "128k", "192k": "192k", "256k": "256k", "320k": "320k"}
     audio_bitrate = audio_bitrate_map.get(audio_quality, None)
     
     if audio_bitrate and audio_quality != 'original':
-        cmd.extend(["-c:a", "aac", "-b:a", audio_bitrate])
-    else:
-        cmd.extend(["-c:a", "copy"])
-    
-    # Add faststart for web playback
-    cmd.extend(["-movflags", "+faststart"])
-    
-    # Output path
-    cmd.append(output_path)
-    
-    logger.info(f"[MASTER] 🚀 Running FFmpeg command:")
-    logger.info(f"[MASTER]   { ' '.join(cmd[:5]) } ... { ' '.join(cmd[-3:]) }")
-    video_service.update_processing_status(video.id, "processing", 90, "running_ffmpeg")
-    
-    # ========== 4. EXECUTE FFMPEG ==========
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        temp_audio = os.path.join(os.path.dirname(input_path), f"temp_audio_{video_short_id}.mp4")
+        temp_files.append(temp_audio)
         
+        logger.info(f"[MASTER] Stage 6: Applying audio quality {audio_bitrate}")
+        
+        cmd = [
+            "ffmpeg", "-i", current_input,
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", audio_bitrate,
+            "-movflags", "+faststart",
+            "-y", temp_audio
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
-            logger.error(f"[MASTER] FFmpeg failed with code {result.returncode}")
-            logger.error(f"[MASTER] Stderr: {result.stderr[:1000]}")
-            
-            # Try fallback: Remove complex filters and try again
-            if video_filters:
-                logger.warning("[MASTER] Retrying with simplified filters...")
-                simple_cmd = ["ffmpeg", "-i", input_path, "-y"]
-                simple_cmd.extend(["-c:v", "libx264", "-preset", "fast", "-crf", "23"])
-                simple_cmd.extend(["-c:a", "copy", "-movflags", "+faststart", output_path])
-                
-                simple_result = subprocess.run(simple_cmd, capture_output=True, text=True, timeout=300)
-                if simple_result.returncode == 0:
-                    logger.info("[MASTER] ✅ Fallback succeeded")
-                    output_path = _copy_to_final_location(video, output_path, input_path)
-                    return output_path
-            
-            return None
-        
-        logger.info("[MASTER] ✅ FFmpeg completed successfully")
-        
-    except subprocess.TimeoutExpired:
-        logger.error("[MASTER] FFmpeg timed out after 600 seconds")
-        return None
-    except Exception as e:
-        logger.error(f"[MASTER] FFmpeg error: {e}")
-        return None
+            logger.error(f"[MASTER] Audio quality failed: {result.stderr[:500]}")
+        else:
+            current_input = temp_audio
+            logger.info(f"[MASTER] ✅ Audio quality applied")
     
-    # ========== 5. CLEANUP AND FINALIZE ==========
-    return _copy_to_final_location(video, output_path, input_path)
+    # ========== 3. FINAL OUTPUT ==========
+    # Generate final filename with features
+    features_parts = []
+    if quality and quality != 'original':
+        features_parts.append(quality)
+    if aspect_ratio and aspect_ratio != 'original':
+        features_parts.append(aspect_ratio.replace(':', 'x'))
+    if speed != 1.0:
+        speed_str = f"{speed}x".replace('.', '_')
+        features_parts.append(f"speed_{speed_str}")
+    if fps and fps != 'original' and str(fps).isdigit():
+        features_parts.append(f"fps_{fps}")
+    if styles:
+        style_names = [s[:8] for s in styles[:2]]
+        features_parts.append(f"style_{'_'.join(style_names)}")
+    if audio_quality and audio_quality != 'original':
+        features_parts.append(f"audio_{audio_quality}")
+    
+    if features_parts:
+        features_str = "_".join(features_parts)
+        final_filename = f"final_{video_short_id}_{features_str}.mp4"
+    else:
+        final_filename = f"final_{video_short_id}_original.mp4"
+    
+    final_path = os.path.join(os.path.dirname(input_path), final_filename)
+    
+    # Copy final result
+    import shutil
+    shutil.copy2(current_input, final_path)
+    
+    # Clean up temp files
+    for temp_file in temp_files:
+        if os.path.exists(temp_file) and temp_file != final_path:
+            try:
+                os.remove(temp_file)
+                logger.info(f"[CLEANUP] Deleted: {os.path.basename(temp_file)}")
+            except:
+                pass
+    
+    # Update video object
+    video.output_path = final_path
+    video.output_video_url = final_path
+    video.output_video_size = os.path.getsize(final_path)
+    video_service.update_video(video)
+    
+    # Set final status
+    video_service.update_processing_status(video.id, "completed", 100, "completed")
+    
+    logger.info(f"[MASTER] ✅ FINAL OUTPUT: {final_filename}")
+    logger.info(f"[MASTER] ✅ File size: {video.output_video_size:,} bytes")
+    
+    return final_path
 
 def _copy_to_final_location(video, output_path, input_path):
     """Copy final output and clean up temp files - PRESERVING the filtered output."""

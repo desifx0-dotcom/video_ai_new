@@ -28,26 +28,25 @@ class VideoUploadSchema(Schema):
         validate=validate.OneOf(["private", "unlisted", "public"]), missing="private"
     )
 
-    # NEW FIELDS (added features)
     thumbnail_style = fields.String(
-        validate=validate.OneOf(
-            [
-                "default",
-                "cinematic",
-                "bright",
-                "dark",
-                "text_heavy",
-                "action",
-                "minimalist",
-                "vintage",
-                "cartoon",
-                "glamour",
-                "mystery",
-                "tech",
-            ]
-        ),
+        validate=validate.OneOf([
+            # Free tier
+            "default", "cinematic", "bright", "educational", "vlog",
+            # Starter tier
+            "dark", "gaming", "travel", "action", "minimalist",
+            # Pro tier
+            "professional", "documentary", "wedding", "corporate", "real_estate",
+            "vintage", "text_heavy",
+            # Plus tier
+            "cinematic_pro", "artistic", "retro", "futuristic", "cartoon",
+            "glamour", "mystery", "tech", "dramatic", "warm", "cool",
+            "sepia", "black_and_white",
+            # Enterprise tier
+            "hollywood", "dreamy", "neon", "pastel", "hdr"
+        ]),
         missing="default",
     )
+    
     fps = fields.String(
         validate=validate.OneOf(["original", "24", "30", "60"]), missing="original"
     )
@@ -108,26 +107,25 @@ class VideoProcessSchema(Schema):
     regenerate_thumbnails = fields.Boolean(missing=False)
     regenerate_title = fields.Boolean(missing=False)
 
-    # Added features(styles)
     thumbnail_style = fields.String(
-        validate=validate.OneOf(
-            [
-                "default",
-                "cinematic",
-                "bright",
-                "dark",
-                "text_heavy",
-                "action",
-                "minimalist",
-                "vintage",
-                "cartoon",
-                "glamour",
-                "mystery",
-                "tech",
-            ]
-        ),
+        validate=validate.OneOf([
+            # Free tier
+            "default", "cinematic", "bright", "educational", "vlog",
+            # Starter tier
+            "dark", "gaming", "travel", "action", "minimalist",
+            # Pro tier
+            "professional", "documentary", "wedding", "corporate", "real_estate",
+            "vintage", "text_heavy",
+            # Plus tier
+            "cinematic_pro", "artistic", "retro", "futuristic", "cartoon",
+            "glamour", "mystery", "tech", "dramatic", "warm", "cool",
+            "sepia", "black_and_white",
+            # Enterprise tier
+            "hollywood", "dreamy", "neon", "pastel", "hdr"
+        ]),
         missing="default",
-    )
+        )
+
     fps = fields.String(
         validate=validate.OneOf(["original", "24", "30", "60"]), missing="original"
     )

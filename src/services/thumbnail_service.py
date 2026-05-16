@@ -66,18 +66,50 @@ class ThumbnailService:
 
     # THUMBNAIL STYLE FILTERS (FFmpeg filters for post-processing)
     THUMBNAIL_STYLE_FILTERS = {
+        # Basic styles (all tiers)
         "default": None,
-        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
-        "bright": "eq=brightness=0.1:contrast=1.05:saturation=1.15",
-        "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
-        "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05",
-        "action": "eq=contrast=1.15:brightness=0.03,unsharp=5:5:1.0",
-        "minimalist": "eq=saturation=0.9:contrast=1.02",
-        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
-        "cartoon": "eq=saturation=1.15:contrast=1.08,edgedetect=low=0.1:high=0.3",
-        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.08,colorbalance=rs=0.04:gs=0.02:bs=0.02",
-        "mystery": "eq=brightness=-0.05:contrast=1.1:saturation=0.9,colorbalance=gs=-0.03",
-        "tech": "eq=saturation=1.15:contrast=1.08:brightness=0.03,colorbalance=rs=0.05:gs=0.02:bs=0.08",
+        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
+        "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
+        "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
+        "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
+        
+        # Starter tier
+        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
+        "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
+        "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
+        
+        # Pro tier
+        "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
+        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+        "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
+        "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
+        "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
+        "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
+        "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
+        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
+        
+        # Plus tier
+        "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
+        "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
+        "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
+        "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
+        "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
+        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
+        "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
+        "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
+        "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
+        "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
+        "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
+        "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+        "black_and_white": "hue=s=0,eq=contrast=1.1",
+        "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
+        
+        # Enterprise tier
+        "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+        "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
+        "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
+        "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
+        "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
     }
 
     def __init__(self, redis_client=None):
@@ -115,89 +147,259 @@ class ThumbnailService:
         """Get all available thumbnail styles with tier availability."""
 
         all_styles = [
+            # ========== FREE TIER STYLES ==========
             {
                 "id": "default",
                 "name": "Default",
-                "description": "Standard thumbnail style",
+                "description": "Standard thumbnail style - no effects applied",
                 "available": True,
                 "required_tier": "free",
             },
             {
                 "id": "cinematic",
                 "name": "Cinematic",
-                "description": "Movie-style thumbnail with dramatic lighting",
+                "description": "Movie-style thumbnail with dramatic lighting and slight sharpening",
                 "available": True,
                 "required_tier": "free",
             },
             {
                 "id": "bright",
                 "name": "Bright & Vibrant",
-                "description": "High-contrast, colorful thumbnails",
+                "description": "High-contrast, colorful thumbnails that pop",
                 "available": True,
                 "required_tier": "free",
             },
+            {
+                "id": "educational",
+                "name": "Educational",
+                "description": "Clean, clear style perfect for tutorials and lessons",
+                "available": True,
+                "required_tier": "free",
+            },
+            {
+                "id": "vlog",
+                "name": "Vlog Style",
+                "description": "Warm, personal style for vlog content",
+                "available": True,
+                "required_tier": "free",
+            },
+
+            # ========== STARTER TIER STYLES ==========
             {
                 "id": "dark",
                 "name": "Dark & Moody",
-                "description": "Dramatic dark-themed thumbnails",
+                "description": "Dramatic dark-themed thumbnails with enhanced contrast",
                 "available": True,
-                "required_tier": "free",
+                "required_tier": "starter",
             },
             {
-                "id": "text_heavy",
-                "name": "Text Heavy",
-                "description": "Thumbnails optimized for text overlay",
+                "id": "gaming",
+                "name": "Gaming Style",
+                "description": "Saturated, high-contrast style for gaming content",
+                "available": True,
+                "required_tier": "starter",
+            },
+            {
+                "id": "travel",
+                "name": "Travel Style",
+                "description": "Warm, vibrant style for travel and adventure videos",
                 "available": True,
                 "required_tier": "starter",
             },
             {
                 "id": "action",
                 "name": "Action Shot",
-                "description": "Dynamic, motion-focused thumbnails",
+                "description": "Dynamic, motion-focused thumbnails with sharpening",
                 "available": True,
                 "required_tier": "starter",
             },
             {
                 "id": "minimalist",
                 "name": "Minimalist",
-                "description": "Clean, simple design",
+                "description": "Clean, simple design with subtle adjustments",
                 "available": True,
                 "required_tier": "starter",
+            },
+
+            # ========== PRO TIER STYLES ==========
+            {
+                "id": "professional",
+                "name": "Professional",
+                "description": "Polished, corporate-style thumbnails",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "documentary",
+                "name": "Documentary",
+                "description": "Authentic, filmic style for documentary content",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "wedding",
+                "name": "Wedding",
+                "description": "Soft, romantic style for wedding videos",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "corporate",
+                "name": "Corporate",
+                "description": "Clean, professional look for business content",
+                "available": True,
+                "required_tier": "pro",
+            },
+            {
+                "id": "real_estate",
+                "name": "Real Estate",
+                "description": "Enhanced colors and sharpness for property videos",
+                "available": True,
+                "required_tier": "pro",
             },
             {
                 "id": "vintage",
                 "name": "Vintage",
-                "description": "Retro, film-style look",
+                "description": "Retro, film-style look with color balance adjustments",
                 "available": True,
                 "required_tier": "pro",
+            },
+            {
+                "id": "text_heavy",
+                "name": "Text Heavy",
+                "description": "Thumbnails optimized for text overlay",
+                "available": True,
+                "required_tier": "pro",
+            },
+
+            # ========== PLUS TIER STYLES ==========
+            {
+                "id": "cinematic_pro",
+                "name": "Cinematic Pro",
+                "description": "Advanced cinematic style with color grading",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "artistic",
+                "name": "Artistic",
+                "description": "Creative, artistic style with unique color balance",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "retro",
+                "name": "Retro",
+                "description": "80s/90s retro style with vintage color tones",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "futuristic",
+                "name": "Futuristic",
+                "description": "Cyberpunk, sci-fi style with blue/cyan tones",
+                "available": True,
+                "required_tier": "plus",
             },
             {
                 "id": "cartoon",
                 "name": "Cartoon",
-                "description": "Illustrated, animated style",
+                "description": "Illustrated, animated style with edge detection",
                 "available": True,
-                "required_tier": "pro",
+                "required_tier": "plus",
             },
             {
                 "id": "glamour",
                 "name": "Glamour",
-                "description": "Polished, professional look",
+                "description": "Polished, magazine-style look",
                 "available": True,
-                "required_tier": "pro",
+                "required_tier": "plus",
             },
             {
                 "id": "mystery",
                 "name": "Mystery",
-                "description": "Intriguing, suspenseful style",
+                "description": "Intriguing, suspenseful dark style",
                 "available": True,
                 "required_tier": "plus",
             },
             {
                 "id": "tech",
                 "name": "Tech",
-                "description": "Futuristic, cyberpunk style",
+                "description": "Futuristic, cyberpunk style with neon tones",
                 "available": True,
                 "required_tier": "plus",
+            },
+            {
+                "id": "dramatic",
+                "name": "Dramatic",
+                "description": "High-contrast, intense style",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "warm",
+                "name": "Warm",
+                "description": "Golden, warm color tones",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "cool",
+                "name": "Cool",
+                "description": "Blue, cool color tones",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "sepia",
+                "name": "Sepia",
+                "description": "Classic sepia-toned vintage style",
+                "available": True,
+                "required_tier": "plus",
+            },
+            {
+                "id": "black_and_white",
+                "name": "Black & White",
+                "description": "Classic monochrome style",
+                "available": True,
+                "required_tier": "plus",
+            },
+
+            # ========== ENTERPRISE TIER STYLES ==========
+            {
+                "id": "hollywood",
+                "name": "Hollywood",
+                "description": "Premium cinematic style with professional color grading",
+                "available": True,
+                "required_tier": "enterprise",
+            },
+            {
+                "id": "dreamy",
+                "name": "Dreamy",
+                "description": "Soft, ethereal style with gentle colors",
+                "available": True,
+                "required_tier": "enterprise",
+            },
+            {
+                "id": "neon",
+                "name": "Neon",
+                "description": "Vibrant neon/cyberpunk style",
+                "available": True,
+                "required_tier": "enterprise",
+            },
+            {
+                "id": "pastel",
+                "name": "Pastel",
+                "description": "Soft, pastel color tones",
+                "available": True,
+                "required_tier": "enterprise",
+            },
+            {
+                "id": "hdr",
+                "name": "HDR",
+                "description": "High dynamic range style for maximum detail",
+                "available": True,
+                "required_tier": "enterprise",
             },
             {
                 "id": "custom",
@@ -207,6 +409,7 @@ class ThumbnailService:
                 "required_tier": "enterprise",
             },
         ]
+        
         tier = self._normalize_tier(tier)
         user_tier_str = tier.value
         tier_rank = {"free": 0, "starter": 1, "pro": 2, "plus": 3, "enterprise": 4}

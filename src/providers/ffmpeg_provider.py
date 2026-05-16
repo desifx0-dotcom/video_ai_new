@@ -17,18 +17,32 @@ logger = logging.getLogger(__name__)
 class FFmpegProvider:
     """FFmpeg provider for video/audio processing."""
 
-    def __init__(
-        self, ffmpeg_path: Optional[str] = None, ffprobe_path: Optional[str] = None
-    ):
-        self.ffmpeg_path = ffmpeg_path or os.getenv("FFMPEG_PATH", "ffmpeg")
-        self.ffprobe_path = ffprobe_path or os.getenv("FFPROBE_PATH", "ffprobe")
-
-        # Test FFmpeg installation
-        # self._test_ffmpeg()
-
-        # lazy initialization
+    def __init__(self, ffmpeg_path: Optional[str] = None, ffprobe_path: Optional[str] = None):
+        # Use provided paths first
+        if ffmpeg_path and ffprobe_path:
+            self.ffmpeg_path = ffmpeg_path
+            self.ffprobe_path = ffprobe_path
+        else:
+            # Check environment variables
+            env_ffmpeg = os.getenv("FFMPEG_PATH")
+            env_ffprobe = os.getenv("FFPROBE_PATH")
+            
+            if env_ffmpeg and env_ffprobe:
+                self.ffmpeg_path = env_ffmpeg
+                self.ffprobe_path = env_ffprobe
+            else:
+                # Auto-detect from common paths
+                detected_ffmpeg, detected_ffprobe = self._find_ffmpeg()
+                if detected_ffmpeg and detected_ffprobe:
+                    self.ffmpeg_path = detected_ffmpeg
+                    self.ffprobe_path = detected_ffprobe
+                else:
+                    # Fallback to 'ffmpeg' (relies on PATH)
+                    self.ffmpeg_path = "ffmpeg"
+                    self.ffprobe_path = "ffprobe"
+        
         self._ffmpeg_available = None
-
+        
     def _ensure_ffmpeg(self):
         """Lazy test FFmpeg - only when first used."""
         if self._ffmpeg_available is not None:
@@ -41,6 +55,51 @@ class FFmpegProvider:
         except Exception:
             self._ffmpeg_available = False
             raise ProcessingError("FFmpeg not found")
+
+    @classmethod
+    def _find_ffmpeg(cls) -> tuple:
+        """Auto-detect FFmpeg from common installation paths."""
+        import shutil
+        import platform
+        
+        # First try system PATH
+        ffmpeg = shutil.which('ffmpeg')
+        ffprobe = shutil.which('ffprobe')
+        if ffmpeg and ffprobe:
+            return ffmpeg, ffprobe
+        
+        # Platform-specific common paths
+        system = platform.system().lower()
+        
+        if system == 'windows':
+            common_paths = [
+            # Winget installation path (your newer FFmpeg)
+            r'C:\Users\Acer\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe',
+            r'C:\ffmpeg\bin\ffmpeg.exe',
+            r'C:\FFmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+            ]
+        elif system == 'darwin':  # macOS
+            common_paths = [
+                '/usr/local/bin/ffmpeg',
+                '/opt/homebrew/bin/ffmpeg',
+                '/usr/bin/ffmpeg',
+            ]
+        else:  # Linux
+            common_paths = [
+                '/usr/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg',
+                '/opt/ffmpeg/bin/ffmpeg',
+            ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                ffprobe_path = path.replace('ffmpeg', 'ffprobe')
+                if os.path.exists(ffprobe_path):
+                    return path, ffprobe_path
+        
+        return None, None
 
     def _test_ffmpeg(self):
         """Test FFmpeg installation."""

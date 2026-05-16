@@ -68,19 +68,9 @@ title_service = TitleService()
 @track_analytics("video.upload")
 def upload_video():
     """Upload and process a video with full tier enforcement."""
-
     user_id = get_jwt_identity()
     file_info = g.uploaded_file
     options = g.validated_data
-
-    # Initialize default values
-    original_fps = 0
-    original_audio_bitrate = 0
-    original_width = 0
-    original_height = 0
-    original_duration = 0
-    is_silent = False
-    credits_needed = 1
 
     try:
         # Get user
@@ -88,199 +78,63 @@ def upload_video():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        # Get video properties using FFmpeg
-        import tempfile
-        from providers.ffmpeg_provider import FFmpegProvider
-
-        ffmpeg = FFmpegProvider()
-
-        # Save temp file to analyze
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            file_info["file"].save(tmp.name)
-            temp_path = tmp.name
-
-        try:
-            # Get video metadata
-            metadata = ffmpeg.get_video_metadata(temp_path)
-            original_duration = metadata.get("duration", 0)
-
-            # Extract video info
-            video_info = metadata.get("video", {})
-            original_width = video_info.get("width", 0)
-            original_height = video_info.get("height", 0)
-            original_fps = video_info.get("fps", 0)
-
-            # Extract audio info
-            audio_info = metadata.get("audio", {})
-            original_audio_bitrate = audio_info.get("bitrate", 0)
-
-            print(
-                f"🔍 Extracted - FPS: {original_fps}, Audio Bitrate: {original_audio_bitrate}, Resolution: {original_width}x{original_height}"
-            )
-
-        except Exception as e:
-            print(f"⚠️ Error extracting metadata: {e}")
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-
-        # Detect silent video
-        from services.silent_video_service import SilentVideoService
-
-        silent_service = SilentVideoService()
-
-        # Re-save temp file for silent detection
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            file_info["file"].seek(0)
-            file_info["file"].save(tmp.name)
-            temp_path2 = tmp.name
-
-        try:
-            is_silent = silent_service.is_silent_video(temp_path2)
-        finally:
-            if os.path.exists(temp_path2):
-                os.unlink(temp_path2)
-
-        # ========== TIER ENFORCEMENT ==========
-        if is_silent and not tier_service.is_silent_video_allowed(user.tier):
-            return (
-                jsonify(
-                    {
-                        "error": {
-                            "code": "TIER_LIMIT_EXCEEDED",
-                            "message": f"Silent videos not available in {user.tier.value} tier.",
-                        }
-                    }
-                ),
-                403,
-            )
-
-        max_duration = tier_service.get_max_video_length(user.tier, is_silent)
-        if original_duration > max_duration:
-            return (
-                jsonify(
-                    {
-                        "error": {
-                            "code": "VALIDATION_ERROR",
-                            "message": f"Video duration ({original_duration//60} minutes) exceeds maximum.",
-                        }
-                    }
-                ),
-                400,
-            )
-
-        if user.videos_processed_this_month >= user.monthly_video_limit:
-            return (
-                jsonify(
-                    {
-                        "error": {
-                            "code": "TIER_LIMIT_EXCEEDED",
-                            "message": f"Monthly limit reached.",
-                        }
-                    }
-                ),
-                403,
-            )
-
-        credits_needed = max(1, int(original_duration) // 60)
-        if user.tier not in [Tier.PLUS, Tier.ENTERPRISE]:
-            if user.credits_remaining < credits_needed:
-                return (
-                    jsonify(
-                        {
-                            "error": {
-                                "code": "INSUFFICIENT_CREDITS",
-                                "message": f"Insufficient credits.",
-                            }
-                        }
-                    ),
-                    403,
-                )
-
-        # Re-open the file object for actual upload
-        file_info["file"].seek(0)
-
-        # Calculate display values
-        fps_display = f"{int(original_fps)} fps" if original_fps > 0 else "unknown"
-        audio_display = "unknown"
-        if original_audio_bitrate > 0:
-            audio_kbps = int(original_audio_bitrate / 1000)
-            audio_display = f"{audio_kbps} kbps"
-
-        aspect_display = "unknown"
-        if original_width > 0 and original_height > 0:
-            from math import gcd
-
-            divisor = gcd(original_width, original_height)
-            aspect_display = f"{original_width//divisor}:{original_height//divisor}"
-
-        resolution_display = (
-            f"{original_width}x{original_height}"
-            if original_width > 0 and original_height > 0
-            else "unknown"
-        )
-
-        print(
-            f"📤 Calculated values - FPS: {fps_display}, Audio: {audio_display}, Aspect: {aspect_display}"
-        )
-
-        # Pass to video_service with original values
+        # Let video_service handle everything (duration, silent detection, tier checks, metadata)
         video, upload_path = video_service.upload_video(
             user_id=user_id,
             file_obj=file_info["file"],
             filename=file_info["filename"],
             file_size=file_info["size"],
             content_type=file_info["content_type"],
-            options={
-                **options,
-                "duration": original_duration,
-                "is_silent": is_silent,
-                "credits_needed": credits_needed,
-                "original_fps": original_fps,
-                "original_audio_bitrate": original_audio_bitrate,
-                "original_width": original_width,
-                "original_height": original_height,
-            },
-        )
-
-        # Deduct credits
-        credit_service.use_credits(
-            user_id,
-            credits_needed,
-            f"Video processing: {file_info['filename']} ({int(original_duration//60)} minutes)",
-            video_id=video.id,
-            operation="video_processing",
+            options=options,
         )
 
         # Build response
         response_schema = VideoResponseSchema()
         response_data = response_schema.dump(video.to_dict())
 
-        # 🔥 CRITICAL: Add original values to response for frontend preview
-        response_data["original_fps"] = fps_display
-        response_data["original_audio_quality"] = audio_display
-        response_data["original_aspect_ratio"] = aspect_display
-        response_data["original_resolution"] = resolution_display
-
-        # Also ensure video object has these values
-        video.original_fps = fps_display
-        video.original_audio_quality = audio_display
-        video.original_aspect_ratio = aspect_display
-
-        # Update video in database with these values
-        video_service.update_video(video)
-
-        print(
-            f"📤 RESPONSE SENT - FPS: {response_data.get('original_fps')}, Audio: {response_data.get('original_audio_quality')}, Aspect: {response_data.get('original_aspect_ratio')}"
-        )
+        # Add display values from video object (already set in video_service)
+        response_data["original_fps"] = getattr(video, "original_fps", "unknown")
+        response_data["original_audio_quality"] = getattr(video, "original_audio_quality", "unknown")
+        response_data["original_aspect_ratio"] = getattr(video, "original_aspect_ratio", "unknown")
+        response_data["original_resolution"] = getattr(video, "original_resolution", "unknown")
 
         return jsonify(response_data), 201
 
+    except InsufficientCreditsError as e:
+        return jsonify({
+            "error": {
+                "code": "INSUFFICIENT_CREDITS",
+                "message": str(e),
+                "credits_needed": getattr(e, "credits_needed", 1),
+            }
+        }), 403
+
+    except TierLimitExceeded as e:
+        return jsonify({
+            "error": {
+                "code": "TIER_LIMIT_EXCEEDED",
+                "message": str(e),
+                "upgrade_url": "/pricing",
+            }
+        }), 403
+
+    except ValidationError as e:
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": getattr(e, "field", None),
+            }
+        }), 400
+
     except Exception as e:
         logger.error(f"Video upload failed: {str(e)}", exc_info=True)
-        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
-
+        return jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": str(e),
+            }
+        }), 500
 
 @router.route("/<video_id>/process", methods=["POST"])
 @jwt_required()

@@ -100,6 +100,8 @@ class Video:
     processing_time: Optional[float] = None  # in seconds
     silent_analysis: Optional[Dict[str, Any]] = None
 
+    speed: float = 1.0  # Speed multiplier (1.0 = normal speed)
+
     # for frontend "video details" section
     original_fps: float = 0.0
     original_audio_bitrate: int = 0
@@ -108,8 +110,9 @@ class Video:
 
     # Display versions
     original_fps_display: str = "unknown"
-    original_audio_display: str = "unknown"
-    original_aspect_display: str = "unknown"
+    original_audio_quality: str = "unknown"
+    original_aspect_ratio: str = "unknown"
+    original_resolution: str = "unknown"
 
     # Cost tracking
     ai_costs: Dict[str, float] = field(
@@ -149,7 +152,7 @@ class Video:
     used_thumbnail_concepts: List[str] = field(default_factory=list)
     used_title_concepts: List[str] = field(default_factory=list)
 
-    # 🔥 ADDED: Flag to track if video is silent
+    # Flag to track if video is silent
     is_silent: bool = False
 
     chapters: List[Dict[str, Any]] = field(default_factory=list)
@@ -252,11 +255,13 @@ class Video:
             "original_path": self.original_path,
             "file_size": self.file_size,
             "duration": self.duration,
-            "original_fps": getattr(self, "original_fps", "unknown"),
-            "original_audio_quality": getattr(
-                self, "original_audio_quality", "unknown"
-            ),
-            "original_aspect_ratio": getattr(self, "original_aspect_ratio", "unknown"),
+            "original_fps": self.original_fps,
+            "original_audio_quality": self.original_audio_quality,
+            "original_aspect_ratio":self.original_aspect_ratio,
+            "original_resolution": self.original_resolution,
+            "original_width": self.original_width,
+            "original_height": self.original_height,
+            "original_audio_bitrate": self.original_audio_bitrate,
             "mime_type": self.mime_type,
             "is_silent": self.is_silent,
             # Status
@@ -291,6 +296,7 @@ class Video:
             "auto_transcribe": self.auto_transcribe,
             "generate_chapters": self.generate_chapters,
             "remove_silence": self.remove_silence,
+            "speed": self.speed,
             # Output
             "output_video_url": self.output_video_url,
             "output_video_size": self.output_video_size,

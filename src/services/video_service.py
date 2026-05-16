@@ -99,6 +99,8 @@ class VideoService:
     ) -> Tuple[Video, str]:
         """Upload and validate a video file with complete tier enforcement."""
         from services.notification_service import NotificationService, NotificationType
+        from math import gcd
+        from core.domain.entities.video import Video, VideoType
 
         options = options or {}
 
@@ -107,13 +109,22 @@ class VideoService:
         if not user:
             raise ValidationError("User not found")
 
-        # Create a temporary file for processing
+        # Create a single temporary file for processing
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
         temp_path = temp_file.name
         temp_file.close()
 
+        # Initialize metadata variables
+        original_duration = 0
+        original_width = 0
+        original_height = 0
+        original_fps = 0
+        original_audio_bitrate = 0
+        is_silent = False
+        credits_needed = 1
+
         try:
-            # Save uploaded file to temp location
+            # ========== 1. SAVE UPLOADED FILE TO TEMP LOCATION ==========
             if hasattr(file_obj, "save"):
                 file_obj.save(temp_path)
             elif hasattr(file_obj, "read"):
@@ -126,33 +137,52 @@ class VideoService:
             else:
                 raise ProcessingError(f"Unsupported file object type: {type(file_obj)}")
 
-            # Get video duration
+            # ========== 2. GET VIDEO METADATA (ONE TIME) ==========
             try:
-                duration = self.ffmpeg.get_video_duration(temp_path)
+                metadata = self.ffmpeg.get_video_metadata(temp_path)
+                original_duration = metadata.get("duration", 0)
+
+                # Extract video info
+                video_info = metadata.get("video", {})
+                original_width = video_info.get("width", 0)
+                original_height = video_info.get("height", 0)
+                original_fps = video_info.get("fps", 0)
+
+                # Extract audio info
+                audio_info = metadata.get("audio", {})
+                original_audio_bitrate = audio_info.get("bitrate", 0)
+
+                logger.info(f"📊 Extracted metadata - Duration: {original_duration}s, FPS: {original_fps}, "
+                          f"Audio Bitrate: {original_audio_bitrate}, Resolution: {original_width}x{original_height}")
+
             except Exception as e:
-                raise ProcessingError(
-                    f"Failed to get video duration: {str(e)}", "duration"
-                )
+                logger.error(f"Failed to extract metadata: {e}")
+                raise ProcessingError(f"Failed to analyze video: {str(e)}")
 
-            # Detect silent video
-            is_silent = self.silent_video_service.is_silent_video(temp_path)
+            # ========== 3. DETECT SILENT VIDEO (REUSE SAME TEMP FILE) ==========
+            try:
+                is_silent = self.silent_video_service.is_silent_video(temp_path)
+                logger.info(f"🔇 Silent video detected: {is_silent}")
+            except Exception as e:
+                logger.error(f"Silent detection failed: {e}")
+                is_silent = False
 
-            # Check tier limits
+            # ========== 4. TIER ENFORCEMENT ==========
+            # Check silent video restriction
             if is_silent and not self.tier_service.is_silent_video_allowed(user.tier):
                 raise TierLimitExceeded(
-                    "silent_video",
-                    0,
-                    0,
+                    "silent_video", 0, 0,
                     message=f"Silent videos are not available in {user.tier.value} tier. "
-                    f"Upgrade to Starter or higher to process silent videos.",
+                            f"Upgrade to Starter or higher to process silent videos.",
                     upgrade_url="/pricing",
                 )
 
             # Check duration limit
             max_duration = self.tier_service.get_max_video_length(user.tier, is_silent)
-            if duration > max_duration:
+            if original_duration > max_duration:
                 raise ValidationError(
-                    f"Video duration ({duration//60} minutes) exceeds maximum for {user.tier.value} tier ({max_duration//60} minutes)"
+                    f"Video duration ({original_duration//60} minutes) exceeds maximum for {user.tier.value} tier "
+                    f"({max_duration//60} minutes)"
                 )
 
             # Check monthly limit
@@ -166,24 +196,46 @@ class VideoService:
                 )
 
             # Check credits
+            credits_needed = max(1, int(original_duration) // 60)
             if user.tier not in [Tier.PLUS, Tier.ENTERPRISE]:
-                credits_needed = max(1, int(duration) // 60)
                 if user.credits_remaining < credits_needed:
                     raise InsufficientCreditsError(
-                        user.credits_remaining,
-                        credits_needed,
+                        user.credits_remaining, credits_needed,
                         message=f"Insufficient credits: {user.credits_remaining}/{credits_needed} credits needed. "
-                        f"Each minute of video costs 1 credit.",
+                                f"Each minute of video costs 1 credit.",
                         upgrade_url="/pricing",
                     )
 
-            # Validate file
+            # Validate file (size, extension, etc.)
             self._validate_upload(user, filename, file_size, content_type)
 
-            # Generate unique ID
-            video_id = str(uuid.uuid4())
+            # ========== 5. CALCULATE DISPLAY VALUES FOR FRONTEND ==========
+            # Format FPS
+            if original_fps and original_fps > 0:
+                fps_display = f"{int(original_fps)} fps"
+            else:
+                fps_display = "unknown"
 
-            # Create permanent upload directory
+            # Format Audio Quality
+            if original_audio_bitrate and original_audio_bitrate > 0:
+                audio_kbps = int(original_audio_bitrate / 1000)
+                audio_display = f"{audio_kbps} kbps"
+            else:
+                audio_display = "unknown"
+
+            # Format Aspect Ratio
+            aspect_display = "unknown"
+            if original_width > 0 and original_height > 0:
+                divisor = gcd(original_width, original_height)
+                aspect_display = f"{original_width//divisor}:{original_height//divisor}"
+
+            # Format Resolution
+            resolution_display = f"{original_width}x{original_height}" if original_width > 0 and original_height > 0 else "unknown"
+
+            logger.info(f"📊 Display values - FPS: {fps_display}, Audio: {audio_display}, Aspect: {aspect_display}")
+
+            # ========== 6. CREATE PERMANENT STORAGE ==========
+            video_id = str(uuid.uuid4())
             user_video_dir = self.get_user_video_base_dir(user_id)
             upload_dir = user_video_dir / video_id
             upload_dir.mkdir(parents=True, exist_ok=True)
@@ -192,25 +244,19 @@ class VideoService:
             # Copy from temp file to final location
             shutil.copy2(temp_path, str(upload_path))
 
-            # Clean up temp file
-            try:
-                os.unlink(temp_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file {temp_path}: {e}")
-
-            # Create video entity
+            # ========== 7. CREATE VIDEO ENTITY WITH ALL METADATA ==========
             video = Video(
                 id=video_id,
                 user_id=user_id,
                 original_filename=filename,
                 file_size=file_size,
-                duration=duration,
+                duration=original_duration,
                 mime_type=content_type,
                 video_type=VideoType.SILENT if is_silent else VideoType.SPEECH,
                 original_path=str(upload_path),
                 processed_tier=user.tier.value,
                 status="uploaded",
-                # User-selected options
+                # User-selected processing options
                 output_quality=options.get("quality", "720p"),
                 fps=options.get("fps", "original"),
                 audio_quality=options.get("audio_quality", "original"),
@@ -221,78 +267,34 @@ class VideoService:
                 generate_chapters=options.get("generate_chapters", False),
                 remove_silence=options.get("remove_silence", False),
                 translation_language=options.get("translation_language", ""),
-                original_fps=options.get("original_fps", 0),
-                original_audio_bitrate=options.get("original_audio_bitrate", 0),
-                original_width=options.get("original_width", 0),
-                original_height=options.get("original_height", 0),
+                speed=float(options.get("speed", 1.0)),
+                # Original metadata for frontend display
+                original_fps=fps_display,
+                original_audio_quality=audio_display,
+                original_aspect_ratio=aspect_display,
+                original_resolution=resolution_display,
+                original_width=original_width,
+                original_height=original_height,
+                original_audio_bitrate=original_audio_bitrate,
             )
 
-            # ========== Store original video properties ==========
-            # Get raw values from options (passed from upload endpoint (for frontend "video details" section))
-            raw_fps = options.get("original_fps", 0)
-            raw_audio_bitrate = options.get("original_audio_quality", 0)
-            raw_aspect_ratio = options.get("original_aspect_ratio", "")
-
-            # Format FPS for display
-            if raw_fps and raw_fps > 0:
-                video.original_fps = f"{int(raw_fps)} fps"
-            else:
-                video.original_fps = "unknown"
-
-            # Format Audio Quality for display
-            if raw_audio_bitrate and raw_audio_bitrate > 0:
-                audio_kbps = int(raw_audio_bitrate / 1000)
-                video.original_audio_quality = f"{audio_kbps} kbps"
-            else:
-                video.original_audio_quality = "unknown"
-
-            # Format Aspect Ratio for display
-            if (
-                raw_aspect_ratio
-                and raw_aspect_ratio != "unknown"
-                and ":" in str(raw_aspect_ratio)
-            ):
-                video.original_aspect_ratio = raw_aspect_ratio
-            else:
-                video.original_aspect_ratio = "unknown"
-
-            logger.info(
-                f"📊 Video details - FPS: {video.original_fps}, Audio: {video.original_audio_quality}, Aspect: {video.original_aspect_ratio}"
-            )
-
-            # Store metadata for processing
-            video.metadata = {
-                "fps": video.fps,
-                "audio_quality": video.audio_quality,
-                "aspect_ratio": video.aspect_ratio,
-                "thumbnail_style": video.thumbnail_style,
-                "applied_styles": video.applied_styles,
-                "original_fps": raw_fps,
-                "original_audio_bitrate": raw_audio_bitrate,
-                "original_aspect_ratio": raw_aspect_ratio,
-            }
-
-            # Log what's being saved
             logger.info(f"💾 Saving video with options:")
             logger.info(f"   quality: {video.output_quality}")
             logger.info(f"   fps: {video.fps}")
+            logger.info(f"   speed: {video.speed}")
             logger.info(f"   audio_quality: {video.audio_quality}")
             logger.info(f"   aspect_ratio: {video.aspect_ratio}")
-            logger.info(f"   thumbnail_style: {video.thumbnail_style}")
             logger.info(f"   styles: {video.applied_styles}")
-            logger.info(f"   original_fps: {video.original_fps}")
-            logger.info(f"   original_audio_quality: {video.original_audio_quality}")
-            logger.info(f"   original_aspect_ratio: {video.original_aspect_ratio}")
 
-            # Set output URL for frontend preview
+            # Set output URL placeholder
             video.output_video_url = f"/processed/{video_id}/output.mp4"
 
-            # Save to database
+            # ========== 8. SAVE TO DATABASE ==========
             if self.db:
                 self.db.save("videos", video_id, video.to_dict())
                 logger.info(f"✅ Video {video_id} saved to database")
 
-            # Create processing job
+            # ========== 9. CREATE PROCESSING JOB ==========
             job_id = str(uuid.uuid4())
             job_data = {
                 "id": job_id,
@@ -300,38 +302,54 @@ class VideoService:
                 "user_id": user_id,
                 "status": "pending",
                 "created_at": datetime.utcnow().isoformat(),
-                "send_email_notification": options.get(
-                    "send_email_notification", False
-                ),
+                "send_email_notification": options.get("send_email_notification", False),
             }
             if self.db:
                 self.db.save("processing_jobs", job_id, job_data)
 
-            # Schedule for deletion
+            # ========== 10. SCHEDULE FOR DELETION ==========
             retention_days = self.tier_service.get_retention_days(user.tier)
             video.schedule_deletion(retention_days)
 
-            # Queue Celery task
+            # ========== 11. DEDUCT CREDITS ==========
+            if user.tier not in [Tier.PLUS, Tier.ENTERPRISE]:
+                self.credit_service.use_credits(
+                    user_id,
+                    credits_needed,
+                    f"Video processing: {filename} ({int(original_duration//60)} minutes)",
+                    video_id=video_id,
+                    operation="video_processing",
+                )
+
+            # ========== 12. QUEUE CELERY TASK ==========
             try:
                 from tasks.video_tasks import process_video_async
 
-                logger.info(f"📤 Sending options to Celery for video {video_id}:")
-                logger.info(f"   quality: {options.get('quality')}")
-                logger.info(f"   fps: {options.get('fps')}")
-                logger.info(f"   audio_quality: {options.get('audio_quality')}")
-                logger.info(f"   aspect_ratio: {options.get('aspect_ratio')}")
-                logger.info(f"   thumbnail_style: {options.get('thumbnail_style')}")
-                logger.info(f"   styles: {options.get('styles')}")
-
-                process_video_async.delay(video_id, user_id, options)
+                celery_options = {
+                    "quality": video.output_quality,
+                    "fps": video.fps,
+                    "audio_quality": video.audio_quality,
+                    "aspect_ratio": video.aspect_ratio,
+                    "thumbnail_style": video.thumbnail_style,
+                    "styles": video.applied_styles,
+                    "auto_transcribe": video.auto_transcribe,
+                    "generate_chapters": video.generate_chapters,
+                    "remove_silence": video.remove_silence,
+                    "translation_language": video.translation_language,
+                    "speed": video.speed,
+                    "is_silent": is_silent,
+                    "send_email_notification": options.get("send_email_notification", False),
+                }
+                process_video_async.delay(video_id, user_id, celery_options)
                 logger.info(f"✅ Video {video_id} queued for processing")
+
             except Exception as e:
                 logger.error(f"Failed to queue video for processing: {e}")
                 video.status = VideoStatus.UPLOADED
                 if self.db:
                     self.db.save("videos", video_id, video.to_dict())
 
-            # Send notification
+            # ========== 13. SEND NOTIFICATION ==========
             try:
                 notification_service = NotificationService()
                 notification_service.send_notification(
@@ -342,10 +360,7 @@ class VideoService:
                         "video_title": filename,
                         "message": f'Your video "{filename}" has been uploaded and queued for processing.',
                     },
-                    channels=[
-                        NotificationChannel.IN_APP,
-                        NotificationChannel.WEBSOCKET,
-                    ],
+                    channels=[NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
                 )
             except Exception as e:
                 logger.error(f"Failed to send upload notification: {e}")
@@ -353,13 +368,21 @@ class VideoService:
             return video, str(upload_path)
 
         except Exception as e:
-            # Clean up on error
-            try:
-                if os.path.exists(temp_path):
+            # Clean up temp file on error
+            if os.path.exists(temp_path):
+                try:
                     os.unlink(temp_path)
-            except:
-                pass
+                except:
+                    pass
             raise
+
+        finally:
+            # Always clean up temp file
+            if os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
     def _validate_upload(self, user, filename, file_size, content_type):
         """Validate file upload against user tier and file constraints."""
@@ -484,7 +507,23 @@ class VideoService:
                 ),
                 error_message=video_data.get("error_message"),
                 retry_count=video_data.get("retry_count", 0),
-            )
+                fps=video_data.get("fps", "original"),
+                audio_quality=video_data.get("audio_quality", "original"),
+                aspect_ratio=video_data.get("aspect_ratio", "original"),
+                thumbnail_style=video_data.get("thumbnail_style", "default"),
+                auto_transcribe=video_data.get("auto_transcribe", True),
+                generate_chapters=video_data.get("generate_chapters", False),
+                remove_silence=video_data.get("remove_silence", False),
+                translation_language=video_data.get("translation_language", ""),
+                speed=float(video_data.get("speed", 1.0)),  # 🔥 ADD THIS
+                original_fps=video_data.get("original_fps", "unknown"),
+                original_audio_quality=video_data.get("original_audio_quality", "unknown"),
+                original_aspect_ratio=video_data.get("original_aspect_ratio", "unknown"),
+                original_resolution=video_data.get("original_resolution", "unknown"),
+                original_width=video_data.get("original_width", 0),
+                original_height=video_data.get("original_height", 0),
+                original_audio_bitrate=video_data.get("original_audio_bitrate", 0),
+                        )
 
             return video
 
@@ -542,7 +581,24 @@ class VideoService:
                 processing_completed=parse_datetime(video_data.get("processing_completed")),
                 error_message=video_data.get("error_message"),
                 retry_count=video_data.get("retry_count", 0),
+                fps=video_data.get("fps", "original"),
+                audio_quality=video_data.get("audio_quality", "original"),
+                aspect_ratio=video_data.get("aspect_ratio", "original"),
+                thumbnail_style=video_data.get("thumbnail_style", "default"),
+                auto_transcribe=video_data.get("auto_transcribe", True),
+                generate_chapters=video_data.get("generate_chapters", False),
+                remove_silence=video_data.get("remove_silence", False),
+                translation_language=video_data.get("translation_language", ""),
+                speed=float(video_data.get("speed", 1.0)),
+                original_fps=video_data.get("original_fps", "unknown"),
+                original_audio_quality=video_data.get("original_audio_quality", "unknown"),
+                original_aspect_ratio=video_data.get("original_aspect_ratio", "unknown"),
+                original_resolution=video_data.get("original_resolution", "unknown"),
+                original_width=video_data.get("original_width", 0),
+                original_height=video_data.get("original_height", 0),
+                original_audio_bitrate=video_data.get("original_audio_bitrate", 0),
             )
+        
         except Exception as e:
             logger.error(f"Error getting video {video_id}: {e}")
             return None
@@ -1261,3 +1317,4 @@ class VideoService:
         video_dir.mkdir(parents=True, exist_ok=True)
         
         return video_dir
+    
