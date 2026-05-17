@@ -321,34 +321,6 @@ class VideoService:
                     operation="video_processing",
                 )
 
-            # ========== 12. QUEUE CELERY TASK ==========
-            try:
-                from tasks.video_tasks import process_video_async
-
-                celery_options = {
-                    "quality": video.output_quality,
-                    "fps": video.fps,
-                    "audio_quality": video.audio_quality,
-                    "aspect_ratio": video.aspect_ratio,
-                    "thumbnail_style": video.thumbnail_style,
-                    "styles": video.applied_styles,
-                    "auto_transcribe": video.auto_transcribe,
-                    "generate_chapters": video.generate_chapters,
-                    "remove_silence": video.remove_silence,
-                    "translation_language": video.translation_language,
-                    "speed": video.speed,
-                    "is_silent": is_silent,
-                    "send_email_notification": options.get("send_email_notification", False),
-                }
-                process_video_async.delay(video_id, user_id, celery_options)
-                logger.info(f"✅ Video {video_id} queued for processing")
-
-            except Exception as e:
-                logger.error(f"Failed to queue video for processing: {e}")
-                video.status = VideoStatus.UPLOADED
-                if self.db:
-                    self.db.save("videos", video_id, video.to_dict())
-
             # ========== 13. SEND NOTIFICATION ==========
             try:
                 notification_service = NotificationService()

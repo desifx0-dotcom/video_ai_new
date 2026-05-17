@@ -539,8 +539,9 @@ class StyleService:
     def get_all_styles_with_availability(self, user_tier) -> List[Dict[str, Any]]:
         """Return ALL styles with availability info, available styles first."""
 
-        # Define all video styles (complete list)
+        # Define all video styles (complete list matching video_tasks.py)
         all_styles = {
+            # ========== FREE TIER STYLES ==========
             "cinematic": {
                 "name": "Cinematic",
                 "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
@@ -553,18 +554,22 @@ class StyleService:
                 "name": "Educational",
                 "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
             },
-            "gaming": {
-                "name": "Gaming",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
             "vlog": {
                 "name": "Vlog",
+                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+            },
+            
+            # ========== STARTER TIER STYLES ==========
+            "gaming": {
+                "name": "Gaming",
                 "available_tiers": ["starter", "pro", "plus", "enterprise"],
             },
             "travel": {
                 "name": "Travel",
                 "available_tiers": ["starter", "pro", "plus", "enterprise"],
             },
+            
+            # ========== PRO TIER STYLES ==========
             "professional": {
                 "name": "Professional",
                 "available_tiers": ["pro", "plus", "enterprise"],
@@ -585,6 +590,24 @@ class StyleService:
                 "name": "Real Estate",
                 "available_tiers": ["pro", "plus", "enterprise"],
             },
+            "dark": {
+                "name": "Dark & Moody",
+                "available_tiers": ["pro", "plus", "enterprise"],
+            },
+            "action": {
+                "name": "Action",
+                "available_tiers": ["pro", "plus", "enterprise"],
+            },
+            "minimalist": {
+                "name": "Minimalist",
+                "available_tiers": ["pro", "plus", "enterprise"],
+            },
+            "vintage": {
+                "name": "Vintage",
+                "available_tiers": ["pro", "plus", "enterprise"],
+            },
+            
+            # ========== PLUS TIER STYLES ==========
             "cinematic_pro": {
                 "name": "Cinematic Pro",
                 "available_tiers": ["plus", "enterprise"],
@@ -601,6 +624,64 @@ class StyleService:
                 "name": "Futuristic",
                 "available_tiers": ["plus", "enterprise"],
             },
+            "cartoon": {
+                "name": "Cartoon",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "glamour": {
+                "name": "Glamour",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "mystery": {
+                "name": "Mystery",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "tech": {
+                "name": "Tech",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "dramatic": {
+                "name": "Dramatic",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "warm": {
+                "name": "Warm",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "cool": {
+                "name": "Cool",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "sepia": {
+                "name": "Sepia",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            "black_and_white": {
+                "name": "Black & White",
+                "available_tiers": ["plus", "enterprise"],
+            },
+            
+            # ========== ENTERPRISE TIER STYLES ==========
+            "hollywood": {
+                "name": "Hollywood",
+                "available_tiers": ["enterprise"],
+            },
+            "dreamy": {
+                "name": "Dreamy",
+                "available_tiers": ["enterprise"],
+            },
+            "neon": {
+                "name": "Neon",
+                "available_tiers": ["enterprise"],
+            },
+            "pastel": {
+                "name": "Pastel",
+                "available_tiers": ["enterprise"],
+            },
+            "hdr": {
+                "name": "HDR",
+                "available_tiers": ["enterprise"],
+            },
         }
 
         tier_str = (
@@ -615,20 +696,16 @@ class StyleService:
             available_tiers = style.get("available_tiers", [])
             is_available = tier_str in available_tiers
 
-            styles_list.append(
-                {
-                    "id": style_id,
-                    "name": style["name"],
-                    "description": style.get("description", ""),
-                    "available": is_available,
-                    "required_tier": (
-                        available_tiers[0] if available_tiers else "enterprise"
-                    ),
-                    "category": style.get("category", "basic"),
-                }
-            )
+            styles_list.append({
+                "id": style_id,
+                "name": style["name"],
+                "description": style.get("description", ""),
+                "available": is_available,
+                "required_tier": available_tiers[0] if available_tiers else "enterprise",
+                "category": style.get("category", "basic"),
+            })
 
-        # 🔥 FIX: Split into available and unavailable, sort each group alphabetically
+        # Split into available and unavailable
         available_styles = [s for s in styles_list if s["available"]]
         unavailable_styles = [s for s in styles_list if not s["available"]]
 
@@ -677,124 +754,124 @@ class StyleService:
 
         return styles_list
 
-    def get_thumbnail_styles_for_tier(self, tier) -> List[Dict[str, Any]]:
-        """Get thumbnail styles that match video styles for consistency."""
+    # def get_thumbnail_styles_for_tier(self, tier) -> List[Dict[str, Any]]:
+    #     """Get thumbnail styles that match video styles for consistency."""
 
-        # Define thumbnail styles that match video styles
-        thumbnail_styles = {
-            "cinematic": {
-                "name": "Cinematic",
-                "description": "Movie poster style matching Cinematic video style",
-                "video_style_match": "cinematic",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "bright": {
-                "name": "Bright & Vibrant",
-                "description": "Vibrant style matching Bright video style",
-                "video_style_match": "bright",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "gaming": {
-                "name": "Gaming",
-                "description": "High-energy gaming style",
-                "video_style_match": "gaming",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "educational": {
-                "name": "Educational",
-                "description": "Clean, informative style",
-                "video_style_match": "educational",
-                "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
-            },
-            "vlog": {
-                "name": "Vlog",
-                "description": "Casual, personal style",
-                "video_style_match": "vlog",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "professional": {
-                "name": "Professional",
-                "description": "Corporate, business style",
-                "video_style_match": "professional",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "documentary": {
-                "name": "Documentary",
-                "description": "Authentic, natural style",
-                "video_style_match": "documentary",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "travel": {
-                "name": "Travel",
-                "description": "Warm, inviting style",
-                "video_style_match": "travel",
-                "available_tiers": ["starter", "pro", "plus", "enterprise"],
-            },
-            "wedding": {
-                "name": "Wedding",
-                "description": "Romantic, soft style",
-                "video_style_match": "wedding",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "corporate": {
-                "name": "Corporate",
-                "description": "Polished, trustworthy style",
-                "video_style_match": "corporate",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "real_estate": {
-                "name": "Real Estate",
-                "description": "Bright, spacious style",
-                "video_style_match": "real_estate",
-                "available_tiers": ["pro", "plus", "enterprise"],
-            },
-            "cinematic_pro": {
-                "name": "Cinematic Pro",
-                "description": "Advanced cinematic style",
-                "video_style_match": "cinematic_pro",
-                "available_tiers": ["plus", "enterprise"],
-            },
-            "artistic": {
-                "name": "Artistic",
-                "description": "Creative, artistic style",
-                "video_style_match": "artistic",
-                "available_tiers": ["plus", "enterprise"],
-            },
-            "retro": {
-                "name": "Retro",
-                "description": "80s retro style",
-                "video_style_match": "retro",
-                "available_tiers": ["plus", "enterprise"],
-            },
-            "futuristic": {
-                "name": "Futuristic",
-                "description": "Cyberpunk, sci-fi style",
-                "video_style_match": "futuristic",
-                "available_tiers": ["plus", "enterprise"],
-            },
-        }
+    #     # Define thumbnail styles that match video styles
+    #     thumbnail_styles = {
+    #         "cinematic": {
+    #             "name": "Cinematic",
+    #             "description": "Movie poster style matching Cinematic video style",
+    #             "video_style_match": "cinematic",
+    #             "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "bright": {
+    #             "name": "Bright & Vibrant",
+    #             "description": "Vibrant style matching Bright video style",
+    #             "video_style_match": "bright",
+    #             "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "gaming": {
+    #             "name": "Gaming",
+    #             "description": "High-energy gaming style",
+    #             "video_style_match": "gaming",
+    #             "available_tiers": ["starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "educational": {
+    #             "name": "Educational",
+    #             "description": "Clean, informative style",
+    #             "video_style_match": "educational",
+    #             "available_tiers": ["free", "starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "vlog": {
+    #             "name": "Vlog",
+    #             "description": "Casual, personal style",
+    #             "video_style_match": "vlog",
+    #             "available_tiers": ["starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "professional": {
+    #             "name": "Professional",
+    #             "description": "Corporate, business style",
+    #             "video_style_match": "professional",
+    #             "available_tiers": ["pro", "plus", "enterprise"],
+    #         },
+    #         "documentary": {
+    #             "name": "Documentary",
+    #             "description": "Authentic, natural style",
+    #             "video_style_match": "documentary",
+    #             "available_tiers": ["pro", "plus", "enterprise"],
+    #         },
+    #         "travel": {
+    #             "name": "Travel",
+    #             "description": "Warm, inviting style",
+    #             "video_style_match": "travel",
+    #             "available_tiers": ["starter", "pro", "plus", "enterprise"],
+    #         },
+    #         "wedding": {
+    #             "name": "Wedding",
+    #             "description": "Romantic, soft style",
+    #             "video_style_match": "wedding",
+    #             "available_tiers": ["pro", "plus", "enterprise"],
+    #         },
+    #         "corporate": {
+    #             "name": "Corporate",
+    #             "description": "Polished, trustworthy style",
+    #             "video_style_match": "corporate",
+    #             "available_tiers": ["pro", "plus", "enterprise"],
+    #         },
+    #         "real_estate": {
+    #             "name": "Real Estate",
+    #             "description": "Bright, spacious style",
+    #             "video_style_match": "real_estate",
+    #             "available_tiers": ["pro", "plus", "enterprise"],
+    #         },
+    #         "cinematic_pro": {
+    #             "name": "Cinematic Pro",
+    #             "description": "Advanced cinematic style",
+    #             "video_style_match": "cinematic_pro",
+    #             "available_tiers": ["plus", "enterprise"],
+    #         },
+    #         "artistic": {
+    #             "name": "Artistic",
+    #             "description": "Creative, artistic style",
+    #             "video_style_match": "artistic",
+    #             "available_tiers": ["plus", "enterprise"],
+    #         },
+    #         "retro": {
+    #             "name": "Retro",
+    #             "description": "80s retro style",
+    #             "video_style_match": "retro",
+    #             "available_tiers": ["plus", "enterprise"],
+    #         },
+    #         "futuristic": {
+    #             "name": "Futuristic",
+    #             "description": "Cyberpunk, sci-fi style",
+    #             "video_style_match": "futuristic",
+    #             "available_tiers": ["plus", "enterprise"],
+    #         },
+    #     }
 
-        tier_str = tier.value.lower() if hasattr(tier, "value") else str(tier).lower()
+    #     tier_str = tier.value.lower() if hasattr(tier, "value") else str(tier).lower()
 
-        styles_list = []
-        for style_id, style in thumbnail_styles.items():
-            available_tiers = style.get("available_tiers", [])
-            is_available = tier_str in available_tiers
+    #     styles_list = []
+    #     for style_id, style in thumbnail_styles.items():
+    #         available_tiers = style.get("available_tiers", [])
+    #         is_available = tier_str in available_tiers
 
-            styles_list.append(
-                {
-                    "id": style_id,
-                    "name": style["name"],
-                    "description": style["description"],
-                    "available": is_available,
-                    "video_style_match": style.get("video_style_match", style_id),
-                    "required_tier": (
-                        available_tiers[0] if available_tiers else "enterprise"
-                    ),
-                }
-            )
+    #         styles_list.append(
+    #             {
+    #                 "id": style_id,
+    #                 "name": style["name"],
+    #                 "description": style["description"],
+    #                 "available": is_available,
+    #                 "video_style_match": style.get("video_style_match", style_id),
+    #                 "required_tier": (
+    #                     available_tiers[0] if available_tiers else "enterprise"
+    #                 ),
+    #             }
+    #         )
 
-        return styles_list
+    #     return styles_list
 
     def is_style_available(self, style_name: str, tier: Tier) -> bool:
         """Check if style is available for user tier."""

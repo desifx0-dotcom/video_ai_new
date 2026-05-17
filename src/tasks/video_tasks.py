@@ -83,7 +83,6 @@ def _send_ws_update(video_id, user_id, status, progress, step=None, message=None
         send_video_update(video_id, user_id, status, progress, step, message)
     except Exception as e:
         logger.warning(f"Failed to send WebSocket update: {e}")
-        
 
 def _send_ws_completed(video_id, user_id, url, proc_time, cost):
     """Send WebSocket completion safely."""
@@ -297,7 +296,38 @@ def process_video_async(
         video.output_video_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
         
         video_service.update_video(video)
-        
+
+         #Deduct credits AFTER successful processing
+        try:
+            from services.credit_service import CreditService
+            credit_service = CreditService()
+            
+            # Get user to check current credits
+            user = user_service.get_user_by_id(user_id)
+            
+            # Calculate credits needed (1 credit per video, or based on duration)
+            # Using 1 credit per video for simplicity
+            credits_needed = 1
+            
+            if user.credits_remaining >= credits_needed:
+                credit_service.use_credits(
+                    user_id=user_id,
+                    amount=credits_needed,
+                    description=f"Video processing completed: {video.original_filename}",
+                    video_id=video_id,
+                    operation="video_processing"
+                )
+                logger.info(f"✅ Deducted {credits_needed} credit(s) from user {user_id} for video {video_id}")
+                logger.info(f"💰 Credits remaining: {user.credits_remaining - credits_needed}")
+            else:
+                logger.warning(f"⚠️ User {user_id} has insufficient credits ({user.credits_remaining}) for processing")
+                # Still mark as completed, but log warning for manual review
+                
+        except Exception as e:
+            logger.error(f"Failed to deduct credits for video {video_id}: {e}")
+            # Don't fail the processing - credit deduction error shouldn't block completion
+
+
         # Log final settings
         logger.info("=" * 80)
         logger.info(f"✅ VIDEO PROCESSING COMPLETED for {video_id}")
@@ -778,19 +808,26 @@ def _apply_all_filters_production(video, options):
         temp_speed = os.path.join(os.path.dirname(input_path), f"temp_speed_{video_short_id}.mp4")
         temp_files.append(temp_speed)
         
-        logger.info(f"[MASTER] Stage 1: Applying speed {speed}x")
+        speed_factor = 1.0 / speed  # For video (setpts)
+        tempo_factor = speed         # For audio (atempo)
         
-        # Handle audio tempo
-        if speed < 0.5:
-            audio_filter = f"atempo=0.5,atempo={speed/0.5}"
-        elif speed > 2.0:
-            audio_filter = f"atempo=2.0,atempo={speed/2.0}"
+        logger.info(f"[MASTER] Stage 1: Applying speed {speed}x (video factor: {speed_factor}, audio tempo: {tempo_factor})")
+        
+        # Handle tempo limits (atempo only supports 0.5-2.0)
+        if tempo_factor < 0.5:
+            # Chain multiple atempo filters
+            audio_filter = "atempo=0.5,atempo=0.5"  # 0.25x
+            logger.warning(f"Speed {speed}x too slow, using audio filter: {audio_filter}")
+        elif tempo_factor > 2.0:
+            # Chain multiple atempo filters
+            audio_filter = f"atempo=2.0,atempo={tempo_factor/2.0}"
+            logger.warning(f"Speed {speed}x too fast, using audio filter: {audio_filter}")
         else:
-            audio_filter = f"atempo={speed}"
+            audio_filter = f"atempo={tempo_factor}"
         
         cmd = [
             "ffmpeg", "-i", current_input,
-            "-filter_complex", f"[0:v]setpts={1.0/speed}*PTS[v];[0:a]{audio_filter}[a]",
+            "-filter_complex", f"[0:v]setpts={speed_factor}*PTS[v];[0:a]{audio_filter}[a]",
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
@@ -798,13 +835,20 @@ def _apply_all_filters_production(video, options):
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            logger.error(f"[MASTER] Speed stage failed: {result.stderr[:500]}")
-            # Continue without speed change
-        else:
+        
+        if result.returncode == 0:
             current_input = temp_speed
-            logger.info(f"[MASTER] ✅ Speed applied")
-    
+            logger.info(f"[MASTER] ✅ Speed {speed}x applied successfully")
+            # Verify the output exists and has size
+            if os.path.exists(temp_speed) and os.path.getsize(temp_speed) > 0:
+                logger.info(f"[MASTER] Speed output size: {os.path.getsize(temp_speed):,} bytes")
+            else:
+                logger.error(f"[MASTER] Speed output file is empty or missing!")
+                return None
+        else:
+            logger.error(f"[MASTER] Speed failed with error: {result.stderr[:500]}")
+            return None
+
     # Stage 2: Apply FPS (if needed)
     if fps and fps != 'original' and str(fps).isdigit():
         temp_fps = os.path.join(os.path.dirname(input_path), f"temp_fps_{video_short_id}.mp4")
@@ -896,7 +940,7 @@ def _apply_all_filters_production(video, options):
                 else:
                     current_input = temp_style
                     logger.info(f"[MASTER] ✅ Style '{style}' applied")
-    
+
     # Stage 4: Apply QUALITY scaling (if downscaling)
     quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
     if quality in quality_map:
@@ -932,7 +976,7 @@ def _apply_all_filters_production(video, options):
             else:
                 current_input = temp_quality
                 logger.info(f"[MASTER] ✅ Quality applied")
-    
+
     # Stage 5: Apply ASPECT RATIO (last stage)
     aspect_dimensions = {
         "16:9": (1920, 1080),
@@ -941,7 +985,7 @@ def _apply_all_filters_production(video, options):
         "4:5": (1080, 1350),
         "2:3": (1080, 1620),
     }
-    
+
     if aspect_ratio in aspect_dimensions:
         target_w, target_h = aspect_dimensions[aspect_ratio]
         temp_aspect = os.path.join(os.path.dirname(input_path), f"temp_aspect_{video_short_id}.mp4")
@@ -964,11 +1008,11 @@ def _apply_all_filters_production(video, options):
         else:
             current_input = temp_aspect
             logger.info(f"[MASTER] ✅ Aspect ratio applied")
-    
+
     # Stage 6: Apply AUDIO QUALITY (if needed)
     audio_bitrate_map = {"128k": "128k", "192k": "192k", "256k": "256k", "320k": "320k"}
     audio_bitrate = audio_bitrate_map.get(audio_quality, None)
-    
+
     if audio_bitrate and audio_quality != 'original':
         temp_audio = os.path.join(os.path.dirname(input_path), f"temp_audio_{video_short_id}.mp4")
         temp_files.append(temp_audio)
@@ -989,7 +1033,7 @@ def _apply_all_filters_production(video, options):
         else:
             current_input = temp_audio
             logger.info(f"[MASTER] ✅ Audio quality applied")
-    
+
     # ========== 3. FINAL OUTPUT ==========
     # Generate final filename with features
     features_parts = []
