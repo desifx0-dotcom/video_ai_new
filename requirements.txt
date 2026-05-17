@@ -10,7 +10,8 @@ Flask_JWT_Extended=4.7.1
 Flask-Compress=1.23
 # AI & ML
 openai==2.30.0
-google-generativeai==0.8.6
+# google-generativeai==0.8.6
+google-genai==1.7.0
 stability-sdk==0.8.0
 #googletrans==4.0.0rc1
 google-cloud-translate==3.12.0

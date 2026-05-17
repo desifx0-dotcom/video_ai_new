@@ -645,14 +645,23 @@
                         </button>
                         
                         {% if video.transcription %}
-                        <button class="btn btn-outline-primary" onclick="generateBlogPost()">
-                            <i class="fas fa-blog me-2"></i>Generate Blog Post
-                        </button>
-                        
-                        <button class="btn btn-outline-primary" onclick="generateSocialPosts()">
-                            <i class="fas fa-share-alt me-2"></i>Social Media Posts
-                        </button>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary" 
+                                    onclick="showComingSoon('Blog post generation coming in Phase 2!')"
+                                    title="Coming soon - Generate blog posts from video">
+                                <i class="fas fa-blog me-2"></i>Generate Blog Post
+                                <span class="badge bg-warning text-dark ms-2">Soon</span>
+                            </button>
+                            
+                            <button class="btn btn-outline-primary" 
+                                    onclick="showComingSoon('Social media posts coming in Phase 2!')"
+                                    title="Coming soon - Generate social media posts">
+                                <i class="fas fa-share-alt me-2"></i>Social Media Posts
+                                <span class="badge bg-warning text-dark ms-2">Soon</span>
+                            </button>
+                        </div>
                         {% endif %}
+
                         
                         <button class="btn btn-outline-secondary" onclick="duplicateProcessing()">
                             <i class="fas fa-copy me-2"></i>Duplicate with New Options
@@ -764,8 +773,11 @@
 
 
 
-{% block scripts %}
+{% block extra_js %}
 <script>
+
+console.log("🔥🔥🔥 SCRIPT STARTED EXECUTING 🔥🔥🔥");
+alert("SCRIPT IS RUNNING!");
 // ============================================
 // CORE VARIABLES
 // ============================================
@@ -1236,6 +1248,155 @@ function showBasicResults() {
 }
 
 // ============================================
+// QUICK ACTION'S SECTION FUNCTIONS
+// ============================================
+
+async function applyNewStyle(videoId) {
+    console.log("🎨 Apply New Style clicked for video:", videoId);
+    
+    // Show style selection dialog
+    const style = prompt("Enter style name (cinematic, bright, dark, vintage, gaming, educational):", "cinematic");
+    
+    if (!style) return;
+    
+    // Show loading state
+    showNotification("Applying style...", "info");
+    
+    try {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(`/api/v1/videos/${videoId}/apply-styles`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ styles: [style] })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification(`Style "${style}" applied successfully! Credits deducted: ${data.credits_deducted || 1}`, "success");
+            
+            // Refresh page or update video preview
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        } else {
+            showNotification(data.error?.message || "Failed to apply style", "error");
+        }
+    } catch (error) {
+        console.error("Error applying style:", error);
+        showNotification("Network error. Please try again.", "error");
+    }
+}
+
+async function createShortClip(videoId) {
+    console.log("✂️ Create Short Clip clicked for video:", videoId);
+    
+    // Show clip options
+    const clipCount = prompt("How many clips to create? (max 10)", "3");
+    if (!clipCount) return;
+    
+    const count = parseInt(clipCount);
+    if (isNaN(count) || count < 1 || count > 10) {
+        showNotification("Please enter a number between 1 and 10", "error");
+        return;
+    }
+    
+    // Show loading state
+    showNotification(`Creating ${count} short clip(s)... This may take a moment.`, "info");
+    
+    try {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(`/api/v1/videos/${videoId}/create-clips`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ 
+                clip_count: count,
+                clip_duration: 15,
+                aspect_ratio: "9:16"
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification(`${count} clip(s) created! Credits deducted: ${data.credits_deducted || count}`, "success");
+            
+            // Refresh after 2 seconds
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        } else {
+            showNotification(data.error?.message || "Failed to create clips", "error");
+        }
+    } catch (error) {
+        console.error("Error creating clips:", error);
+        showNotification("Network error. Please try again.", "error");
+    }
+}
+
+async function duplicateProcessing(videoId) {
+    console.log("🔄 Duplicate Processing clicked for video:", videoId);
+    
+    // Show duplicate options
+    const reprocess = confirm("Create a copy of this video with current settings?");
+    
+    if (!reprocess) return;
+    
+    // Show loading state
+    showNotification("Duplicating video... This may take a moment.", "info");
+    
+    try {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(`/api/v1/videos/${videoId}/duplicate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ reprocess: true })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification(`Video duplicated successfully! Credits deducted: ${data.credits_deducted || 1}`, "success");
+            
+            // Redirect to history page to see the new video
+            setTimeout(() => {
+                window.location.href = '/history';
+            }, 2000);
+        } else {
+            showNotification(data.error?.message || "Failed to duplicate video", "error");
+        }
+    } catch (error) {
+        console.error("Error duplicating video:", error);
+        showNotification("Network error. Please try again.", "error");
+    }
+}
+
+function showNotification(message, type = "info") {
+    // Remove existing notification
+    const existing = document.querySelector('.quick-action-notification');
+    if (existing) existing.remove();
+    
+    const notification = document.createElement('div');
+    notification.className = `quick-action-notification alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => notification.remove(), 5000);
+}
+// ============================================
 // INITIALIZATION
 // ============================================
 document.addEventListener('DOMContentLoaded', function() {
@@ -1243,11 +1404,19 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Video URL:', '{{ video.output_video_url }}');
     console.log('Video ID:', videoId);
     console.log('Video Status:', '{{ video.status }}');
+
+    // Log available functions to debug
+    console.log('Available functions:', {
+        applyNewStyle: typeof applyNewStyle,
+        createShortClip: typeof createShortClip,
+        duplicateProcessing: typeof duplicateProcessing
+    });
     
     // Fetch remaining regenerations for paid tiers
     {% if current_user.tier != 'free' %}
     fetchRemainingRegenerations();
     {% endif %}
 });
+
 </script>
 {% endblock %}

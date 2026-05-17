@@ -791,18 +791,18 @@ def _apply_all_filters_production(video, options):
 
     # ========== 1. COLLECT ALL FEATURES ==========
     video_short_id = video.id[:8]
-    
+
     quality = getattr(video, 'output_quality', 'original')
     aspect_ratio = getattr(video, 'aspect_ratio', 'original')
     speed = getattr(video, 'speed', 1.0)
     fps = getattr(video, 'fps', 'original')
     styles = getattr(video, 'applied_styles', [])
     audio_quality = getattr(video, 'audio_quality', 'original')
-    
+
     # ========== 2. APPLY FILTERS IN STAGES ==========
     current_input = input_path
     temp_files = []
-    
+
     # Stage 1: Apply SPEED (if needed)
     if speed != 1.0:
         temp_speed = os.path.join(os.path.dirname(input_path), f"temp_speed_{video_short_id}.mp4")
@@ -813,41 +813,76 @@ def _apply_all_filters_production(video, options):
         
         logger.info(f"[MASTER] Stage 1: Applying speed {speed}x (video factor: {speed_factor}, audio tempo: {tempo_factor})")
         
-        # Handle tempo limits (atempo only supports 0.5-2.0)
-        if tempo_factor < 0.5:
-            # Chain multiple atempo filters
-            audio_filter = "atempo=0.5,atempo=0.5"  # 0.25x
-            logger.warning(f"Speed {speed}x too slow, using audio filter: {audio_filter}")
-        elif tempo_factor > 2.0:
-            # Chain multiple atempo filters
-            audio_filter = f"atempo=2.0,atempo={tempo_factor/2.0}"
-            logger.warning(f"Speed {speed}x too fast, using audio filter: {audio_filter}")
-        else:
-            audio_filter = f"atempo={tempo_factor}"
-        
-        cmd = [
-            "ffmpeg", "-i", current_input,
-            "-filter_complex", f"[0:v]setpts={speed_factor}*PTS[v];[0:a]{audio_filter}[a]",
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
-            "-y", temp_speed
+        # Check if video has audio stream
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_type", "-of", "json",
+            current_input
         ]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        has_audio = False
+        if probe_result.returncode == 0 and probe_result.stdout.strip():
+            try:
+                import json
+                data = json.loads(probe_result.stdout)
+                has_audio = len(data.get('streams', [])) > 0
+            except:
+                pass
+        
+        if not has_audio:
+            logger.info("[MASTER] No audio stream detected, applying video speed only")
+            cmd = [
+                "ffmpeg", "-i", current_input,
+                "-filter:v", f"setpts={speed_factor}*PTS",
+                "-an",  # No audio
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-y", temp_speed
+            ]
+        else:
+            # Handle tempo limits (atempo only supports 0.5-2.0)
+            if tempo_factor < 0.5:
+                # Chain multiple atempo filters (e.g., 0.25 = atempo=0.5,atempo=0.5)
+                num_filters = int(1 / tempo_factor)
+                audio_filter = ",".join(["atempo=0.5"] * num_filters)
+                logger.info(f"Speed {speed}x too slow, using chained audio filter: {audio_filter}")
+            elif tempo_factor > 2.0:
+                # Chain multiple atempo filters (e.g., 3.0 = atempo=2.0,atempo=1.5)
+                first_factor = 2.0
+                second_factor = tempo_factor / 2.0
+                audio_filter = f"atempo={first_factor},atempo={second_factor}"
+                logger.info(f"Speed {speed}x too fast, using chained audio filter: {audio_filter}")
+            else:
+                audio_filter = f"atempo={tempo_factor}"
+            
+            cmd = [
+                "ffmpeg", "-i", current_input,
+                "-filter_complex", f"[0:v]setpts={speed_factor}*PTS[v];[0:a]{audio_filter}[a]",
+                "-map", "[v]", "-map", "[a]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-y", temp_speed
+            ]
+        
+        logger.info(f"[MASTER] Running FFmpeg speed command: {' '.join(cmd[:8])}...")  # Log partial command
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
         if result.returncode == 0:
-            current_input = temp_speed
-            logger.info(f"[MASTER] ✅ Speed {speed}x applied successfully")
-            # Verify the output exists and has size
             if os.path.exists(temp_speed) and os.path.getsize(temp_speed) > 0:
+                current_input = temp_speed
+                logger.info(f"[MASTER] ✅ Speed {speed}x applied successfully")
                 logger.info(f"[MASTER] Speed output size: {os.path.getsize(temp_speed):,} bytes")
             else:
                 logger.error(f"[MASTER] Speed output file is empty or missing!")
+                logger.error(f"[MASTER] FFmpeg stderr: {result.stderr[:1000]}")
                 return None
         else:
-            logger.error(f"[MASTER] Speed failed with error: {result.stderr[:500]}")
-            return None
+            logger.error(f"[MASTER] Speed failed with return code {result.returncode}")
+            logger.error(f"[MASTER] FFmpeg stderr: {result.stderr[:1000]}")
+            
+            # Fallback: Try without speed filter, just continue
+            logger.warning("[MASTER] Falling back to original speed")
+            # Don't modify current_input, continue without speed filter
 
     # Stage 2: Apply FPS (if needed)
     if fps and fps != 'original' and str(fps).isdigit():
@@ -870,7 +905,7 @@ def _apply_all_filters_production(video, options):
         else:
             current_input = temp_fps
             logger.info(f"[MASTER] ✅ FPS applied")
-    
+
     # Stage 3: Apply VIDEO STYLES (one at a time)
     style_filters = {
         # ========== FREE TIER STYLES ==========
@@ -890,7 +925,7 @@ def _apply_all_filters_production(video, options):
         "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
         "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
         "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
-        "action": "eq=contrast=1.2:brightness=0.03",
+        "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
         "minimalist": "eq=saturation=0.92:contrast=1.05",
         "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
         
@@ -899,7 +934,7 @@ def _apply_all_filters_production(video, options):
         "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
         "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
         "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
-        "cartoon": "eq=saturation=1.2:contrast=1.1",
+        "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
         "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
         "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
         "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
@@ -916,7 +951,7 @@ def _apply_all_filters_production(video, options):
         "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
         "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
     }
-    
+
     if styles:
         for style in styles:
             if style in style_filters:
@@ -1192,6 +1227,407 @@ def _generate_chapters(video):
         logger.error(f"Chapter generation failed: {e}")
         # Chapters are optional, don't fail the process
 
+# ========== QUICK ACTIONS ENDPOINTS ==========
+@celery_app.task(bind=True, max_retries=2)
+def apply_different_styles_async(self, video_id: str, user_id: str, styles: List[str], output_quality: str = "720p"):
+    """
+    Apply different video styles to the processed video.
+    Cost: 1 credit (already deducted in API)
+    Uses your existing FFmpegProvider.apply_video_style() method.
+    """
+    from services.video_service import VideoService
+    from providers.ffmpeg_provider import FFmpegProvider
+    import os
+    import subprocess
+    from datetime import datetime
+    import shutil
+    
+    video_service = VideoService()
+    ffmpeg = FFmpegProvider()
+    
+    try:
+        # Get video
+        video = video_service.get_video_by_id(video_id)
+        if not video:
+            raise ProcessingError(f"Video not found: {video_id}")
+        
+        # Get the original processed video path
+        input_path = video.output_video_url
+        if not input_path or not os.path.exists(input_path):
+            # Try original path
+            input_path = video.original_path
+        
+        if not input_path or not os.path.exists(input_path):
+            raise ProcessingError(f"Video file not found: {input_path}")
+        
+        # Create output directory
+        output_dir = os.path.dirname(input_path)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        
+        results = []
+        
+        for style in styles:
+            # Apply each style using your existing method
+            output_filename = f"{video_id}_{style}_{timestamp}.mp4"
+            output_path = os.path.join(output_dir, output_filename)
+            
+            # Use your existing apply_video_style method
+            success = ffmpeg.apply_video_style(input_path, output_path, style)
+            
+            if success and os.path.exists(output_path):
+                results.append({
+                    "style": style,
+                    "output_path": output_path,
+                    "output_url": output_path,
+                    "file_size": os.path.getsize(output_path)
+                })
+                logger.info(f"✅ Applied style '{style}' to video {video_id}")
+            else:
+                logger.error(f"❌ Failed to apply style '{style}' to video {video_id}")
+        
+        # If multiple styles, also apply combination
+        if len(styles) > 1:
+            combined_output = os.path.join(output_dir, f"{video_id}_combined_{'_'.join(styles[:3])}_{timestamp}.mp4")
+            combined_success = ffmpeg.apply_multiple_styles(input_path, combined_output, styles)
+            
+            if combined_success and os.path.exists(combined_output):
+                results.append({
+                    "style": "combined",
+                    "sub_styles": styles,
+                    "output_path": combined_output,
+                    "output_url": combined_output,
+                    "file_size": os.path.getsize(combined_output)
+                })
+        
+        # Update video with new styled versions
+        if results:
+            video.styled_versions = results
+            video.updated_at = datetime.utcnow()
+            video_service.update_video(video)
+            
+            # Send notification
+            from services.notification_service import NotificationService, NotificationType, NotificationChannel
+            notification_service = NotificationService()
+            
+            notification_service.send_notification(
+                user_id=user_id,
+                notification_type=NotificationType.VIDEO_PROCESSED,
+                data={
+                    "video_id": video_id,
+                    "video_title": video.title or video.original_filename,
+                    "message": f"Styles applied successfully! {len(results)} style(s) added.",
+                    "styled_versions": results
+                },
+                channels=[NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET]
+            )
+        
+        return {
+            "success": True,
+            "video_id": video_id,
+            "styles_applied": len(results),
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Apply styles failed for {video_id}: {str(e)}", exc_info=True)
+        
+        # Send failure notification
+        from services.notification_service import NotificationService, NotificationType, NotificationChannel
+        notification_service = NotificationService()
+        notification_service.send_notification(
+            user_id=user_id,
+            notification_type=NotificationType.VIDEO_FAILED,
+            data={
+                "video_id": video_id,
+                "error": str(e),
+                "step": "style_application"
+            },
+            channels=[NotificationChannel.IN_APP]
+        )
+        
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=60)
+        
+        return {"success": False, "video_id": video_id, "error": str(e)}
+
+@celery_app.task(bind=True, max_retries=2)
+def create_short_clips_async(self, video_id: str, user_id: str, clip_count: int = 3, 
+                              clip_duration: int = 15, aspect_ratio: str = "9:16"):
+    """
+    Create short clips from video for TikTok/Shorts/Reels.
+    Cost: 1 credit per clip (already deducted in API)
+    """
+    from services.video_service import VideoService
+    from providers.ffmpeg_provider import FFmpegProvider
+    import os
+    import subprocess
+    import math
+    from datetime import datetime
+    
+    video_service = VideoService()
+    ffmpeg = FFmpegProvider()
+    
+    try:
+        # Get video
+        video = video_service.get_video_by_id(video_id)
+        if not video:
+            raise ProcessingError(f"Video not found: {video_id}")
+        
+        # Get input path
+        input_path = video.output_video_url or video.original_path
+        if not input_path or not os.path.exists(input_path):
+            raise ProcessingError(f"Video file not found: {input_path}")
+        
+        # Get video duration
+        metadata = ffmpeg.get_video_metadata(input_path)
+        duration = metadata.get("duration", 0)
+        
+        if duration <= 0:
+            raise ProcessingError(f"Could not determine video duration")
+        
+        # Calculate clip intervals
+        total_clips_possible = int(duration // clip_duration)
+        actual_clip_count = min(clip_count, total_clips_possible)
+        
+        if actual_clip_count == 0:
+            return {
+                "success": False,
+                "error": f"Video too short for {clip_duration}s clips. Duration: {duration}s"
+            }
+        
+        # Create output directory
+        output_dir = os.path.join(os.path.dirname(input_path), "clips", video_id)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        clips = []
+        
+        # Aspect ratio dimensions
+        aspect_map = {
+            "9:16": (1080, 1920),   # TikTok/Shorts
+            "16:9": (1920, 1080),   # YouTube
+            "1:1": (1080, 1080),    # Instagram square
+            "4:5": (1080, 1350),    # Instagram portrait
+        }
+        
+        target_w, target_h = aspect_map.get(aspect_ratio, (1080, 1920))
+        
+        for i in range(actual_clip_count):
+            start_time = i * clip_duration
+            
+            # Skip if clip would exceed duration
+            if start_time + clip_duration > duration:
+                break
+            
+            output_filename = f"clip_{i+1:02d}_{timestamp}.mp4"
+            output_path = os.path.join(output_dir, output_filename)
+            
+            # Extract clip and apply aspect ratio
+            cmd = [
+                "ffmpeg", "-i", input_path,
+                "-ss", str(start_time),
+                "-t", str(clip_duration),
+                "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                "-y", output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0 and os.path.exists(output_path):
+                clips.append({
+                    "clip_number": i + 1,
+                    "start_time": start_time,
+                    "duration": clip_duration,
+                    "output_path": output_path,
+                    "output_url": output_path,
+                    "file_size": os.path.getsize(output_path)
+                })
+                logger.info(f"✅ Created clip {i+1} from video {video_id}")
+            else:
+                logger.error(f"❌ Failed to create clip {i+1}: {result.stderr}")
+        
+        # Store clips in video metadata
+        video.short_clips = clips
+        video.updated_at = datetime.utcnow()
+        video_service.update_video(video)
+        
+        # Send notification
+        from services.notification_service import NotificationService, NotificationType, NotificationChannel
+        notification_service = NotificationService()
+        
+        notification_service.send_notification(
+            user_id=user_id,
+            notification_type=NotificationType.VIDEO_PROCESSED,
+            data={
+                "video_id": video_id,
+                "video_title": video.title or video.original_filename,
+                "message": f"{len(clips)} short clip(s) created successfully!",
+                "clips": clips
+            },
+            channels=[NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET]
+        )
+        
+        return {
+            "success": True,
+            "video_id": video_id,
+            "clips_created": len(clips),
+            "clips": clips,
+            "aspect_ratio": aspect_ratio
+        }
+        
+    except Exception as e:
+        logger.error(f"Create clips failed for {video_id}: {str(e)}", exc_info=True)
+        
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=60)
+        
+        return {"success": False, "video_id": video_id, "error": str(e)}
+
+
+@celery_app.task(bind=True, max_retries=2)
+def duplicate_video_async(self, original_video_id: str, user_id: str, 
+                           new_options: Dict[str, Any] = None, reprocess: bool = True):
+    """
+    Duplicate video with new processing options.
+    Cost: 1 credit (already deducted in API)
+    """
+    from services.video_service import VideoService
+    from services.user_service import UserService
+    from services.credit_service import CreditService
+    import shutil
+    import uuid
+    from datetime import datetime
+    
+    video_service = VideoService()
+    user_service = UserService()
+    credit_service = CreditService()
+    
+    new_options = new_options or {}
+    
+    try:
+        # Get original video
+        original_video = video_service.get_video_by_id(original_video_id)
+        if not original_video:
+            raise ProcessingError(f"Original video not found: {original_video_id}")
+        
+        # Get user
+        user = user_service.get_user_by_id(user_id)
+        if not user:
+            raise ProcessingError(f"User not found: {user_id}")
+        
+        # Create new video ID
+        new_video_id = str(uuid.uuid4())
+        
+        # Get user's video directory
+        video_dir = video_service.get_user_video_base_dir(user_id) / new_video_id
+        video_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy original file
+        original_path = original_video.original_path
+        if not original_path or not os.path.exists(original_path):
+            # Try output path
+            original_path = original_video.output_video_url
+        
+        if not original_path or not os.path.exists(original_path):
+            raise ProcessingError(f"Original video file not found")
+        
+        new_original_path = video_dir / "original.mp4"
+        shutil.copy2(original_path, str(new_original_path))
+        
+        # Create new video entity with merged options
+        from core.domain.entities.video import Video, VideoType
+        
+        # Merge original options with new options
+        final_options = {
+            "quality": new_options.get("quality", original_video.output_quality),
+            "fps": new_options.get("fps", getattr(original_video, "fps", "original")),
+            "audio_quality": new_options.get("audio_quality", getattr(original_video, "audio_quality", "original")),
+            "aspect_ratio": new_options.get("aspect_ratio", getattr(original_video, "aspect_ratio", "original")),
+            "thumbnail_style": new_options.get("thumbnail_style", getattr(original_video, "thumbnail_style", "default")),
+            "styles": new_options.get("styles", getattr(original_video, "applied_styles", [])),
+            "auto_transcribe": new_options.get("auto_transcribe", getattr(original_video, "auto_transcribe", True)),
+            "generate_chapters": new_options.get("generate_chapters", getattr(original_video, "generate_chapters", False)),
+            "remove_silence": new_options.get("remove_silence", getattr(original_video, "remove_silence", False)),
+            "translation_language": new_options.get("translation_language", getattr(original_video, "translation_language", "")),
+            "speed": float(new_options.get("speed", getattr(original_video, "speed", 1.0))),
+        }
+        
+        # Create new video entity
+        new_video = Video(
+            id=new_video_id,
+            user_id=user_id,
+            original_filename=f"copy_{original_video.original_filename}",
+            file_size=original_video.file_size,
+            duration=original_video.duration,
+            mime_type=original_video.mime_type,
+            video_type=original_video.video_type,
+            original_path=str(new_original_path),
+            processed_tier=user.tier.value,
+            status="queued" if reprocess else "completed",
+            # Copy metadata from original
+            title=f"Copy of {original_video.title}" if original_video.title else None,
+            description=original_video.description,
+            tags=original_video.tags,
+            # Apply new options
+            output_quality=final_options["quality"],
+            fps=final_options["fps"],
+            audio_quality=final_options["audio_quality"],
+            aspect_ratio=final_options["aspect_ratio"],
+            thumbnail_style=final_options["thumbnail_style"],
+            applied_styles=final_options["styles"],
+            auto_transcribe=final_options["auto_transcribe"],
+            generate_chapters=final_options["generate_chapters"],
+            remove_silence=final_options["remove_silence"],
+            translation_language=final_options["translation_language"],
+            speed=final_options["speed"],
+        )
+        
+        # Save to database
+        if video_service.db:
+            video_service.db.save("videos", new_video_id, new_video.to_dict())
+        
+        # If reprocessing, queue for processing
+        if reprocess:
+            from tasks.video_tasks import process_video_async
+            process_video_async.delay(new_video_id, user_id, final_options)
+        
+        # Send notification
+        from services.notification_service import NotificationService, NotificationType, NotificationChannel
+        notification_service = NotificationService()
+        
+        notification_service.send_notification(
+            user_id=user_id,
+            notification_type=NotificationType.VIDEO_PROCESSED,
+            data={
+                "video_id": new_video_id,
+                "video_title": new_video.title or new_video.original_filename,
+                "message": f"Video duplicated successfully! {'Processing started' if reprocess else 'Ready for download'}",
+                "is_duplicate": True,
+                "original_video_id": original_video_id
+            },
+            channels=[NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET]
+        )
+        
+        return {
+            "success": True,
+            "original_video_id": original_video_id,
+            "new_video_id": new_video_id,
+            "reprocess": reprocess,
+            "options_applied": final_options
+        }
+        
+    except Exception as e:
+        logger.error(f"Duplicate video failed: {str(e)}", exc_info=True)
+        
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=60)
+        
+        return {"success": False, "error": str(e)}
+    
+# ========== QUICK ACTIONS ENDPOINTS ==========
 def _translate_content(video, target_language):
     """Translate content."""
     from providers.google_provider import GoogleProvider

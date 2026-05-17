@@ -929,56 +929,48 @@ class FFmpegProvider:
 
         # Define filter chains for each style
         style_filters = {
-            # Professional Base LUTs from portfolio sites
-            "cinematic": [
-                "eq=brightness=0.02:contrast=1.1:saturation=1.05:gamma=0.95",
-                "colorbalance=rs=0.02:gs=-0.01:bs=-0.03",
-                "colorchannelmixer=.9:.1:.1:0:.1:.9:.1:0:.1:.1:.9",
-                "curves=preset=filmstock",  # Strong film-like curve
-                "fps=24",  # Cinematic frame rate
-                "setsar=1:1",
-            ],
-            "bright": [
-                "eq=brightness=0.08:contrast=1.08:saturation=1.1",
-                "colorbalance=rs=0.02:gs=-0.01:bs=-0.02",
-                "unsharp=5:5:0.8:3:3:0.4",
-            ],
-            "dark": [
-                "eq=brightness=-0.05:contrast=1.15:saturation=1.08",
-                "colorbalance=rs=-0.03:gs=-0.02:bs=0.02",
-                "curves=preset=increase_contrast",
-            ],
-            "vibrant": [
-                "eq=saturation=1.2",
-                "colorbalance=rs=0.05:gs=0.01:bs=-0.01",
-                "unsharp=5:5:1.0:3:3:0.5",
-            ],
-            "cinematic_grade": [  # Advanced cinematic grade
-                "lut3d=file=/path/your_cube.cube",  # Replace with actual LUT path
-                "eq=gamma=0.95:contrast=1.05",
-                "colorbalance=rs=-0.02:gs=0.01:bs=0.03",
-            ],
-            "gaming": [
-                "eq=brightness=0.03:contrast=1.12:saturation=1.15:gamma=0.98",
-                "colorbalance=rs=0.08:gs=0.03:bs=-0.05",
-                "unsharp=5:5:1.2:3:3:0.6",
-            ],
-            "educational": [
-                "eq=brightness=0.01:contrast=1.05:saturation=1.02",
-                "colorbalance=rs=0.02:gs=0.01:bs=0.01",
-            ],
-            "cinematic": [
-                "eq=brightness=0.02:contrast=1.1:saturation=1.05:gamma=0.95",
-                "colorbalance=rs=0.02:gs=-0.01:bs=-0.03",
-            ],
-            "bright": ["eq=brightness=0.05:contrast=1.1:saturation=1.1"],
-            "dark": ["eq=brightness=-0.05:contrast=1.15"],
-            "vintage": [
-                "curves=preset=vintage",
-                "eq=saturation=0.8",
-                "colorbalance=rs=0.05:gs=0:bs=-0.05",
-            ],
-            "cartoon": ["edgedetect=low=0.1:high=0.3", "curves=preset=cross_process"],
+            # ========== FREE TIER STYLES ==========
+            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+            "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
+            "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05",
+            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
+            
+            # ========== STARTER TIER STYLES ==========
+            "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03",
+            "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05",
+            
+            # ========== PRO TIER STYLES ==========
+            "professional": "eq=contrast=1.08:saturation=0.98",
+            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95",
+            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
+            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
+            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
+            "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
+            "action": "eq=contrast=1.2:brightness=0.03",
+            "minimalist": "eq=saturation=0.92:contrast=1.05",
+            "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
+            
+            # ========== PLUS TIER STYLES ==========
+            "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12",
+            "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
+            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
+            "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
+            "cartoon": "eq=saturation=1.2:contrast=1.1",
+            "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
+            "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
+            "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
+            "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1",
+            "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05",
+            "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02",
+            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+            "black_and_white": "hue=s=0,eq=contrast=1.1",
+            
+            # ========== ENTERPRISE TIER STYLES ==========
+            "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15",
+            "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08",
+            "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05",
+            "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
+            "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
         }
 
         # Get filters for the requested style
@@ -1019,14 +1011,99 @@ class FFmpegProvider:
             logger.error(f"Style application error: {str(e)}")
             return False
 
-    def apply_multiple_styles(
-        self, input_path: str, output_path: str, styles: List[str]
-    ) -> bool:
+    def apply_video_style(self, input_path: str, output_path: str, style: str) -> bool:
+        """
+        Apply cinematic/bright/dark/gaming style to video using FFmpeg filters.
+        Complete production version with all tiers.
+        """
+        if not os.path.exists(input_path):
+            raise ProcessingError(f"Input file not found: {input_path}")
+
+        # ========== COMPLETE STYLE FILTERS - ALL TIERS ==========
+        style_filters = {
+            # ========== FREE TIER STYLES ==========
+            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+            "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
+            "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05",
+            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
+            
+            # ========== STARTER TIER STYLES ==========
+            "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03",
+            "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05",
+            
+            # ========== PRO TIER STYLES ==========
+            "professional": "eq=contrast=1.08:saturation=0.98",
+            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95",
+            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
+            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
+            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
+            "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
+            "action": "eq=contrast=1.2:brightness=0.03",
+            "minimalist": "eq=saturation=0.92:contrast=1.05",
+            "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
+            
+            # ========== PLUS TIER STYLES ==========
+            "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12",
+            "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
+            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
+            "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
+            "cartoon": "eq=saturation=1.2:contrast=1.1",
+            "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
+            "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
+            "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
+            "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1",
+            "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05",
+            "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02",
+            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+            "black_and_white": "hue=s=0,eq=contrast=1.1",
+            
+            # ========== ENTERPRISE TIER STYLES ==========
+            "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15",
+            "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08",
+            "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05",
+            "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
+            "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
+        }
+
+        # Get filter for the requested style
+        filter_str = style_filters.get(style.lower())
+        if not filter_str:
+            logger.warning(f"Unknown style: {style}, defaulting to 'cinematic'")
+            filter_str = style_filters.get("cinematic")
+
+        try:
+            cmd = [
+                self.ffmpeg_path,
+                "-i", input_path,
+                "-vf", filter_str,
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "18",
+                "-c:a", "copy",
+                "-y", output_path,
+            ]
+
+            logger.info(f"Applying style '{style}' to video")
+            logger.info(f"Filter: {filter_str}")
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if result.returncode != 0:
+                logger.error(f"Style application failed: {result.stderr}")
+                return False
+
+            logger.info(f"Successfully applied '{style}' style")
+            return os.path.exists(output_path)
+
+        except subprocess.SubprocessError as e:
+            logger.error(f"Style application error: {str(e)}")
+            return False
+
+
+    def apply_multiple_styles(self, input_path: str, output_path: str, styles: List[str]) -> bool:
         """Apply multiple styles sequentially to a video."""
         if not styles:
-            # No styles to apply, just copy
             import shutil
-
             shutil.copy2(input_path, output_path)
             return True
 
@@ -1034,9 +1111,7 @@ class FFmpegProvider:
         temp_files = []
 
         for i, style in enumerate(styles):
-            temp_output = (
-                output_path if i == len(styles) - 1 else f"{output_path}.temp_{i}.mp4"
-            )
+            temp_output = output_path if i == len(styles) - 1 else f"{output_path}.temp_{i}.mp4"
             if i < len(styles) - 1:
                 temp_files.append(temp_output)
 
@@ -1056,105 +1131,44 @@ class FFmpegProvider:
 
         return True
 
-        def change_audio_quality(
-            self, input_path: str, output_path: str, bitrate: str
-        ) -> bool:
-            """
-            Change audio quality/bitrate.
+    def test_ffmpeg(self) -> Dict[str, Any]:
+        """Test FFmpeg installation and capabilities."""
+        try:
+            # Get version
+            version_result = subprocess.run(
+                [self.ffmpeg_path, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
 
-            Args:
-                input_path: Path to input video
-                output_path: Path to output video
-                bitrate: Bitrate (original, 128k, 192k, 256k, 320k)
+            version_output = (
+                version_result.stdout.split("\n")[0]
+                if version_result.returncode == 0
+                else "Unknown"
+            )
 
-            Returns:
-                True if successful
-            """
-            if not os.path.exists(input_path):
-                raise ProcessingError(f"Input file not found: {input_path}")
+            # Get supported codecs
+            codecs_result = subprocess.run(
+                [self.ffmpeg_path, "-codecs"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
 
-            if bitrate == "original":
-                import shutil
+            supported_codecs = []
+            if codecs_result.returncode == 0:
+                for line in codecs_result.stdout.split("\n"):
+                    if "libx264" in line or "libx265" in line or "aac" in line:
+                        supported_codecs.append(line.strip())
 
-                shutil.copy2(input_path, output_path)
-                return True
+            return {
+                "installed": True,
+                "version": version_output,
+                "ffmpeg_path": self.ffmpeg_path,
+                "ffprobe_path": self.ffprobe_path,
+                "supported_codecs": supported_codecs[:10],  # First 10
+            }
 
-            # Validate bitrate
-            valid_bitrates = ["128k", "192k", "256k", "320k"]
-            if bitrate not in valid_bitrates:
-                logger.warning(f"Unknown bitrate: {bitrate}, defaulting to 192k")
-                bitrate = "192k"
-
-            try:
-                cmd = [
-                    self.ffmpeg_path,
-                    "-i",
-                    input_path,
-                    "-c:v",
-                    "copy",  # Keep video unchanged
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    bitrate,
-                    "-y",
-                    output_path,
-                ]
-
-                logger.info(f"Changing audio quality to {bitrate}")
-
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=300
-                )
-
-                if result.returncode != 0:
-                    logger.error(f"Audio quality change failed: {result.stderr}")
-                    return False
-
-                logger.info(f"Successfully changed audio quality to {bitrate}")
-                return os.path.exists(output_path)
-
-            except subprocess.SubprocessError as e:
-                logger.error(f"Audio quality change failed: {str(e)}")
-                return False
-
-        def test_ffmpeg(self) -> Dict[str, Any]:
-            """Test FFmpeg installation and capabilities."""
-            try:
-                # Get version
-                version_result = subprocess.run(
-                    [self.ffmpeg_path, "-version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-
-                version_output = (
-                    version_result.stdout.split("\n")[0]
-                    if version_result.returncode == 0
-                    else "Unknown"
-                )
-
-                # Get supported codecs
-                codecs_result = subprocess.run(
-                    [self.ffmpeg_path, "-codecs"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-
-                supported_codecs = []
-                if codecs_result.returncode == 0:
-                    for line in codecs_result.stdout.split("\n"):
-                        if "libx264" in line or "libx265" in line or "aac" in line:
-                            supported_codecs.append(line.strip())
-
-                return {
-                    "installed": True,
-                    "version": version_output,
-                    "ffmpeg_path": self.ffmpeg_path,
-                    "ffprobe_path": self.ffprobe_path,
-                    "supported_codecs": supported_codecs[:10],  # First 10
-                }
-
-            except Exception as e:
-                return {"installed": False, "error": str(e)}
+        except Exception as e:
+            return {"installed": False, "error": str(e)}

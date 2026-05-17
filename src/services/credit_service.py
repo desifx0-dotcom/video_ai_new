@@ -31,6 +31,8 @@ class CreditOperation(str, Enum):
     BONUS = "bonus"
     PURCHASE = "purchase"
     VIDEO_PROCESSING = "video_processing"
+    CLIP_CREATION = "clip_creation"        # ← ADD THIS
+    DUPLICATION = "duplication"
 
 
 class CreditService:
@@ -48,7 +50,10 @@ class CreditService:
         CreditOperation.TRANSLATION: 1,
         CreditOperation.STYLE_APPLICATION: 3,
         CreditOperation.VIDEO_PROCESSING: 1,
+        CreditOperation.CLIP_CREATION: 1,      # For "Create Short Clips" (per clip)
+        CreditOperation.DUPLICATION: 1,
     }
+
     # Monthly credits per tier
     MONTHLY_CREDITS = {
         "free": 3,
