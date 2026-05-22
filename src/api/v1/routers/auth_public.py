@@ -117,6 +117,14 @@ def login():
 @validate_request(RegisterSchema)
 def register():
     """Register a new user with initial credits."""
+    
+    # 🔥 Check if there was a validation error
+    if hasattr(g, 'validation_error') and g.validation_error:
+        return jsonify({
+            "success": False,
+            "error": g.validation_error
+        }), 400
+    
     try:
         data = g.validated_data
         logger.info(f"Registration data: {data}")
@@ -130,7 +138,14 @@ def register():
         existing_user = user_service.get_user_by_email(data["email"])
         if existing_user:
             return (
-                jsonify({"error": {"message": "User with this email already exists"}}),
+                jsonify({
+                    "success": False,
+                    "error": {
+                        "code": "USER_EXISTS",
+                        "message": "User with this email already exists",
+                        "field": "email"
+                    }
+                }),
                 400,
             )
 
@@ -138,7 +153,7 @@ def register():
         tier = data.get("tier", "free")
 
         # Get initial credits based on tier
-        initial_credits = tier_service.get_credits_per_month(tier(tier))
+        initial_credits = tier_service.get_credits_per_month(tier)
 
         # Create user with initial credits
         user = user_service.create_user(
@@ -150,7 +165,13 @@ def register():
         )
 
         if not user:
-            return jsonify({"error": {"message": "Failed to create user"}}), 500
+            return jsonify({
+                "success": False,
+                "error": {
+                    "code": "USER_CREATION_FAILED",
+                    "message": "Failed to create user"
+                }
+            }), 500
 
         # Create tokens
         access_token = create_access_token(
@@ -165,22 +186,6 @@ def register():
             identity=user.id, expires_delta=timedelta(days=30)
         )
 
-        # Track registration event
-        credit_service.track_usage(
-            user.id,
-            "registration",
-            None,
-            {"tier": tier, "initial_credits": initial_credits},
-        )
-
-        # If user opted in for newsletter
-        if data.get("newsletter"):
-            try:
-                # Add to newsletter list (implement as needed)
-                pass
-            except Exception as e:
-                logger.error(f"Newsletter subscription failed: {e}")
-
         return (
             jsonify(
                 {
@@ -193,8 +198,8 @@ def register():
                         "email": user.email,
                         "full_name": getattr(user, "full_name", full_name),
                         "tier": tier,
-                        "credits_remaining": user.credits_remaining,
-                        "monthly_limit": user.monthly_video_limit,
+                        "credits_remaining": getattr(user, "credits_remaining", initial_credits),
+                        "monthly_limit": getattr(user, "monthly_video_limit", 3),
                     },
                     "expires_in": 3600,
                 }
@@ -204,17 +209,16 @@ def register():
 
     except Exception as e:
         import traceback
-
-        logger.error(f"Registration error: {traceback.format_exc()}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Registration error: {error_traceback}")
         return (
-            jsonify(
-                {
-                    "error": {
-                        "message": f"Registration failed: {str(e)}",
-                        "code": "INTERNAL_ERROR",
-                    }
+            jsonify({
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": str(e)
                 }
-            ),
+            }),
             500,
         )
 

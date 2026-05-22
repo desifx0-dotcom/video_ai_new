@@ -71,11 +71,42 @@
                     <label for="password" class="form-label">Password</label>
                     <div class="input-group">
                       <input type="password" class="form-control" id="password" name="password"
-                        placeholder="Create a strong password" required minlength="8">
+                      placeholder="Create a strong password like your weak relationship" required minlength="8"
+                      title="Password must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character">
                       <button class="btn btn-outline-secondary" type="button" id="toggle-password">
                         <i class="fas fa-eye"></i>
                       </button>
                     </div>
+                    
+                    <!--  PASSWORD REQUIREMENTS TOOLTIP -->
+                    <!-- <div id="password-requirements" class="password-requirements-tooltip" style="display: none;">
+                      <div class="requirements-header">
+                        <i class="fas fa-shield-alt me-1"></i> Password must contain:
+                      </div>
+                      <ul class="requirements-list mb-0">
+                        <li id="req-length" class="requirement-item">
+                          <i class="fas fa-circle requirement-icon"></i>
+                          <span>At least 8 characters</span>
+                        </li>
+                        <li id="req-uppercase" class="requirement-item">
+                          <i class="fas fa-circle requirement-icon"></i>
+                          <span>At least one uppercase letter (A-Z)</span>
+                        </li>
+                        <li id="req-lowercase" class="requirement-item">
+                          <i class="fas fa-circle requirement-icon"></i>
+                          <span>At least one lowercase letter (a-z)</span>
+                        </li>
+                        <li id="req-number" class="requirement-item">
+                          <i class="fas fa-circle requirement-icon"></i>
+                          <span>At least one number (0-9)</span>
+                        </li>
+                        <li id="req-special" class="requirement-item">
+                          <i class="fas fa-circle requirement-icon"></i>
+                          <span>At least one special character (!@#$%^&*)</span>
+                        </li>
+                      </ul>
+                    </div> -->
+                    
                     <div class="invalid-feedback">
                       Password must be at least 8 characters with uppercase, lowercase, number, and special character.
                     </div>
@@ -91,12 +122,12 @@
                     <label for="confirm_password" class="form-label">Confirm Password</label>
                     <div class="input-group">
                       <input type="password" class="form-control" id="confirm_password" name="confirm_password"
-                        placeholder="Confirm your password" required>
+                        placeholder="Confirm your password(aryan is intelligent)" required>
                       <button class="btn btn-outline-secondary" type="button" id="toggle-confirm-password">
                         <i class="fas fa-eye"></i>
                       </button>
                     </div>
-                    <div class="invalid-feedback">Passwords do not match.</div>
+                    <!-- <div class="invalid-feedback">Passwords do not match.</div> -->
                   </div>
 
                   <div class="mb-3">
@@ -131,12 +162,25 @@
                   <div class="text-center">
                     <p class="text-muted mb-0">
                       Already have an account?
-                      <!-- UPDATED: Use login_page for the GET link -->
                       <a href="{{ url_for('login_page') }}" class="text-decoration-none">
-                          Sign in
+                        Sign in
                       </a>
                     </p>
+                    
+                    <div class="text-center my-3">
+                      <span class="text-muted small">or sign up with</span>
+                    </div>
+                    
+                    <div class="d-grid gap-2 mt-2">
+                      <a href="#" class="btn btn-outline py-2">
+                        <i class="fab fa-google me-2"></i>Google
+                      </a>
+                      <a href="#" class="btn btn-outline py-2">
+                        <i class="fab fa-github me-2"></i>GitHub
+                      </a>
+                    </div>
                   </div>
+
                 </form>
               </div>
 
@@ -350,6 +394,82 @@
   [data-theme="dark"] .trust-item {
     background: rgba(30, 41, 59, 0.8);
   }
+  .password-requirements-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 280px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.2s ease;
+  }
+
+  [data-theme="dark"] .password-requirements-tooltip {
+    background: #1e293b;
+    border-color: #475569;
+  }
+
+  [data-theme="light"] .password-requirements-tooltip {
+    background: #ffffff;
+    border-color: #e2e8f0;
+  }
+
+  .requirements-header {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+
+  .requirements-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+  }
+
+  .requirement-item {
+    font-size: 0.75rem;
+    padding: 3px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+  }
+
+  .requirement-item.met {
+    color: #10b981;
+  }
+
+  .requirement-item.met .requirement-icon {
+    color: #10b981;
+  }
+
+  .requirement-item .requirement-icon {
+    font-size: 0.5rem;
+    color: #94a3b8;
+    transition: all 0.2s ease;
+  }
+
+  .requirement-item.met .requirement-icon {
+    color: #10b981;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 </style>
 {% endblock %}
 
@@ -367,6 +487,7 @@
     const passwordStrengthText = document.getElementById('password-strength-text');
     const selectedTierInput = document.getElementById('selected-tier');
     const tierOptions = document.querySelectorAll('.tier-option');
+    const emailInput = document.getElementById('email');
 
     // Get tier from URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -385,8 +506,6 @@
         selectedTierInput.value = tier;
         updateTierSelection(tier);
         updateButtonText(tier);
-
-        // Update URL without reload
         const url = new URL(window.location);
         url.searchParams.set('tier', tier);
         window.history.pushState({}, '', url);
@@ -417,28 +536,15 @@
     togglePassword.addEventListener('click', function () {
       const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
       passwordInput.setAttribute('type', type);
-
-      // Toggle icon
       const icon = this.querySelector('i');
-      if (type === 'password') {
-        icon.className = 'fas fa-eye';
-      } else {
-        icon.className = 'fas fa-eye-slash';
-      }
+      icon.className = type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
     });
 
-    // Toggle confirm password visibility
     toggleConfirmPassword.addEventListener('click', function () {
       const type = confirmPasswordInput.getAttribute('type') === 'password' ? 'text' : 'password';
       confirmPasswordInput.setAttribute('type', type);
-
-      // Toggle icon
       const icon = this.querySelector('i');
-      if (type === 'password') {
-        icon.className = 'fas fa-eye';
-      } else {
-        icon.className = 'fas fa-eye-slash';
-      }
+      icon.className = type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
     });
 
     // Password strength indicator
@@ -449,38 +555,20 @@
 
     function calculatePasswordStrength(password) {
       let score = 0;
-
       if (!password) return { score: 0, label: 'None', color: '#dc3545' };
-
-      // Length
       if (password.length >= 8) score += 25;
       if (password.length >= 12) score += 10;
-
-      // Character variety
       if (/[a-z]/.test(password)) score += 10;
       if (/[A-Z]/.test(password)) score += 10;
       if (/[0-9]/.test(password)) score += 10;
       if (/[^a-zA-Z0-9]/.test(password)) score += 15;
-
-      // Common patterns penalty
       const commonPatterns = ['123456', 'password', 'qwerty', 'abc123'];
-      if (commonPatterns.some(pattern => password.toLowerCase().includes(pattern))) {
-        score -= 30;
-      }
-
-      // Ensure score is between 0 and 100
+      if (commonPatterns.some(pattern => password.toLowerCase().includes(pattern))) score -= 30;
       score = Math.max(0, Math.min(100, score));
-
-      // Determine label and color
-      if (score >= 80) {
-        return { score, label: 'Strong', color: '#198754' };
-      } else if (score >= 60) {
-        return { score, label: 'Good', color: '#ffc107' };
-      } else if (score >= 40) {
-        return { score, label: 'Fair', color: '#fd7e14' };
-      } else {
-        return { score, label: 'Weak', color: '#dc3545' };
-      }
+      if (score >= 80) return { score, label: 'Strong', color: '#198754' };
+      if (score >= 60) return { score, label: 'Good', color: '#ffc107' };
+      if (score >= 40) return { score, label: 'Fair', color: '#fd7e14' };
+      return { score, label: 'Weak', color: '#dc3545' };
     }
 
     function updatePasswordStrengthIndicator(strength) {
@@ -490,25 +578,75 @@
       passwordStrengthText.style.color = strength.color;
     }
 
-    // Form validation
+    // ========== NATIVE TOOLTIP VALIDATION FUNCTIONS ==========
+    function validatePasswordWithNativeTooltip() {
+      const password = passwordInput.value;
+      if (password.length === 0) {
+        passwordInput.setCustomValidity('');
+        return true;
+      }
+      if (password.length < 8) {
+        passwordInput.setCustomValidity(`Please use at least 8 characters (you are currently using ${password.length} of 8)`);
+        return false;
+      }
+      if (!/[A-Z]/.test(password)) {
+        passwordInput.setCustomValidity('Password must contain at least one uppercase letter (A-Z)');
+        return false;
+      }
+      if (!/[a-z]/.test(password)) {
+        passwordInput.setCustomValidity('Password must contain at least one lowercase letter (a-z)');
+        return false;
+      }
+      if (!/[0-9]/.test(password)) {
+        passwordInput.setCustomValidity('Password must contain at least one number (0-9)');
+        return false;
+      }
+      if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+        passwordInput.setCustomValidity('Password must contain at least one special character (!@#$%^&*)');
+        return false;
+      }
+      passwordInput.setCustomValidity('');
+      return true;
+    }
 
-    // Form validation
-    form.addEventListener('submit', async function (e) {
+    function validateConfirmPasswordWithNativeTooltip() {
+      const password = passwordInput.value;
+      const confirm = confirmPasswordInput.value;
+      if (confirm && password !== confirm) {
+        confirmPasswordInput.setCustomValidity('Passwords do not match');
+        return false;
+      }
+      confirmPasswordInput.setCustomValidity('');
+      return true;
+    }
+
+    // Attach event listeners for real-time validation
+    passwordInput.addEventListener('input', function() {
+      validatePasswordWithNativeTooltip();
+      if (confirmPasswordInput.value) {
+        validateConfirmPasswordWithNativeTooltip();
+      }
+    });
+    confirmPasswordInput.addEventListener('input', validateConfirmPasswordWithNativeTooltip);
+    passwordInput.addEventListener('blur', validatePasswordWithNativeTooltip);
+    confirmPasswordInput.addEventListener('blur', validateConfirmPasswordWithNativeTooltip);
+
+    // ========== FORM SUBMIT HANDLER ==========
+    async function handleSubmit(e) {
       e.preventDefault();
 
-      // Validate password match
-      if (passwordInput.value !== confirmPasswordInput.value) {
-        confirmPasswordInput.setCustomValidity('Passwords do not match');
-        confirmPasswordInput.classList.add('is-invalid');
-      } else {
-        confirmPasswordInput.setCustomValidity('');
-        confirmPasswordInput.classList.remove('is-invalid');
-      }
+      // Run frontend validation first
+      const isPasswordValid = validatePasswordWithNativeTooltip();
+      const isConfirmValid = validateConfirmPasswordWithNativeTooltip();
 
-      // Validate form
-      if (!form.checkValidity()) {
-        e.stopPropagation();
-        form.classList.add('was-validated');
+      if (!isPasswordValid) {
+        passwordInput.reportValidity();
+        resetButton();
+        return;
+      }
+      if (!isConfirmValid) {
+        confirmPasswordInput.reportValidity();
+        resetButton();
         return;
       }
 
@@ -518,18 +656,14 @@
       registerButton.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span> Creating Account...`;
 
       try {
-        // Collect form data
         const formData = new FormData(form);
         const csrfToken = formData.get('csrf_token');
-        
-        // Combine first and last name into full_name
         const firstName = formData.get('first_name') || '';
         const lastName = formData.get('last_name') || '';
         const fullName = (firstName + ' ' + lastName).trim();
-        
-        // Prepare data for API - MATCHES THE SCHEMA NOW
+
         const data = {
-          full_name: fullName,  // ✅ Now using full_name instead of first_name/last_name
+          full_name: fullName,
           email: formData.get('email'),
           password: formData.get('password'),
           tier: formData.get('tier') || 'free',
@@ -538,7 +672,6 @@
         };
 
         console.log('Sending registration data:', data);
-        console.log('CSRF Token:', csrfToken);
 
         const response = await fetch(form.action, {
           method: 'POST',
@@ -550,38 +683,40 @@
         });
 
         const result = await response.json();
-        console.log('Response:', result);
 
         if (response.ok) {
-          // Show success message
-          showNotification('Account created successfully! Redirecting...', 'success');
-
-          // Store token if provided
           if (result.access_token) {
             localStorage.setItem('access_token', result.access_token);
             localStorage.setItem('refresh_token', result.refresh_token);
           }
-
-          // Redirect
+          showNotification('Account created successfully! Redirecting...', 'success');
           setTimeout(() => {
             window.location.href = result.redirect || '/dashboard';
           }, 1500);
-
         } else {
-          // Show error message
-          const errorMsg = result.error?.message || result.message || 'Registration failed. Please try again.';
-          showNotification(errorMsg, 'error');
-          
-          // Reset button
+          // 🔥 Handle backend validation errors with native tooltip
+          if (result.error && result.error.code === 'VALIDATION_ERROR' && result.error.fields) {
+            if (result.error.fields.password) {
+              passwordInput.setCustomValidity(result.error.fields.password[0]);
+              passwordInput.reportValidity();
+            } else if (result.error.fields.email) {
+              emailInput.setCustomValidity(result.error.fields.email[0]);
+              emailInput.reportValidity();
+            } else {
+              showNotification(result.error.message || 'Please check your input', 'error');
+            }
+          } else {
+            showNotification(result.error?.message || 'Registration failed', 'error');
+          }
           resetButton();
         }
-
       } catch (error) {
         console.error('Registration error:', error);
         showNotification('An error occurred. Please try again.', 'error');
         resetButton();
       }
-    });
+    }
+
     function resetButton() {
       registerButton.disabled = false;
       spinner.classList.add('d-none');
@@ -589,59 +724,30 @@
     }
 
     function showNotification(message, type = 'info') {
-      // Remove existing notifications
       const existing = document.querySelector('.register-notification');
-      if (existing) {
-        existing.remove();
-      }
+      if (existing) existing.remove();
 
-      // Create notification
       const notification = document.createElement('div');
-      notification.className = `register-notification alert alert-${type} alert-dismissible fade show`;
-      notification.innerHTML = `
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            `;
+      notification.className = `register-notification alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show`;
+      notification.setAttribute('role', 'alert');
       notification.style.position = 'fixed';
       notification.style.top = '20px';
       notification.style.right = '20px';
       notification.style.zIndex = '10000';
-      notification.style.maxWidth = '400px';
-
+      notification.style.maxWidth = '450px';
+      notification.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+      notification.innerHTML = `
+        <div class="d-flex align-items-start">
+          <div class="flex-grow-1">${message}</div>
+          <button type="button" class="btn-close ms-3" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      `;
       document.body.appendChild(notification);
-
-      // Auto-remove after 5 seconds
-      setTimeout(() => {
-        if (notification.parentNode) {
-          notification.parentNode.removeChild(notification);
-        }
-      }, 5000);
+      setTimeout(() => notification.remove(), 5000);
     }
 
-    // Real-time validation
-    const inputs = form.querySelectorAll('input[required]');
-    inputs.forEach(input => {
-      input.addEventListener('blur', function () {
-        this.classList.add('touched');
-        validateField(this);
-      });
-
-      input.addEventListener('input', function () {
-        if (this.classList.contains('touched')) {
-          validateField(this);
-        }
-      });
-    });
-
-    function validateField(field) {
-      if (field.checkValidity()) {
-        field.classList.remove('is-invalid');
-        field.classList.add('is-valid');
-      } else {
-        field.classList.remove('is-valid');
-        field.classList.add('is-invalid');
-      }
-    }
+    // Attach the submit handler
+    form.addEventListener('submit', handleSubmit);
   });
 </script>
 {% endblock %}

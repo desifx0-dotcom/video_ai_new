@@ -3,7 +3,7 @@ FastAPI-style dependencies for Flask routes.
 """
 
 from functools import wraps
-from flask import request, g
+from flask import request, g , jsonify
 from typing import Optional, Callable, Any, Dict
 
 from core.exceptions import UnauthorizedError, ValidationError, ForbiddenError
@@ -70,18 +70,36 @@ def validate_request(schema_class):
 
             try:
                 # Validate data against schema
-                validated_data = schema_class().load(data)
+                schema = schema_class()
+                validated_data = schema.load(data)
 
                 # Store validated data in request context
                 g.validated_data = validated_data
+                g.validation_error = None
 
                 return func(*args, **kwargs)
 
             except ValidationError as e:
-                raise ValidationError(str(e))
+                # Store validation error in g instead of returning directly
+                error_messages = {}
+                if hasattr(e, 'messages'):
+                    for field, messages in e.messages.items():
+                        if isinstance(messages, list):
+                            error_messages[field] = messages
+                        else:
+                            error_messages[field] = [messages]
+                
+                g.validation_error = {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Validation failed",
+                    "fields": error_messages
+                }
+                g.validated_data = None
+                
+                # Still call the function, it will check g.validation_error
+                return func(*args, **kwargs)
 
         return wrapper
-
     return decorator
 
 

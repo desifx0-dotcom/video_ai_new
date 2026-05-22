@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any
 from functools import wraps
 import redis
-from datetime import time
 import json
 import uuid
 
@@ -164,15 +163,18 @@ def create_app(config_class=Config):
         
         # Default limit for all other endpoints
         return "1000 per day, 200 per hour"
-    
+
+
+
     # Initialize rate limiter with custom function
     try:
         limiter = Limiter(
             app=app,
             key_func=get_remote_address,
-            default_limits=[],  # Empty default, we use the custom function
+            default_limits=["2000 per day", "500 per hour"],  # Empty default, we use the custom function
             storage_uri=redis_url if redis_client else "memory://",
-            application_limits=[get_rate_limit]
+            strategy="fixed-window",
+            # application_limits=[get_rate_limit]
         )
         logger.info("✅ Rate limiter initialized with centralized exemptions")
     except TypeError as e:
@@ -228,7 +230,7 @@ def create_app(config_class=Config):
     csrf = CSRFProtect()
     csrf.init_app(app)
     logger.info("✅ CSRF protection initialized")
-
+    
     # Custom decorator to exempt API routes from CSRF
     def csrf_exempt_for_api(f):
         """Decorator to exempt API routes from CSRF protection."""

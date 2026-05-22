@@ -74,6 +74,7 @@ class UserService:
         tier: str = "free",
         full_name: Optional[str] = None,
         is_admin: bool = False,
+        credits_remaining: int = 3,
     ) -> User:
         """Create a new user."""
         # Validate email
