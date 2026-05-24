@@ -635,40 +635,80 @@
                         <a href="{{ url_for('upload') }}" class="btn btn-primary">
                             <i class="fas fa-plus me-2"></i>Process Another Video
                         </a>
-                        
-                        <button class="btn btn-outline-primary" onclick="createShortClip()">
-                            <i class="fas fa-cut me-2"></i>Create Short Clip
-                        </button>
-                        
-                        <button class="btn btn-outline-primary" onclick="applyNewStyle()">
-                            <i class="fas fa-paint-brush me-2"></i>Apply Different Style
-                        </button>
-                        
+
+                        <!-- Apply Different Style Section -->
+                        <div class="border-top pt-3 mt-2">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="fw-semibold">Apply Different Style</span>
+                                <span class="badge bg-warning text-dark">
+                                    <i class="fas fa-coins me-1"></i>1 credit
+                                </span>
+                            </div>
+                            <div class="input-group">
+                                <select class="form-select" id="style-select-dropdown">
+                                    <option value="" disabled selected>⚠️ 1 credit per style — choose a style</option>
+                                    <option disabled>─────────────────────────────</option>
+                                    {% for style in available_styles %}
+                                        <option value="{{ style.id }}" 
+                                                {% if not style.available %}disabled{% endif %}>
+                                            {{ style.name }}
+                                            {% if not style.available %}({{ style.required_tier|title }}+){% endif %}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-outline-primary" id="apply-style-btn" onclick="applySelectedStyle()">
+                                    <i class="fas fa-paint-brush me-1"></i>Apply
+                                </button>
+                            </div>
+                            <div class="small text-muted mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Styles only affect video appearance. All metadata preserved.
+                            </div>
+                        </div>
+
+                        <!-- Current Style Display -->
+                        <div class="border-top pt-2 mt-1">
+                            <span class="text-muted small">Current style:</span>
+                            <span class="badge bg-secondary ms-1">
+                                {% if video.applied_styles and video.applied_styles|length > 0 %}
+                                    {{ video.applied_styles[0]|title }}
+                                {% else %}
+                                    None
+                                {% endif %}
+                            </span>
+                        </div>
+
+                        <!-- Coming Soon Buttons -->
                         {% if video.transcription %}
-                        <div class="btn-group">
-                            <button class="btn btn-outline-primary" 
-                                    onclick="showComingSoon('Blog post generation coming in Phase 2!')"
-                                    title="Coming soon - Generate blog posts from video">
-                                <i class="fas fa-blog me-2"></i>Generate Blog Post
-                                <span class="badge bg-warning text-dark ms-2">Soon</span>
+                        <div class="btn-group mt-2">
+                            <button class="btn btn-outline-secondary btn-sm" 
+                                    onclick="showComingSoon('Blog post generation coming in Phase 2!')">
+                                <i class="fas fa-blog me-1"></i>Generate Blog Post
+                                <span class="badge bg-warning text-dark ms-1">Soon</span>
                             </button>
-                            
-                            <button class="btn btn-outline-primary" 
-                                    onclick="showComingSoon('Social media posts coming in Phase 2!')"
-                                    title="Coming soon - Generate social media posts">
-                                <i class="fas fa-share-alt me-2"></i>Social Media Posts
-                                <span class="badge bg-warning text-dark ms-2">Soon</span>
+                            <button class="btn btn-outline-secondary btn-sm" 
+                                    onclick="showComingSoon('Social media posts coming in Phase 2!')">
+                                <i class="fas fa-share-alt me-1"></i>Social Posts
+                                <span class="badge bg-warning text-dark ms-1">Soon</span>
                             </button>
                         </div>
                         {% endif %}
-
-                        
-                        <button class="btn btn-outline-secondary" onclick="duplicateProcessing()">
-                            <i class="fas fa-copy me-2"></i>Duplicate with New Options
-                        </button>
                     </div>
                 </div>
             </div>
+
+            <!-- Loading Overlay -->
+            <div id="style-loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000;">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white;">
+                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <h5>Applying Style...</h5>
+                    <p class="mb-0">Processing video with new style</p>
+                    <small class="text-muted">This may take a moment</small>
+                </div>
+            </div>
+
 
             <!-- Video Management -->
             <div class="card">
@@ -777,7 +817,7 @@
 <script>
 
 console.log("🔥🔥🔥 SCRIPT STARTED EXECUTING 🔥🔥🔥");
-alert("SCRIPT IS RUNNING!");
+// alert("SCRIPT IS RUNNING!");
 // ============================================
 // CORE VARIABLES
 // ============================================
@@ -1138,12 +1178,11 @@ function exportToWebflow() { showAlert('Webflow export feature coming soon!', 'i
 // CONTENT GENERATION FUNCTIONS
 // ============================================
 function createShortClip() { showAlert('Short clip creation coming soon!', 'info'); }
-function applyNewStyle() { showAlert('Apply new style feature coming soon!', 'info'); }
+// function applyNewStyle() { showAlert('Apply new style feature coming soon!', 'info'); }
 function generateBlogPost() { showAlert('Blog post generation coming soon!', 'info'); }
 function generateSocialPosts() { showAlert('Social media posts generation coming soon!', 'info'); }
 function duplicateProcessing() { showAlert('Duplicate processing feature coming soon!', 'info'); }
 function reprocessVideo() { showAlert('Reprocess video feature coming soon!', 'info'); }
-function duplicateVideo() { showAlert('Duplicate video feature coming soon!', 'info'); }
 
 // ============================================
 // MANAGEMENT FUNCTIONS
@@ -1251,45 +1290,164 @@ function showBasicResults() {
 // QUICK ACTION'S SECTION FUNCTIONS
 // ============================================
 
-async function applyNewStyle(videoId) {
-    console.log("🎨 Apply New Style clicked for video:", videoId);
+// ============================================
+// APPLY DIFFERENT STYLE FUNCTIONS
+// ============================================
+
+let selectedStyleId = null;
+let selectedStyleName = null;
+
+// ============================================
+// APPLY DIFFERENT STYLE FUNCTIONS
+// ============================================
+
+window.applySelectedStyle = function() {
+    const select = document.getElementById('style-select-dropdown');
+    const styleId = select.value;
+    const selectedOption = select.options[select.selectedIndex];
+    const styleName = selectedOption?.textContent.split('(')[0].trim() || styleId;
     
-    // Show style selection dialog
-    const style = prompt("Enter style name (cinematic, bright, dark, vintage, gaming, educational):", "cinematic");
+    if (!styleId || styleId === '') {
+        showAlert('Please select a style first', 'warning');
+        return;
+    }
     
-    if (!style) return;
+    // Browser confirmation popup
+    const confirmMsg = `Apply "${styleName}" style to this video?\n\n⚠️ This will cost 1 credit.\n\nStyle will be applied to the original video. All other settings will remain unchanged.`;
     
-    // Show loading state
-    showNotification("Applying style...", "info");
-    
+    if (confirm(confirmMsg)) {
+        // Show loading overlay
+        const overlay = document.getElementById('style-loading-overlay');
+        if (overlay) overlay.style.display = 'block';
+        
+        applyStyleToVideo(styleId, styleName);
+    }
+};
+
+async function applyStyleToVideo(styleId, styleName) {
     try {
         const token = localStorage.getItem('access_token');
+        
         const response = await fetch(`/api/v1/videos/${videoId}/apply-styles`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ styles: [style] })
+            body: JSON.stringify({ styles: [styleId] })
         });
         
         const data = await response.json();
         
-        if (response.ok) {
-            showNotification(`Style "${style}" applied successfully! Credits deducted: ${data.credits_deducted || 1}`, "success");
+        if (response.ok && data.success) {
+            showAlert(`✅ Style "${styleName}" applied! Credits deducted: ${data.credits_deducted || 1}`, 'success');
             
-            // Refresh page or update video preview
+            // Update current style display
+            const styleBadge = document.querySelector('.border-top.pt-2.mt-1 .badge');
+            if (styleBadge) {
+                styleBadge.textContent = styleName.charAt(0).toUpperCase() + styleName.slice(1);
+            }
+            
+            // Hide overlay and refresh after 2 seconds
             setTimeout(() => {
+                const overlay = document.getElementById('style-loading-overlay');
+                if (overlay) overlay.style.display = 'none';
                 location.reload();
             }, 2000);
         } else {
-            showNotification(data.error?.message || "Failed to apply style", "error");
+            const errorMsg = data.error?.message || data.error || 'Failed to apply style';
+            showAlert(errorMsg, 'danger');
+            const overlay = document.getElementById('style-loading-overlay');
+            if (overlay) overlay.style.display = 'none';
         }
+        
     } catch (error) {
-        console.error("Error applying style:", error);
-        showNotification("Network error. Please try again.", "error");
+        console.error('Error applying style:', error);
+        showAlert('Network error. Please try again.', 'danger');
+        const overlay = document.getElementById('style-loading-overlay');
+        if (overlay) overlay.style.display = 'none';
     }
 }
+
+function showComingSoon(message) {
+    showAlert(message, 'info');
+}
+
+// Update applied styles badge
+function updateAppliedStylesBadge(styleId, styleName) {
+    const badgeContainer = document.getElementById('applied-styles-badge');
+    if (badgeContainer) {
+        // Check if style already exists
+        const existingBadges = badgeContainer.querySelectorAll('.badge');
+        const styleExists = Array.from(existingBadges).some(b => 
+            b.textContent.toLowerCase() === styleName.toLowerCase()
+        );
+        
+        if (!styleExists) {
+            const newBadge = document.createElement('span');
+            newBadge.className = 'badge bg-secondary ms-1';
+            newBadge.textContent = styleName.charAt(0).toUpperCase() + styleName.slice(1);
+            badgeContainer.appendChild(newBadge);
+        }
+    }
+}
+
+// Load available styles from API
+async function loadAvailableStyles() {
+    try {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch('/api/v1/videos/styles', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const styles = await response.json();
+            updateStyleDropdown(styles);
+        }
+    } catch (error) {
+        console.error('Failed to load styles:', error);
+    }
+}
+
+function updateStyleDropdown(styles) {
+    const select = document.getElementById('style-select-dropdown');
+    if (!select) return;
+    
+    // Clear existing options (keep first two)
+    while (select.options.length > 2) {
+        select.remove(2);
+    }
+    
+    // Sort styles alphabetically
+    const userTier = '{{ current_user.tier }}';
+    const tierOrder = { 'free': 0, 'starter': 1, 'pro': 2, 'plus': 3, 'enterprise': 4 };
+    const userTierRank = tierOrder[userTier] || 0;
+    
+    const sortedStyles = [...styles].sort((a, b) => a.name.localeCompare(b.name));
+    
+    for (const style of sortedStyles) {
+        const option = document.createElement('option');
+        option.value = style.id;
+        option.textContent = style.name;
+        
+        const requiredRank = tierOrder[style.required_tier] || 0;
+        const isAvailable = userTierRank >= requiredRank;
+        
+        option.disabled = !isAvailable;
+        if (!isAvailable) {
+            option.textContent = `${style.name} (${style.required_tier}+)`;
+        }
+        
+        select.appendChild(option);
+    }
+}
+
+
+
 
 async function createShortClip(videoId) {
     console.log("✂️ Create Short Clip clicked for video:", videoId);
@@ -1340,46 +1498,6 @@ async function createShortClip(videoId) {
     }
 }
 
-async function duplicateProcessing(videoId) {
-    console.log("🔄 Duplicate Processing clicked for video:", videoId);
-    
-    // Show duplicate options
-    const reprocess = confirm("Create a copy of this video with current settings?");
-    
-    if (!reprocess) return;
-    
-    // Show loading state
-    showNotification("Duplicating video... This may take a moment.", "info");
-    
-    try {
-        const token = localStorage.getItem('access_token');
-        const response = await fetch(`/api/v1/videos/${videoId}/duplicate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ reprocess: true })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            showNotification(`Video duplicated successfully! Credits deducted: ${data.credits_deducted || 1}`, "success");
-            
-            // Redirect to history page to see the new video
-            setTimeout(() => {
-                window.location.href = '/history';
-            }, 2000);
-        } else {
-            showNotification(data.error?.message || "Failed to duplicate video", "error");
-        }
-    } catch (error) {
-        console.error("Error duplicating video:", error);
-        showNotification("Network error. Please try again.", "error");
-    }
-}
-
 function showNotification(message, type = "info") {
     // Remove existing notification
     const existing = document.querySelector('.quick-action-notification');
@@ -1404,14 +1522,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Video URL:', '{{ video.output_video_url }}');
     console.log('Video ID:', videoId);
     console.log('Video Status:', '{{ video.status }}');
-
-    // Log available functions to debug
-    console.log('Available functions:', {
-        applyNewStyle: typeof applyNewStyle,
-        createShortClip: typeof createShortClip,
-        duplicateProcessing: typeof duplicateProcessing
-    });
-    
+    // Call loadAvailableStyles on page load
+    loadAvailableStyles();
     // Fetch remaining regenerations for paid tiers
     {% if current_user.tier != 'free' %}
     fetchRemainingRegenerations();

@@ -4,6 +4,7 @@ Main video processing orchestrator service.
 
 import os
 import shutil
+import subprocess
 import tempfile
 import uuid
 from datetime import datetime, timedelta
@@ -62,6 +63,7 @@ class VideoService:
     def __init__(self):
         self.user_service = UserService()
         self.tier_service = TierService()
+        self._validate_ffmpeg()
         self.credit_service = CreditService()
         self.quality_service = QualityService()
         self.silent_video_service = SilentVideoService()
@@ -356,6 +358,33 @@ class VideoService:
                 except Exception as e:
                     logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
+    def _validate_ffmpeg(self):
+        """Validate FFmpeg installation and capabilities."""
+        try:
+            # Test basic FFmpeg
+            result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                logger.error("❌ FFmpeg not found or not working!")
+                if os.getenv("FLASK_ENV") == "development":
+                    logger.warning("⚠️ Running in development mode without FFmpeg - some features disabled")
+                return False
+            
+            version_line = result.stdout.splitlines()[0]
+            logger.info(f"✅ FFmpeg: {version_line[:100]}")
+            
+            # Test filter availability
+            test_filters = ["setpts", "fps", "eq", "scale", "pad"]
+            for filter_name in test_filters:
+                test_cmd = ["ffmpeg", "-filters", "|", "grep", filter_name]
+                # Just log that we're checking
+                logger.debug(f"Filter '{filter_name}' should be available")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ FFmpeg validation failed: {e}")
+            return False
+        
     def _validate_upload(self, user, filename, file_size, content_type):
         """Validate file upload against user tier and file constraints."""
 

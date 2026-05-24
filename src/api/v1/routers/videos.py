@@ -15,7 +15,7 @@ from core.domain.entities.user import Tier
 from services.credit_service import CreditService
 from services.thumbnail_service import ThumbnailService
 from services.title_service import TitleService
-from tasks.video_tasks import process_video_async, create_short_clips_async, apply_different_styles_async, duplicate_video_async
+from tasks.video_tasks import process_video_async,  apply_different_styles_async
 
 from core.exceptions import (
     ValidationError,
@@ -637,6 +637,145 @@ def regenerate_video_title(video_id):
         logger.error(f"Failed to regenerate title: {e}")
         return jsonify({"error": str(e)}), 500
 
+@router.route("/styles", methods=["GET"])
+@jwt_required()
+def get_available_styles():
+    """Get all available video styles with tier availability."""
+    user_id = get_jwt_identity()
+    
+    try:
+        user = user_service.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Define all available styles with their tier requirements
+        all_styles = [
+            # FREE TIER STYLES
+            {"id": "cinematic", "name": "Cinematic", "required_tier": "free", "available": True},
+            {"id": "bright", "name": "Bright", "required_tier": "free", "available": True},
+            {"id": "dark", "name": "Dark", "required_tier": "free", "available": True},
+            {"id": "vlog", "name": "Vlog", "required_tier": "free", "available": True},
+            
+            # STARTER TIER STYLES
+            {"id": "gaming", "name": "Gaming", "required_tier": "starter", "available": True},
+            {"id": "educational", "name": "Educational", "required_tier": "starter", "available": True},
+            {"id": "travel", "name": "Travel", "required_tier": "starter", "available": True},
+            
+            # PRO TIER STYLES
+            {"id": "professional", "name": "Professional", "required_tier": "pro", "available": True},
+            {"id": "documentary", "name": "Documentary", "required_tier": "pro", "available": True},
+            {"id": "wedding", "name": "Wedding", "required_tier": "pro", "available": True},
+            {"id": "corporate", "name": "Corporate", "required_tier": "pro", "available": True},
+            {"id": "action", "name": "Action", "required_tier": "pro", "available": True},
+            {"id": "vintage", "name": "Vintage", "required_tier": "pro", "available": True},
+            {"id": "minimalist", "name": "Minimalist", "required_tier": "pro", "available": True},
+            
+            # PLUS TIER STYLES
+            {"id": "cinematic_pro", "name": "Cinematic Pro", "required_tier": "plus", "available": True},
+            {"id": "artistic", "name": "Artistic", "required_tier": "plus", "available": True},
+            {"id": "retro", "name": "Retro", "required_tier": "plus", "available": True},
+            {"id": "futuristic", "name": "Futuristic", "required_tier": "plus", "available": True},
+            {"id": "dramatic", "name": "Dramatic", "required_tier": "plus", "available": True},
+            {"id": "sepia", "name": "Sepia", "required_tier": "plus", "available": True},
+            {"id": "black_and_white", "name": "Black & White", "required_tier": "plus", "available": True},
+            {"id": "warm", "name": "Warm", "required_tier": "plus", "available": True},
+            {"id": "cool", "name": "Cool", "required_tier": "plus", "available": True},
+            
+            # ENTERPRISE TIER STYLES
+            {"id": "hollywood", "name": "Hollywood", "required_tier": "enterprise", "available": True},
+            {"id": "dreamy", "name": "Dreamy", "required_tier": "enterprise", "available": True},
+            {"id": "neon", "name": "Neon", "required_tier": "enterprise", "available": True},
+            {"id": "pastel", "name": "Pastel", "required_tier": "enterprise", "available": True},
+            {"id": "hdr", "name": "HDR", "required_tier": "enterprise", "available": True},
+        ]
+        
+        # Determine user's tier rank
+        tier_rank = {"free": 0, "starter": 1, "pro": 2, "plus": 3, "enterprise": 4}
+        user_rank = tier_rank.get(user.tier.value, 0)
+        
+        # Set availability based on user's tier
+        for style in all_styles:
+            required_rank = tier_rank.get(style["required_tier"], 0)
+            style["available"] = user_rank >= required_rank
+        
+        # Sort alphabetically by name
+        all_styles.sort(key=lambda x: x["name"])
+        
+        return jsonify(all_styles), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get styles: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@router.route("/<video_id>/apply-styles", methods=["POST"])
+@jwt_required()
+def apply_styles_to_video(video_id):
+    """
+    Apply different style to an already processed video.
+    Cost: 1 credit per style.
+    Preserves all other settings (title, description, tags, etc.)
+    """
+    from tasks.video_tasks import apply_different_styles_async
+    from services.credit_service import CreditService
+    from services.user_service import UserService
+    
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    styles = data.get("styles", [])
+    
+    if not styles:
+        return jsonify({"error": "No styles provided"}), 400
+    
+    credit_service = CreditService()
+    user_service = UserService()
+    
+    try:
+        # Get video
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+        
+        # Get user
+        user = user_service.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Check credits (1 credit per style)
+        credits_needed = len(styles)
+        if user.credits_remaining < credits_needed:
+            return jsonify({
+                "error": {
+                    "message": f"Insufficient credits. Need {credits_needed} credit(s), you have {user.credits_remaining}.",
+                    "credits_needed": credits_needed,
+                    "credits_remaining": user.credits_remaining
+                }
+            }), 403
+        
+        # Deduct credits
+        credit_service.use_credits(
+            user_id, 
+            credits_needed, 
+            f"Applied style(s): {', '.join(styles)} to video {video_id}",
+            video_id=video_id,
+            operation="style_application"
+        )
+        
+        # Start async task to apply styles
+        task = apply_different_styles_async.delay(video_id, user_id, styles)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Style '{styles[0]}' application started",
+            "credits_deducted": credits_needed,
+            "credits_remaining": user.credits_remaining - credits_needed,
+            "task_id": task.id
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Apply styles failed: {str(e)}")
+        return jsonify({"error": {"message": str(e)}}), 500
+
 
 @router.route("/<video_id>/regenerate-metadata", methods=["POST"])
 @jwt_required()
@@ -782,291 +921,7 @@ def regenerate_metadata(video_id):
         logger.error(f"Metadata regeneration failed: {str(e)}")
         return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
 
-# ========== QUICK ACTIONS ENDPOINTS ==========
 
-@router.route("/<video_id>/apply-styles", methods=["POST"])
-@jwt_required()
-@track_analytics("video.apply_styles")
-def apply_different_styles(video_id):
-    """
-    Apply different video styles to the processed video.
-    Costs: 1 credit per video
-    """
-    user_id = get_jwt_identity()
-    credit_service = CreditService()
-    user_service = UserService()
-    
-    try:
-        # Get video
-        video = video_service.get_video(video_id, user_id)
-        if not video:
-            return jsonify({"error": "Video not found"}), 404
-        
-        # Check if video is completed
-        if video.status != "completed":
-            return jsonify({"error": "Video must be completed before applying styles"}), 400
-        
-        # Check credits
-        if not credit_service.can_process(user_id, "style_application"):
-            credits_needed = credit_service.get_operation_cost("style_application")
-            return jsonify({
-                "error": {
-                    "code": "INSUFFICIENT_CREDITS",
-                    "message": f"Insufficient credits. Need {credits_needed} credit(s) to apply styles.",
-                    "credits_needed": credits_needed,
-                    "credits_remaining": credit_service.get_credits(user_id),
-                    "upgrade_url": "/pricing"
-                }
-            }), 403
-        
-        # Get user for tier check
-        user = user_service.get_user_by_id(user_id)
-        
-        # Get style options from request body
-        data = request.get_json() or {}
-        styles = data.get("styles", [])
-        
-        if not styles:
-            return jsonify({"error": "No styles provided"}), 400
-        
-        # Check if styles are allowed for user tier
-        tier_service = TierService()
-        tier_spec = tier_service.get_tier(user.tier)
-        
-        # Deduct credits (1 credit for style application)
-        credit_service.use_credits(
-            user_id=user_id,
-            amount=1,
-            description=f"Apply styles to video: {video.original_filename}",
-            video_id=video_id,
-            operation="style_application"
-        )
-        
-        # Queue background task for style application
-        task = apply_different_styles_async.delay(
-            video_id=video_id,
-            user_id=user_id,
-            styles=styles,
-            output_quality=video.output_quality
-        )
-        
-        return jsonify({
-            "success": True,
-            "message": "Style application started",
-            "task_id": task.id,
-            "credits_deducted": 1,
-            "credits_remaining": credit_service.get_credits(user_id)
-        }), 202
-        
-    except InsufficientCreditsError as e:
-        return jsonify({
-            "error": {
-                "code": "INSUFFICIENT_CREDITS",
-                "message": str(e),
-                "credits_needed": getattr(e, "credits_needed", 1),
-                "upgrade_url": "/pricing"
-            }
-        }), 403
-    except Exception as e:
-        logger.error(f"Apply styles failed for {video_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-@router.route("/<video_id>/create-clips", methods=["POST"])
-@jwt_required()
-@track_analytics("video.create_clips")
-def create_short_clips(video_id):
-    """
-    Create short clips from the video.
-    Costs: 1 credit per clip created
-    """
-    user_id = get_jwt_identity()
-    credit_service = CreditService()
-    user_service = UserService()
-    
-    try:
-        # Get video
-        video = video_service.get_video(video_id, user_id)
-        if not video:
-            return jsonify({"error": "Video not found"}), 404
-        
-        # Check if video is completed
-        if video.status != "completed":
-            return jsonify({"error": "Video must be completed before creating clips"}), 400
-        
-        # Get clip options from request
-        data = request.get_json() or {}
-        clip_count = data.get("clip_count", 3)
-        clip_duration = data.get("clip_duration", 15)  # seconds per clip
-        aspect_ratio = data.get("aspect_ratio", "9:16")  # TikTok/Shorts format
-        
-        # Validate clip count
-        max_clips = 10
-        if clip_count > max_clips:
-            return jsonify({"error": f"Maximum {max_clips} clips allowed per request"}), 400
-        
-        # Calculate credits needed (1 credit per clip)
-        credits_needed = clip_count
-        credit_cost_per_clip = 1
-        
-        # Check credits
-        if not credit_service.can_process(user_id, "clip_creation"):
-            return jsonify({
-                "error": {
-                    "code": "INSUFFICIENT_CREDITS",
-                    "message": f"Insufficient credits. Need {credits_needed} credit(s) to create {clip_count} clip(s).",
-                    "credits_needed": credits_needed,
-                    "credits_remaining": credit_service.get_credits(user_id),
-                    "upgrade_url": "/pricing"
-                }
-            }), 403
-        
-        # Get user
-        user = user_service.get_user_by_id(user_id)
-        
-        # Check if batch clip creation is allowed for tier
-        tier_service = TierService()
-        tier_spec = tier_service.get_tier(user.tier)
-        
-        # Deduct credits (1 credit per clip)
-        credit_service.use_credits(
-            user_id=user_id,
-            amount=credits_needed,
-            description=f"Create {clip_count} short clip(s) from video: {video.original_filename}",
-            video_id=video_id,
-            operation="clip_creation"
-        )
-        
-        # Queue background task for clip creation
-        task = create_short_clips_async.delay(
-            video_id=video_id,
-            user_id=user_id,
-            clip_count=clip_count,
-            clip_duration=clip_duration,
-            aspect_ratio=aspect_ratio
-        )
-        
-        return jsonify({
-            "success": True,
-            "message": f"Creating {clip_count} short clip(s)",
-            "task_id": task.id,
-            "credits_deducted": credits_needed,
-            "credits_remaining": credit_service.get_credits(user_id),
-            "credit_cost_per_clip": credit_cost_per_clip
-        }), 202
-        
-    except InsufficientCreditsError as e:
-        return jsonify({
-            "error": {
-                "code": "INSUFFICIENT_CREDITS",
-                "message": str(e),
-                "credits_needed": getattr(e, "credits_needed", 1),
-                "upgrade_url": "/pricing"
-            }
-        }), 403
-    except Exception as e:
-        logger.error(f"Create clips failed for {video_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-@router.route("/<video_id>/duplicate", methods=["POST"])
-@jwt_required()
-@track_analytics("video.duplicate")
-def duplicate_video(video_id):
-    """
-    Duplicate video with new processing options.
-    Costs: 1 credit for duplication + processing cost if reprocessing
-    """
-    user_id = get_jwt_identity()
-    credit_service = CreditService()
-    user_service = UserService()
-    
-    try:
-        # Get original video
-        original_video = video_service.get_video(video_id, user_id)
-        if not original_video:
-            return jsonify({"error": "Video not found"}), 404
-        
-        # Get duplicate options from request
-        data = request.get_json() or {}
-        new_options = data.get("options", {})
-        reprocess = data.get("reprocess", True)
-        
-        # Check credits for duplication (1 credit)
-        if not credit_service.can_process(user_id, "duplication"):
-            return jsonify({
-                "error": {
-                    "code": "INSUFFICIENT_CREDITS",
-                    "message": "Insufficient credits for duplication. Need 1 credit.",
-                    "credits_needed": 1,
-                    "credits_remaining": credit_service.get_credits(user_id),
-                    "upgrade_url": "/pricing"
-                }
-            }), 403
-        
-        # Get user
-        user = user_service.get_user_by_id(user_id)
-        
-        # Deduct duplication credit
-        credit_service.use_credits(
-            user_id=user_id,
-            amount=1,
-            description=f"Duplicate video: {original_video.original_filename}",
-            video_id=video_id,
-            operation="duplication"
-        )
-        
-        # Queue background task for duplication
-        task = duplicate_video_async.delay(
-            original_video_id=video_id,
-            user_id=user_id,
-            new_options=new_options,
-            reprocess=reprocess
-        )
-        
-        return jsonify({
-            "success": True,
-            "message": "Video duplication started",
-            "task_id": task.id,
-            "credits_deducted": 1,
-            "credits_remaining": credit_service.get_credits(user_id)
-        }), 202
-        
-    except InsufficientCreditsError as e:
-        return jsonify({
-            "error": {
-                "code": "INSUFFICIENT_CREDITS",
-                "message": str(e),
-                "credits_needed": getattr(e, "credits_needed", 1),
-                "upgrade_url": "/pricing"
-            }
-        }), 403
-    except Exception as e:
-        logger.error(f"Duplicate video failed for {video_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-@router.route("/credits/check", methods=["GET"])
-@jwt_required()
-def check_credits_for_action():
-    """Check if user has enough credits for quick actions."""
-    user_id = get_jwt_identity()
-    credit_service = CreditService()
-    
-    credits = credit_service.get_credits(user_id)
-    
-    return jsonify({
-        "credits_remaining": credits,
-        "can_apply_style": credits >= 1,
-        "can_create_clip": credits >= 1,
-        "can_duplicate": credits >= 1,
-        "operation_costs": {
-            "apply_style": 1,
-            "create_clip": 1,
-            "duplicate": 1
-        }
-    })
-
-# ========== QUICK ACTIONS ENDPOINTS ==========
 
 @router.route("/credits/balance", methods=["GET"])
 @jwt_required()

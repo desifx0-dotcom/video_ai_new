@@ -1605,11 +1605,16 @@ def create_app(config_class=Config):
                     }
                 )
 
+        from services.thumbnail_service import ThumbnailService
+        thumbnail_service = ThumbnailService()
+        available_styles = thumbnail_service.get_all_thumbnail_styles(user.tier)
+
         return render_template(
             "dashboard/results.html",
             video=video,
             current_user=user,
             thumbnails=thumbnails,
+            available_styles=available_styles,
             engagement_score=75,
             transcription_confidence="High",
         )
