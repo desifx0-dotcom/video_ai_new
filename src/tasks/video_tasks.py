@@ -920,48 +920,50 @@ def _apply_all_filters_production(video, options):
     # Stage 3: Apply VIDEO STYLES
     style_filters = {
         # ========== FREE TIER STYLES ==========
-        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
+        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
         "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05",
-        "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
+        "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
+        "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
         
-        # ========== STARTER TIER STYLES ==========
-        "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03",
-        "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05",
+        # Starter tier
+        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
+        "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
+        "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
         
-        # ========== PRO TIER STYLES ==========
-        "professional": "eq=contrast=1.08:saturation=0.98",
-        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95",
-        "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
-        "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
-        "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
-        "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
+        # Pro tier
+        "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
+        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+        "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
+        "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
+        "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
         "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
-        "minimalist": "eq=saturation=0.92:contrast=1.05",
-        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
+        "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
+        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
         
-        # ========== PLUS TIER STYLES ==========
-        "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12",
-        "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
-        "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
-        "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
+        # Plus tier
+        "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
+        "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
+        "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
+        "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
         "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
-        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
-        "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
-        "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
-        "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1",
-        "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05",
-        "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02",
+        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
+        "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
+        "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
+        "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
+        "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
+        "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
         "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
         "black_and_white": "hue=s=0,eq=contrast=1.1",
+        "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
         
-        # ========== ENTERPRISE TIER STYLES ==========
-        "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15",
-        "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08",
-        "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05",
-        "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
-        "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
+        # Enterprise tier
+        "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+        "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
+        "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
+        "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
+        "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
     }
+
 
 
 
