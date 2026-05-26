@@ -912,113 +912,24 @@ class FFmpegProvider:
             logger.error(f"FPS change failed: {str(e)}")
             return False
 
-    def apply_video_style(self, input_path: str, output_path: str, style: str) -> bool:
+    def apply_video_style(self, input_path: str, output_path: str, style: str, target_width: int = None, target_height: int = None, preserve_settings: dict = None) -> bool:
         """
-        Apply cinematic/bright/dark/gaming style to video using FFmpeg filters.
-
+        Apply style to video with memory-efficient scaling.
+        
         Args:
             input_path: Path to input video
             output_path: Path to output video
-            style: Style name (cinematic, bright, dark, gaming, etc.)
-
+            style: Style name (cinematic, bright, dark, etc.)
+            target_width: Desired output width (if None, keep original)
+            target_height: Desired output height (if None, keep original)
+            preserve_settings: Dict with fps, audio_quality, etc.
+        
         Returns:
             True if successful
         """
         if not os.path.exists(input_path):
             raise ProcessingError(f"Input file not found: {input_path}")
-
-        # Define filter chains for each style
-        style_filters = {
-            # ========== FREE TIER STYLES ==========
-            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1",
-            "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-            "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05",
-            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08",
-            
-            # ========== STARTER TIER STYLES ==========
-            "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03",
-            "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05",
-            
-            # ========== PRO TIER STYLES ==========
-            "professional": "eq=contrast=1.08:saturation=0.98",
-            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95",
-            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05",
-            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98",
-            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06",
-            "dark": "eq=brightness=-0.08:contrast=1.15:saturation=0.9",
-            "action": "eq=contrast=1.2:brightness=0.03",
-            "minimalist": "eq=saturation=0.92:contrast=1.05",
-            "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88",
-            
-            # ========== PLUS TIER STYLES ==========
-            "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12",
-            "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03",
-            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85",
-            "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04",
-            "cartoon": "eq=saturation=1.2:contrast=1.1",
-            "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1",
-            "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92",
-            "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03",
-            "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1",
-            "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05",
-            "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02",
-            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
-            "black_and_white": "hue=s=0,eq=contrast=1.1",
-            
-            # ========== ENTERPRISE TIER STYLES ==========
-            "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15",
-            "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08",
-            "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05",
-            "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
-            "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
-        }
-
-        # Get filters for the requested style
-        filters = style_filters.get(style, style_filters.get("cinematic"))
-
-        # Build filter complex string
-        filter_chain = ",".join(filters)
-
-        try:
-            cmd = [
-                self.ffmpeg_path,
-                "-i",
-                input_path,
-                "-vf",
-                filter_chain,
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
-                "-c:a",
-                "copy",
-                "-y",
-                output_path,
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-            if result.returncode != 0:
-                logger.error(f"Style application failed: {result.stderr}")
-                return False
-
-            logger.info(f"Successfully applied '{style}' style to {output_path}")
-            return os.path.exists(output_path)
-
-        except Exception as e:
-            logger.error(f"Style application error: {str(e)}")
-            return False
-
-    def apply_video_style(self, input_path: str, output_path: str, style: str) -> bool:
-        """
-        Apply cinematic/bright/dark/gaming style to video using FFmpeg filters.
-        Complete production version with all tiers.
-        """
-        if not os.path.exists(input_path):
-            raise ProcessingError(f"Input file not found: {input_path}")
-
+        
         # ========== COMPLETE STYLE FILTERS - ALL TIERS ==========
         style_filters = {
             # ========== FREE TIER STYLES ==========
@@ -1064,41 +975,81 @@ class FFmpegProvider:
             "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07",
             "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02",
         }
-
+        
         # Get filter for the requested style
-        filter_str = style_filters.get(style.lower())
+        style_lower = style.lower()
+        filter_str = style_filters.get(style_lower)
         if not filter_str:
             logger.warning(f"Unknown style: {style}, defaulting to 'cinematic'")
             filter_str = style_filters.get("cinematic")
-
+        
+        # ========== BUILD FILTER CHAIN ==========
+        filters = [filter_str]
+        
+        # Add scaling for memory efficiency (if target dimensions provided)
+        if target_width and target_height:
+            # Scale down if video is too large (memory optimization)
+            filters.insert(0, f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2")
+        
+        filter_chain = ",".join(filters)
+        
+        # ========== BUILD FFMPEG COMMAND ==========
+        cmd = [self.ffmpeg_path, "-i", input_path, "-vf", filter_chain]
+        
+        # Video encoding settings
+        cmd.extend(["-c:v", "libx264", "-preset", "medium"])
+        
+        # Use lower CRF for high quality (18 is very good, 23 is default)
+        if target_width and target_width >= 1920:
+            cmd.extend(["-crf", "18"])  # Higher quality for HD/4K
+        else:
+            cmd.extend(["-crf", "23"])  # Default for SD
+        
+        # Audio settings
+        if preserve_settings and preserve_settings.get("audio_quality"):
+            audio_bitrate = preserve_settings.get("audio_quality")
+            if audio_bitrate != "original":
+                cmd.extend(["-c:a", "aac", "-b:a", audio_bitrate])
+            else:
+                cmd.extend(["-c:a", "copy"])
+        else:
+            cmd.extend(["-c:a", "copy"])
+        
+        # FPS setting
+        if preserve_settings and preserve_settings.get("fps") and preserve_settings["fps"] != "original":
+            fps = preserve_settings["fps"]
+            if str(fps).isdigit():
+                cmd.extend(["-r", str(fps)])
+        
+        # Memory optimization for high-res videos
+        if target_width and target_width >= 2560:
+            cmd.extend(["-threads", "2"])  # Limit threads for large videos
+        
+        cmd.extend(["-movflags", "+faststart", "-y", output_path])
+        
         try:
-            cmd = [
-                self.ffmpeg_path,
-                "-i", input_path,
-                "-vf", filter_str,
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "18",
-                "-c:a", "copy",
-                "-y", output_path,
-            ]
-
-            logger.info(f"Applying style '{style}' to video")
-            logger.info(f"Filter: {filter_str}")
-
+            logger.info(f"🎨 Applying style '{style}' to video")
+            logger.info(f"   Filter: {filter_str}")
+            if target_width and target_height:
+                logger.info(f"   Target dimensions: {target_width}x{target_height}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
+            
             if result.returncode != 0:
                 logger.error(f"Style application failed: {result.stderr}")
                 return False
-
-            logger.info(f"Successfully applied '{style}' style")
+            
+            logger.info(f"✅ Successfully applied '{style}' style")
             return os.path.exists(output_path)
-
-        except subprocess.SubprocessError as e:
+            
+        except subprocess.TimeoutExpired:
+            logger.error(f"Style application timed out after 300 seconds")
+            return False
+        except Exception as e:
             logger.error(f"Style application error: {str(e)}")
             return False
-
+        
+        
 
     def apply_multiple_styles(self, input_path: str, output_path: str, styles: List[str]) -> bool:
         """Apply multiple styles sequentially to a video."""

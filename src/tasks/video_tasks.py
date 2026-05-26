@@ -1197,19 +1197,34 @@ def _generate_chapters(video):
         # Chapters are optional, don't fail the process
 
 # ========== QUICK ACTIONS ENDPOINTS ==========
+
+def _get_audio_bitrate(self, audio_quality: str) -> str:
+    """Get audio bitrate based on quality setting."""
+    bitrate_map = {
+        "original": "128k",
+        "128k": "128k",
+        "192k": "192k",
+        "256k": "256k",
+        "320k": "320k",
+    }
+    return bitrate_map.get(audio_quality, "128k")
+
 @celery_app.task(bind=True, max_retries=2)
 def apply_different_styles_async(self, video_id: str, user_id: str, styles: List[str], output_quality: str = "720p"):
     """
-    Apply different video styles to the processed video.
-    Cost: 1 credit (already deducted in API)
+    Apply different video styles to the video while preserving ALL user settings.
+    Uses ORIGINAL video for styling, then restores to processed dimensions.
     """
     from services.video_service import VideoService
     from providers.ffmpeg_provider import FFmpegProvider
-    from services.credit_service import CreditService
+    import subprocess
+    import json
+    import os
+    from datetime import datetime
+    from pathlib import Path
     
     video_service = VideoService()
     ffmpeg = FFmpegProvider()
-    credit_service = CreditService()
     
     try:
         # Get video
@@ -1217,29 +1232,57 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         if not video:
             raise ProcessingError(f"Video not found: {video_id}")
         
-        # Get the original processed video path
-        input_path =  video.original_path
+        # ========== USE ORIGINAL VIDEO ==========
+        input_path = video.original_path
         if not input_path or not os.path.exists(input_path):
-            # Try to find the file in user's directory
-            user_dir = video_service.get_user_video_base_dir(user_id)
-            possible_path = user_dir / video_id / "output.mp4"
-            if possible_path.exists():
-                input_path = str(possible_path)
-            else:
-                raise ProcessingError(f"Video file not found: {input_path}")
+            raise ProcessingError(f"Original video file not found: {input_path}")
         
-        # Create output directory
+        # ========== GET PROCESSED VIDEO DIMENSIONS ==========
+        target_width = None
+        target_height = None
+        processed_path = video.output_video_url
+        
+        if processed_path and os.path.exists(processed_path):
+            probe_cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", processed_path]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            if probe_result.returncode == 0:
+                info = json.loads(probe_result.stdout)
+                for stream in info.get("streams", []):
+                    if stream.get("codec_type") == "video":
+                        target_width = stream.get("width", 1920)
+                        target_height = stream.get("height", 1080)
+                        break
+        
+        # Fallback to quality settings
+        if not target_width or not target_height:
+            quality_map = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
+            target_width, target_height = quality_map.get(video.output_quality, (1920, 1080))
+        
+        # ========== GET PRESERVATION SETTINGS ==========
+        preserve_settings = {
+            "fps": getattr(video, 'fps', 'original'),
+            "audio_quality": getattr(video, 'audio_quality', 'original'),
+            "aspect_ratio": getattr(video, 'aspect_ratio', 'original'),
+        }
+        
+        # ========== CREATE OUTPUT DIRECTORY ==========
         output_dir = os.path.dirname(input_path)
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        
         results = []
         
         for style in styles:
             output_filename = f"{video_id}_{style}_{timestamp}.mp4"
             output_path = os.path.join(output_dir, output_filename)
             
-            # Apply style using FFmpeg provider
-            success = ffmpeg.apply_video_style(input_path, output_path, style)
+            # Apply style with target dimensions and preserve settings
+            success = ffmpeg.apply_video_style(
+                input_path=input_path,
+                output_path=output_path,
+                style=style,
+                target_width=target_width,
+                target_height=target_height,
+                preserve_settings=preserve_settings
+            )
             
             if success and os.path.exists(output_path):
                 results.append({
@@ -1254,7 +1297,6 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         
         # Update video with new styled version
         if results:
-            # Replace original with first styled version (or keep both)
             first_result = results[0]
             video.output_video_url = first_result["output_url"]
             video.output_path = first_result["output_path"]
@@ -1262,9 +1304,6 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
             video.applied_styles = styles
             video.updated_at = datetime.utcnow()
             video_service.update_video(video)
-            
-            # Deduct credits (already deducted in API, but ensure)
-            # credit_service.use_credits(user_id, 1, f"Style application: {', '.join(styles)}", video_id=video_id)
         
         return {
             "success": True,
@@ -1280,7 +1319,7 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
             raise self.retry(exc=e, countdown=60)
         
         return {"success": False, "video_id": video_id, "error": str(e)}
-
+    
 def _get_quality_resolution(quality):
     """Get resolution string for quality."""
     quality_map = {

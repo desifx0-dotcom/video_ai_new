@@ -803,7 +803,6 @@
     </div>
 </div>
 
-
 <!-- Raw Data Modal -->
 <div class="modal fade" id="raw-data-modal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -820,7 +819,6 @@
 </div>
 
 {% endblock %}
-
 
 
 {% block extra_js %}
@@ -1335,9 +1333,66 @@ window.applySelectedStyle = function() {
 };
 
 async function applyStyleToVideo(styleId, styleName) {
+    // Show loading overlay
+    const overlay = document.getElementById('style-loading-overlay');
+    if (overlay) overlay.style.display = 'block';
+    
     try {
-        const token = localStorage.getItem('access_token');
+        // Get token and check if it's valid
+        let token = localStorage.getItem('access_token');
         
+        // If no token, try to refresh
+        if (!token) {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (refreshToken) {
+                const refreshResponse = await fetch('/api/v1/auth/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${refreshToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (refreshResponse.ok) {
+                    const refreshData = await refreshResponse.json();
+                    token = refreshData.access_token;
+                    localStorage.setItem('access_token', token);
+                } else {
+                    throw new Error('Session expired. Please log in again.');
+                }
+            } else {
+                throw new Error('No authentication token found. Please log in.');
+            }
+        }
+        
+        // Verify token is not expired
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const exp = payload.exp * 1000;
+            if (Date.now() >= exp) {
+                // Token expired, try refresh
+                const refreshToken = localStorage.getItem('refresh_token');
+                const refreshResponse = await fetch('/api/v1/auth/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${refreshToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (refreshResponse.ok) {
+                    const refreshData = await refreshResponse.json();
+                    token = refreshData.access_token;
+                    localStorage.setItem('access_token', token);
+                } else {
+                    throw new Error('Session expired. Please log in again.');
+                }
+            }
+        } catch (e) {
+            console.log('Token check failed, attempting refresh');
+        }
+        
+        // Apply style with valid token
         const response = await fetch(`/api/v1/videos/${videoId}/apply-styles`, {
             method: 'POST',
             headers: {
@@ -1349,6 +1404,13 @@ async function applyStyleToVideo(styleId, styleName) {
         
         const data = await response.json();
         
+        if (response.status === 401) {
+            // Token invalid, redirect to login
+            alert('Session expired. Please log in again.');
+            window.location.href = '/auth/login';
+            return;
+        }
+        
         if (response.ok && data.success) {
             showAlert(`✅ Style "${styleName}" applied! Credits deducted: ${data.credits_deducted || 1}`, 'success');
             
@@ -1358,7 +1420,6 @@ async function applyStyleToVideo(styleId, styleName) {
                 styleBadge.textContent = styleName.charAt(0).toUpperCase() + styleName.slice(1);
             }
             
-            // Hide overlay and refresh after 2 seconds
             setTimeout(() => {
                 const overlay = document.getElementById('style-loading-overlay');
                 if (overlay) overlay.style.display = 'none';
@@ -1367,17 +1428,16 @@ async function applyStyleToVideo(styleId, styleName) {
         } else {
             const errorMsg = data.error?.message || data.error || 'Failed to apply style';
             showAlert(errorMsg, 'danger');
-            const overlay = document.getElementById('style-loading-overlay');
             if (overlay) overlay.style.display = 'none';
         }
         
     } catch (error) {
         console.error('Error applying style:', error);
-        showAlert('Network error. Please try again.', 'danger');
-        const overlay = document.getElementById('style-loading-overlay');
+        showAlert(error.message || 'Network error. Please try again.', 'danger');
         if (overlay) overlay.style.display = 'none';
     }
 }
+
 
 function showComingSoon(message) {
     showAlert(message, 'info');
