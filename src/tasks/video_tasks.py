@@ -922,15 +922,15 @@ def _apply_all_filters_production(video, options):
         # ========== FREE TIER STYLES ==========
         "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
         "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-        "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
+        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
         "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
         
         # Starter tier
-        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
         "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
         "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
         
         # Pro tier
+        "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
         "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
         "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
         "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
@@ -1218,7 +1218,7 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
             raise ProcessingError(f"Video not found: {video_id}")
         
         # Get the original processed video path
-        input_path = video.output_video_url or video.original_path
+        input_path =  video.original_path
         if not input_path or not os.path.exists(input_path):
             # Try to find the file in user's directory
             user_dir = video_service.get_user_video_base_dir(user_id)

@@ -1540,6 +1540,7 @@ def create_app(config_class=Config):
         from flask import session, redirect, url_for, render_template
         from services.video_service import VideoService
         from services.user_service import UserService
+        from services.style_service import StyleService
         import uuid
         import os
 
@@ -1575,7 +1576,7 @@ def create_app(config_class=Config):
                 else:
                     thumb_path = thumb
 
-                # 🔥 FIX: Convert backslashes to forward slashes BEFORE the f-string
+                #  Convert backslashes to forward slashes BEFORE the f-string
                 normalized_path = thumb_path.replace("\\", "/")
 
                 thumbnails.append(
@@ -1593,7 +1594,7 @@ def create_app(config_class=Config):
             for i, thumb_path in enumerate(
                 video.extracted_thumbnails[:12]
             ):  # Limit to 12
-                # 🔥 FIX: Convert backslashes to forward slashes BEFORE the f-string
+                #  Convert backslashes to forward slashes BEFORE the f-string
                 normalized_path = thumb_path.replace("\\", "/")
 
                 thumbnails.append(
@@ -1605,9 +1606,8 @@ def create_app(config_class=Config):
                     }
                 )
 
-        from services.thumbnail_service import ThumbnailService
-        thumbnail_service = ThumbnailService()
-        available_styles = thumbnail_service.get_all_thumbnail_styles(user.tier)
+        style_service = StyleService()
+        available_styles = style_service.get_all_styles_with_availability(user.tier)
 
         return render_template(
             "dashboard/results.html",

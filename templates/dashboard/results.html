@@ -648,14 +648,24 @@
                                 <select class="form-select" id="style-select-dropdown">
                                     <option value="" disabled selected>⚠️ 1 credit per style — choose a style</option>
                                     <option disabled>─────────────────────────────</option>
-                                    {% for style in available_styles %}
-                                        <option value="{{ style.id }}" 
-                                                {% if not style.available %}disabled{% endif %}>
-                                            {{ style.name }}
-                                            {% if not style.available %}({{ style.required_tier|title }}+){% endif %}
-                                        </option>
-                                    {% endfor %}
+                                    {% if available_styles %}
+                                        {% for style in available_styles %}
+                                            <option value="{{ style.id }}" 
+                                                    {% if not style.available %}disabled{% endif %}>
+                                                {{ style.name }}
+                                                {% if not style.available %}({{ style.required_tier|title }}+){% endif %}
+                                            </option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option disabled>Loading styles...</option>
+                                    {% endif %}
                                 </select>
+                                <!-- <div style="background: white; padding: 5px; margin-bottom: 10px;">
+                                    Styles available: {{ available_styles|length }}
+                                    {% for style in available_styles %}
+                                        <br>{{ style.name }} - available: {{ style.available }}
+                                    {% endfor %}
+                                </div> -->
                                 <button class="btn btn-outline-primary" id="apply-style-btn" onclick="applySelectedStyle()">
                                     <i class="fas fa-paint-brush me-1"></i>Apply
                                 </button>
@@ -1392,61 +1402,6 @@ function updateAppliedStylesBadge(styleId, styleName) {
     }
 }
 
-// Load available styles from API
-async function loadAvailableStyles() {
-    try {
-        const token = localStorage.getItem('access_token');
-        const response = await fetch('/api/v1/videos/styles', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            const styles = await response.json();
-            updateStyleDropdown(styles);
-        }
-    } catch (error) {
-        console.error('Failed to load styles:', error);
-    }
-}
-
-function updateStyleDropdown(styles) {
-    const select = document.getElementById('style-select-dropdown');
-    if (!select) return;
-    
-    // Clear existing options (keep first two)
-    while (select.options.length > 2) {
-        select.remove(2);
-    }
-    
-    // Sort styles alphabetically
-    const userTier = '{{ current_user.tier }}';
-    const tierOrder = { 'free': 0, 'starter': 1, 'pro': 2, 'plus': 3, 'enterprise': 4 };
-    const userTierRank = tierOrder[userTier] || 0;
-    
-    const sortedStyles = [...styles].sort((a, b) => a.name.localeCompare(b.name));
-    
-    for (const style of sortedStyles) {
-        const option = document.createElement('option');
-        option.value = style.id;
-        option.textContent = style.name;
-        
-        const requiredRank = tierOrder[style.required_tier] || 0;
-        const isAvailable = userTierRank >= requiredRank;
-        
-        option.disabled = !isAvailable;
-        if (!isAvailable) {
-            option.textContent = `${style.name} (${style.required_tier}+)`;
-        }
-        
-        select.appendChild(option);
-    }
-}
-
-
 
 
 async function createShortClip(videoId) {
@@ -1522,8 +1477,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Video URL:', '{{ video.output_video_url }}');
     console.log('Video ID:', videoId);
     console.log('Video Status:', '{{ video.status }}');
-    // Call loadAvailableStyles on page load
-    loadAvailableStyles();
+
     // Fetch remaining regenerations for paid tiers
     {% if current_user.tier != 'free' %}
     fetchRemainingRegenerations();

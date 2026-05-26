@@ -419,6 +419,9 @@ class ThumbnailService:
             required_rank = tier_rank.get(style["required_tier"], 0)
             style["available"] = user_rank >= required_rank
 
+        # Sort alphabetically by name
+        all_styles.sort(key=lambda x: x["name"])
+
         return all_styles
 
     def _apply_thumbnail_style(self, image_path: str, style: str) -> str:

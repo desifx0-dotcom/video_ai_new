@@ -539,7 +539,7 @@ class StyleService:
     def get_all_styles_with_availability(self, user_tier) -> List[Dict[str, Any]]:
         """Return ALL styles with availability info, available styles first."""
 
-        # Define all video styles (complete list matching video_tasks.py)
+        # Define all video styles 
         all_styles = {
             # ========== FREE TIER STYLES ==========
             "cinematic": {
