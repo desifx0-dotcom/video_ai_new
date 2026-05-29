@@ -1333,66 +1333,27 @@ window.applySelectedStyle = function() {
 };
 
 async function applyStyleToVideo(styleId, styleName) {
-    // Show loading overlay
     const overlay = document.getElementById('style-loading-overlay');
     if (overlay) overlay.style.display = 'block';
     
     try {
-        // Get token and check if it's valid
         let token = localStorage.getItem('access_token');
         
-        // If no token, try to refresh
         if (!token) {
             const refreshToken = localStorage.getItem('refresh_token');
             if (refreshToken) {
                 const refreshResponse = await fetch('/api/v1/auth/refresh', {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${refreshToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${refreshToken}` }
                 });
-                
                 if (refreshResponse.ok) {
                     const refreshData = await refreshResponse.json();
                     token = refreshData.access_token;
                     localStorage.setItem('access_token', token);
-                } else {
-                    throw new Error('Session expired. Please log in again.');
                 }
-            } else {
-                throw new Error('No authentication token found. Please log in.');
             }
         }
         
-        // Verify token is not expired
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const exp = payload.exp * 1000;
-            if (Date.now() >= exp) {
-                // Token expired, try refresh
-                const refreshToken = localStorage.getItem('refresh_token');
-                const refreshResponse = await fetch('/api/v1/auth/refresh', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${refreshToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (refreshResponse.ok) {
-                    const refreshData = await refreshResponse.json();
-                    token = refreshData.access_token;
-                    localStorage.setItem('access_token', token);
-                } else {
-                    throw new Error('Session expired. Please log in again.');
-                }
-            }
-        } catch (e) {
-            console.log('Token check failed, attempting refresh');
-        }
-        
-        // Apply style with valid token
         const response = await fetch(`/api/v1/videos/${videoId}/apply-styles`, {
             method: 'POST',
             headers: {
@@ -1404,30 +1365,54 @@ async function applyStyleToVideo(styleId, styleName) {
         
         const data = await response.json();
         
-        if (response.status === 401) {
-            // Token invalid, redirect to login
-            alert('Session expired. Please log in again.');
-            window.location.href = '/auth/login';
-            return;
-        }
-        
         if (response.ok && data.success) {
-            showAlert(`✅ Style "${styleName}" applied! Credits deducted: ${data.credits_deducted || 1}`, 'success');
+            showAlert(`✅ Style "${styleName}" applied!`, 'success');
             
-            // Update current style display
+            // Update style badge
             const styleBadge = document.querySelector('.border-top.pt-2.mt-1 .badge');
             if (styleBadge) {
                 styleBadge.textContent = styleName.charAt(0).toUpperCase() + styleName.slice(1);
             }
             
-            setTimeout(() => {
-                const overlay = document.getElementById('style-loading-overlay');
-                if (overlay) overlay.style.display = 'none';
-                location.reload();
-            }, 2000);
+            // Listen for the CORRECT event name
+            if (window.socket) {
+                // Listen for video_completed event (from websocket.py)
+                window.socket.once('video_completed', function(data) {
+                    console.log('Video processing completed via WebSocket', data);
+                    
+                    // Make sure this is our video
+                    if (data.video_id === videoId) {
+                        setTimeout(() => {
+                            if (overlay) overlay.style.display = 'none';
+                            window.location.reload();
+                        }, 500);
+                    }
+                });
+                
+                // Also listen for video_failed
+                window.socket.once('video_failed', function(data) {
+                    console.log('Video processing failed via WebSocket', data);
+                    if (data.video_id === videoId) {
+                        overlay.style.display = 'none';
+                        showAlert(`Style application failed: ${data.error_message}`, 'danger');
+                    }
+                });
+                
+                const loadingMessage = document.querySelector('#style-loading-overlay .loading-message');
+                if (loadingMessage) {
+                    loadingMessage.innerHTML = '<i class="fas fa-hourglass-half me-2"></i>Waiting for processing...';
+                }
+            } else {
+                // Fallback to polling
+                await waitForVideoProcessing(videoId, token);
+                setTimeout(() => {
+                    if (overlay) overlay.style.display = 'none';
+                    window.location.reload();
+                }, 500);
+            }
+            
         } else {
-            const errorMsg = data.error?.message || data.error || 'Failed to apply style';
-            showAlert(errorMsg, 'danger');
+            showAlert(data.error?.message || 'Failed to apply style', 'danger');
             if (overlay) overlay.style.display = 'none';
         }
         
@@ -1438,6 +1423,48 @@ async function applyStyleToVideo(styleId, styleName) {
     }
 }
 
+// Polling function (fallback if WebSocket fails)
+async function waitForVideoProcessing(videoId, token, maxAttempts = 30, interval = 2000) {
+    let attempts = 0;
+    const loadingMessage = document.querySelector('#style-loading-overlay .loading-message');
+    
+    while (attempts < maxAttempts) {
+        attempts++;
+        
+        if (loadingMessage) {
+            loadingMessage.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Processing... (${attempts}/${maxAttempts})`;
+        }
+        
+        try {
+            const statusResponse = await fetch(`/api/v1/videos/${videoId}/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            const statusData = await statusResponse.json();
+            
+            if (statusData.status === 'completed' || statusData.output_url) {
+                console.log('Video processing completed via polling!');
+                if (loadingMessage) {
+                    loadingMessage.innerHTML = '<i class="fas fa-check-circle me-2"></i>Video ready!';
+                }
+                return true;
+            }
+            
+            if (statusData.status === 'failed') {
+                throw new Error(statusData.error_message || 'Processing failed');
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, interval));
+            
+        } catch (error) {
+            console.error('Status check failed:', error);
+            await new Promise(resolve => setTimeout(resolve, interval));
+        }
+    }
+    
+    console.log('Polling timeout, reloading anyway');
+    return false;
+}
 
 function showComingSoon(message) {
     showAlert(message, 'info');

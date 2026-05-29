@@ -8,11 +8,11 @@ from celery import Celery
 from kombu import Queue, Exchange
 from dotenv import load_dotenv
 
-# 🔥 Load .env file explicitly
+# Load .env file explicitly
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-# 🔥 Get Redis URL from environment (now it should work)
+#  Get Redis URL from environment (now it should work)
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Also check alternative env vars
@@ -50,7 +50,7 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     # Task settings
-    task_track_started=True,
+
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
     # Worker settings
@@ -58,39 +58,10 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_memory_per_child=300000,  # 300MB
     # Queue configuration
-    task_queues=(
-        Queue("high_priority", Exchange("high_priority"), routing_key="high_priority"),
-        Queue(
-            "medium_priority",
-            Exchange("medium_priority"),
-            routing_key="medium_priority",
-        ),
-        Queue("low_priority", Exchange("low_priority"), routing_key="low_priority"),
-        Queue("default", Exchange("default"), routing_key="default"),
-    ),
     task_default_queue="default",
     task_default_exchange="default",
     task_default_routing_key="default",
-    # Route configuration
-    task_routes={
-        "tasks.video_tasks.process_video_async": {
-            "queue": "high_priority",
-            "routing_key": "high_priority",
-        },
-        "tasks.video_tasks.process_video_batch": {
-            "queue": "medium_priority",
-            "routing_key": "medium_priority",
-        },
-        "tasks.email_tasks.*": {"queue": "low_priority", "routing_key": "low_priority"},
-        "tasks.cleanup_tasks.*": {
-            "queue": "low_priority",
-            "routing_key": "low_priority",
-        },
-        "tasks.billing_tasks.*": {
-            "queue": "medium_priority",
-            "routing_key": "medium_priority",
-        },
-    },
+
     # Beat schedule
     beat_schedule={
         # Video processing
@@ -138,22 +109,74 @@ celery_app.conf.update(
             "schedule": 86400.0,  # Daily (will check if it's month end)
         },
     },
-    # Error handling
-    task_acks_late=True,
+    # Production retry settings
     task_reject_on_worker_lost=True,
-    # Retry configuration
-    task_annotations={
-        "tasks.video_tasks.process_video_async": {
-            "max_retries": 3,
-            "default_retry_delay": 60,  # 1 minute
-        },
-        "*": {
-            "max_retries": 3,
-            "default_retry_delay": 30,
-        },
-    },
+    task_acks_late=True,
+    task_track_started=True,
+    task_send_sent_event=True,
+
+    # Dead letter queue configuration
+    task_default_retry_delay=60,
+    task_max_retries=3,
+
     # Result expiration
     result_expires=86400,  # 24 hours
+
+    # Rate limits for API calls
+    task_annotations={
+        'tasks.video_tasks.process_video_async': {
+            'rate_limit': '10/m',  # Max 10 video processes per minute
+            'max_retries': 3,
+            'default_retry_delay': 60,
+        },
+        'tasks.video_tasks.apply_different_styles_async': {
+            'rate_limit': '20/m',  # Max 20 style applications per minute
+            'max_retries': 2,
+            'default_retry_delay': 30,
+        }
+    },
+
+    # Dead letter exchange
+    task_queues=(
+        Queue('video_processing', Exchange('video_processing'), routing_key='video_processing'),
+        Queue('dead_letter', Exchange('dead_letter'), routing_key='dead_letter'),
+        Queue("high_priority", Exchange("high_priority"), routing_key="high_priority"),
+        Queue(
+            "medium_priority",
+            Exchange("medium_priority"),
+            routing_key="medium_priority",
+        ),
+        Queue("low_priority", Exchange("low_priority"), routing_key="low_priority"),
+        Queue("default", Exchange("default"), routing_key="default"),
+    ),
+# Route configuration
+    task_routes={
+        'tasks.video_tasks.process_video_async': {
+            'queue': 'video_processing',
+            'routing_key': 'video_processing',
+        },
+        'tasks.video_tasks.apply_different_styles_async': {
+            'queue': 'video_processing',
+            'routing_key': 'video_processing',
+        },
+        "tasks.video_tasks.process_video_async": {
+            "queue": "high_priority",
+            "routing_key": "high_priority",
+        },
+        "tasks.video_tasks.process_video_batch": {
+            "queue": "medium_priority",
+            "routing_key": "medium_priority",
+        },
+        "tasks.email_tasks.*": {"queue": "low_priority", "routing_key": "low_priority"},
+        "tasks.cleanup_tasks.*": {
+            "queue": "low_priority",
+            "routing_key": "low_priority",
+        },
+        "tasks.billing_tasks.*": {
+            "queue": "medium_priority",
+            "routing_key": "medium_priority",
+        },
+    },
 )
 
 # Auto-discover tasks

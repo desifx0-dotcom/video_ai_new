@@ -39,8 +39,9 @@ WS_EVENTS = {
     "PONG": "pong",
 }
 
-# Global socketio instance
+# Global socketio instances
 _socketio = None
+socketio = None  # This will be set by set_socketio_instance
 
 # Connected clients
 connected_clients = {}
@@ -53,20 +54,24 @@ def get_socketio():
 
 def set_socketio_instance(socketio_instance):
     """Set the global socketio instance (called from main.py)."""
-    global _socketio
+    global _socketio, socketio
     _socketio = socketio_instance
+    socketio = socketio_instance
     logger.info("SocketIO instance set globally")
 
 
 def init_websocket(app):
     """Initialize WebSocket with the Flask app."""
-    global _socketio
+    global _socketio, socketio
     _socketio = SocketIO(
         app,
         cors_allowed_origins="*",
         async_mode="eventlet",
         message_queue=app.config.get("REDIS_URL", "redis://localhost:6379/0"),
+        logger=True,
+        engineio_logger=True,
     )
+    socketio = _socketio
     
     # Register handlers
     register_websocket_handlers(_socketio)
@@ -254,37 +259,216 @@ def send_system_alert(
         logger.error(f"Send system alert error: {e}")
 
 
-def broadcast_maintenance_mode(
-    enabled: bool, message: str, estimated_end: Optional[str] = None
+def send_progress_update(
+    video_id: str,
+    progress: float,
+    step: str,
+    estimated_time_remaining: Optional[float] = None,
 ):
-    """Broadcast maintenance mode status to all users."""
+    """Send progress update for video processing."""
     if _socketio is None:
         return
 
     try:
         data = {
-            "maintenance_mode": enabled,
-            "message": message,
-            "estimated_end": estimated_end,
+            "video_id": video_id,
+            "progress": progress,
+            "step": step,
+            "estimated_time_remaining": estimated_time_remaining,
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        if enabled:
-            _socketio.emit(WS_EVENTS["SYSTEM_ALERT"], data)
-        else:
-            _socketio.emit(
-                WS_EVENTS["SYSTEM_ALERT"],
-                {
-                    "maintenance_mode": False,
-                    "message": "Maintenance completed",
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-            )
+        _socketio.emit(WS_EVENTS["PROGRESS_UPDATE"], data, room=f"video:{video_id}")
 
-        logger.info(f"Maintenance mode broadcast: {'enabled' if enabled else 'disabled'}")
+        logger.debug(f"Progress update sent: {video_id} - {step} ({progress}%)")
 
     except Exception as e:
-        logger.error(f"Broadcast maintenance mode error: {e}")
+        logger.warning(f"Send progress update error: {e}")
+
+
+def register_websocket_handlers(socketio_instance: SocketIO):
+    """Register all WebSocket event handlers."""
+    
+    @socketio_instance.on("connect")
+    def handle_connect():
+        """Handle WebSocket connection."""
+        try:
+            token = request.args.get("token")
+            if not token:
+                logger.warning("WebSocket connection attempt without token")
+                disconnect()
+                return False
+
+            try:
+                decoded = decode_token(token)
+                user_id = decoded["sub"]
+
+                user = user_service.get_user_by_id(user_id)
+                if not user or not user.is_active():
+                    logger.warning(f"Invalid user attempting WebSocket: {user_id}")
+                    disconnect()
+                    return False
+
+                connected_clients[request.sid] = {
+                    "user_id": user_id,
+                    "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                    "connected_at": datetime.utcnow().isoformat(),
+                }
+
+                join_room(f"user:{user_id}")
+                join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
+
+                if getattr(user, 'is_admin', False):
+                    join_room("admin")
+
+                logger.info(f"WebSocket connected: {user_id}")
+
+                emit(
+                    WS_EVENTS["CONNECT"],
+                    {
+                        "status": "connected",
+                        "user_id": user_id,
+                        "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
+
+                return True
+
+            except Exception as e:
+                logger.error(f"Token verification failed: {e}")
+                disconnect()
+                return False
+
+        except Exception as e:
+            logger.error(f"WebSocket connection error: {e}")
+            disconnect()
+            return False
+
+    @socketio_instance.on("disconnect")
+    def handle_disconnect():
+        """Handle WebSocket disconnection."""
+        if request.sid in connected_clients:
+            user_info = connected_clients.pop(request.sid)
+            logger.info(f"WebSocket disconnected: {user_info.get('user_id')}")
+
+    @socketio_instance.on("subscribe_video")
+    def handle_subscribe_video(data: Dict[str, Any]):
+        """Subscribe to video processing updates."""
+        try:
+            user_info = connected_clients.get(request.sid)
+            if not user_info:
+                raise UnauthorizedError("Not authenticated")
+
+            video_id = data.get("video_id")
+            if not video_id:
+                return {"error": "video_id is required"}
+
+            video = video_service.get_video(video_id, user_info["user_id"])
+            if not video:
+                return {"error": "Video not found or access denied"}
+
+            join_room(f"video:{video_id}")
+
+            emit(
+                WS_EVENTS["VIDEO_PROCESSING"],
+                {
+                    "video_id": video_id,
+                    "status": getattr(video, 'status', "unknown"),
+                    "progress": video.get_progress() if hasattr(video, 'get_progress') else 0,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                room=request.sid,
+            )
+
+            return {"status": "subscribed", "video_id": video_id}
+
+        except Exception as e:
+            logger.error(f"Subscribe video error: {e}")
+            return {"error": str(e)}
+
+    @socketio_instance.on("unsubscribe_video")
+    def handle_unsubscribe_video(data: Dict[str, Any]):
+        """Unsubscribe from video processing updates."""
+        try:
+            video_id = data.get("video_id")
+            if video_id:
+                leave_room(f"video:{video_id}")
+            return {"status": "unsubscribed"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @socketio_instance.on("get_video_status")
+    def handle_get_video_status(data: Dict[str, Any]):
+        """Get current video status."""
+        try:
+            user_info = connected_clients.get(request.sid)
+            if not user_info:
+                raise UnauthorizedError("Not authenticated")
+
+            video_id = data.get("video_id")
+            if not video_id:
+                return {"error": "video_id is required"}
+
+            status = video_service.get_processing_status(video_id, user_info["user_id"])
+            if not status:
+                return {"error": "Video not found or access denied"}
+
+            return {
+                "status": "success",
+                "video_id": video_id,
+                "video_status": status.get("status"),
+                "progress": status.get("progress", 0),
+            }
+
+        except Exception as e:
+            logger.error(f"Get video status error: {e}")
+            return {"error": str(e)}
+
+    @socketio_instance.on("ping")
+    def handle_ping(data: Dict[str, Any] = None):
+        """Handle ping for connection testing."""
+        emit(
+            WS_EVENTS["PONG"],
+            {"timestamp": datetime.utcnow().isoformat(), "data": data or {}},
+        )
+
+    @socketio_instance.on("admin_broadcast")
+    def handle_admin_broadcast(data: Dict[str, Any]):
+        """Admin broadcast message to all users."""
+        try:
+            user_info = connected_clients.get(request.sid)
+            if not user_info:
+                raise UnauthorizedError("Not authenticated")
+
+            user = user_service.get_user_by_id(user_info["user_id"])
+            if not user or not getattr(user, 'is_admin', False):
+                raise UnauthorizedError("Admin access required")
+
+            message = data.get("message", "")
+            target = data.get("target", "all")
+
+            if not message:
+                return {"error": "Message is required"}
+
+            emit(
+                WS_EVENTS["SYSTEM_ALERT"],
+                {
+                    "message": message,
+                    "type": "admin_broadcast",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "from_admin": user.id,
+                },
+                room=None if target == "all" else target,
+            )
+
+            logger.info(f"Admin broadcast from {user.id}: {message}")
+
+            return {"status": "broadcasted", "target": target}
+
+        except Exception as e:
+            logger.error(f"Admin broadcast error: {e}")
+            return {"error": str(e)}
 
 
 def get_connected_clients_stats() -> Dict[str, Any]:
@@ -324,215 +508,3 @@ def disconnect_user(user_id: str):
 
     except Exception as e:
         logger.error(f"Disconnect user error: {e}")
-
-
-def send_progress_update(
-    video_id: str,
-    progress: float,
-    step: str,
-    estimated_time_remaining: Optional[float] = None,
-):
-    """Send progress update for video processing."""
-    if _socketio is None:
-        return
-
-    try:
-        data = {
-            "video_id": video_id,
-            "progress": progress,
-            "step": step,
-            "estimated_time_remaining": estimated_time_remaining,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        _socketio.emit(WS_EVENTS["PROGRESS_UPDATE"], data, room=f"video:{video_id}")
-
-        logger.debug(f"Progress update sent: {video_id} - {step} ({progress}%)")
-
-    except Exception as e:
-        logger.warning(f"Send progress update error: {e}")
-
-
-def register_websocket_handlers(socketio: SocketIO):
-    """Register all WebSocket event handlers."""
-
-    @socketio.on("connect")
-    def handle_connect():
-        """Handle WebSocket connection."""
-        try:
-            token = request.args.get("token")
-            if not token:
-                logger.warning("WebSocket connection attempt without token")
-                disconnect()
-                return False
-
-            try:
-                decoded = decode_token(token)
-                user_id = decoded["sub"]
-
-                user = user_service.get_user_by_id(user_id)
-                if not user or not user.is_active():
-                    logger.warning(f"Invalid user attempting WebSocket: {user_id}")
-                    disconnect()
-                    return False
-
-                connected_clients[request.sid] = {
-                    "user_id": user_id,
-                    "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
-                    "connected_at": datetime.utcnow().isoformat(),
-                }
-
-                join_room(f"user:{user_id}")
-                join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
-
-                if user.is_admin:
-                    join_room("admin")
-
-                logger.info(f"WebSocket connected: {user_id}")
-
-                emit(
-                    WS_EVENTS["CONNECT"],
-                    {
-                        "status": "connected",
-                        "user_id": user_id,
-                        "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
-                )
-
-                return True
-
-            except Exception as e:
-                logger.error(f"Token verification failed: {e}")
-                disconnect()
-                return False
-
-        except Exception as e:
-            logger.error(f"WebSocket connection error: {e}")
-            disconnect()
-            return False
-
-    @socketio.on("disconnect")
-    def handle_disconnect():
-        """Handle WebSocket disconnection."""
-        if request.sid in connected_clients:
-            user_info = connected_clients.pop(request.sid)
-            logger.info(f"WebSocket disconnected: {user_info.get('user_id')}")
-
-    @socketio.on("subscribe_video")
-    def handle_subscribe_video(data: Dict[str, Any]):
-        """Subscribe to video processing updates."""
-        try:
-            user_info = connected_clients.get(request.sid)
-            if not user_info:
-                raise UnauthorizedError("Not authenticated")
-
-            video_id = data.get("video_id")
-            if not video_id:
-                return {"error": "video_id is required"}
-
-            video = video_service.get_video(video_id, user_info["user_id"])
-            if not video:
-                return {"error": "Video not found or access denied"}
-
-            join_room(f"video:{video_id}")
-
-            emit(
-                WS_EVENTS["VIDEO_PROCESSING"],
-                {
-                    "video_id": video_id,
-                    "status": video.status if hasattr(video, 'status') else "unknown",
-                    "progress": video.get_progress() if hasattr(video, 'get_progress') else 0,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-                room=request.sid,
-            )
-
-            return {"status": "subscribed", "video_id": video_id}
-
-        except Exception as e:
-            logger.error(f"Subscribe video error: {e}")
-            return {"error": str(e)}
-
-    @socketio.on("unsubscribe_video")
-    def handle_unsubscribe_video(data: Dict[str, Any]):
-        """Unsubscribe from video processing updates."""
-        try:
-            video_id = data.get("video_id")
-            if video_id:
-                leave_room(f"video:{video_id}")
-            return {"status": "unsubscribed"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    @socketio.on("get_video_status")
-    def handle_get_video_status(data: Dict[str, Any]):
-        """Get current video status."""
-        try:
-            user_info = connected_clients.get(request.sid)
-            if not user_info:
-                raise UnauthorizedError("Not authenticated")
-
-            video_id = data.get("video_id")
-            if not video_id:
-                return {"error": "video_id is required"}
-
-            status = video_service.get_processing_status(video_id, user_info["user_id"])
-            if not status:
-                return {"error": "Video not found or access denied"}
-
-            return {
-                "status": "success",
-                "video_id": video_id,
-                "video_status": status.get("status"),
-                "progress": status.get("progress", 0),
-            }
-
-        except Exception as e:
-            logger.error(f"Get video status error: {e}")
-            return {"error": str(e)}
-
-    @socketio.on("ping")
-    def handle_ping(data: Dict[str, Any] = None):
-        """Handle ping for connection testing."""
-        emit(
-            WS_EVENTS["PONG"],
-            {"timestamp": datetime.utcnow().isoformat(), "data": data or {}},
-        )
-
-    @socketio.on("admin_broadcast")
-    def handle_admin_broadcast(data: Dict[str, Any]):
-        """Admin broadcast message to all users."""
-        try:
-            user_info = connected_clients.get(request.sid)
-            if not user_info:
-                raise UnauthorizedError("Not authenticated")
-
-            user = user_service.get_user_by_id(user_info["user_id"])
-            if not user or not user.is_admin:
-                raise UnauthorizedError("Admin access required")
-
-            message = data.get("message", "")
-            target = data.get("target", "all")
-
-            if not message:
-                return {"error": "Message is required"}
-
-            emit(
-                WS_EVENTS["SYSTEM_ALERT"],
-                {
-                    "message": message,
-                    "type": "admin_broadcast",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "from_admin": user.id,
-                },
-                room=None if target == "all" else target,
-            )
-
-            logger.info(f"Admin broadcast from {user.id}: {message}")
-
-            return {"status": "broadcasted", "target": target}
-
-        except Exception as e:
-            logger.error(f"Admin broadcast error: {e}")
-            return {"error": str(e)}
