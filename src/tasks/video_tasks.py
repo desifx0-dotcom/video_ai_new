@@ -6,6 +6,7 @@ import os
 import sys
 import logging
 import traceback
+import psutil
 from datetime import datetime
 from typing import Dict, Any, List
 # from api.websocket import send_progress_update, send_video_update, send_video_completed
@@ -1003,6 +1004,14 @@ def _generate_thumbnails(video, options, user_id):
         _send_ws_failed(video.id, video.user_id, f"Thumbnail generation failed: {str(e)}", 0, True)
         raise ProcessingError(f"Thumbnail generation failed: {str(e)}", step="thumbnails")
 
+def _check_system_resources():
+    """Check available memory and warn if low."""
+    memory = psutil.virtual_memory()
+    if memory.available < 500 * 1024 * 1024:  # Less than 500MB
+        logger.warning(f"Low memory: {memory.available / (1024*1024):.0f}MB available")
+        return False
+    return True
+
 def _apply_all_filters_production(video, options):
     """
     MULTI-PASS: Apply filters in stages with WebSocket progress updates.
@@ -1031,6 +1040,81 @@ def _apply_all_filters_production(video, options):
         logger.error(f"[MASTER] Input not found: {input_path}")
         return None
 
+    # ========== CHECK IF CHUNKED PROCESSING IS NEEDED ==========
+    from providers.ffmpeg_provider import FFmpegProvider
+    ffmpeg = FFmpegProvider()
+    
+    # Check file size and resolution
+    file_size_mb = os.path.getsize(input_path) / (1024 * 1024)
+    try:
+        metadata = ffmpeg.get_video_metadata(input_path)
+        width = metadata.get("video", {}).get("width", 0)
+        height = metadata.get("video", {}).get("height", 0)
+    except:
+        width = 0
+        height = 0
+    
+    video_short_id = video.id[:8]
+    final_path = os.path.join(os.path.dirname(input_path), f"final_{video_short_id}.mp4")
+    
+    aspect_dimensions = {
+        "16:9": (1920, 1080),
+        "9:16": (1080, 1920),
+        "1:1": (1080, 1080),
+        "4:5": (1080, 1350),
+        "2:3": (1080, 1620),
+    }
+    
+    # Determine target dimensions for aspect ratio
+    aspect_ratio = getattr(video, 'aspect_ratio', 'original')
+    target_width = None
+    target_height = None
+    if aspect_ratio in aspect_dimensions:
+        target_width, target_height = aspect_dimensions[aspect_ratio]
+    
+    # Use chunked processing for large videos (> 1GB OR > 2K resolution)
+    use_chunked = file_size_mb > 100 or width > 1920 or height > 1080
+    
+    if use_chunked:
+        logger.info(f"[MASTER] Large video detected ({file_size_mb:.0f}MB, {width}x{height})")
+        logger.info(f"[MASTER] Using CHUNKED multi-pass processing")
+        
+        # Get all filter parameters
+        speed = getattr(video, 'speed', 1.0)
+        fps = getattr(video, 'fps', 'original')
+        styles = getattr(video, 'applied_styles', [])
+        quality = getattr(video, 'output_quality', 'original')
+        
+        # Use chunked processing
+        success = ffmpeg.apply_full_filter_chain_chunked(
+            input_path=input_path,
+            output_path=final_path,
+            speed=speed,
+            fps=fps,
+            styles=styles,
+            quality=quality,
+            aspect_ratio=aspect_ratio,
+            target_width=target_width,
+            target_height=target_height,
+            chunk_duration=5
+        )
+        
+        if success and os.path.exists(final_path):
+            _send_ws_progress(video.id, 100, "finalizing", 0)
+            video.output_path = final_path
+            video.output_video_url = final_path
+            video.output_video_size = os.path.getsize(final_path)
+            video_service.update_video(video)
+            
+            logger.info(f"[MASTER] ✅ Chunked processing completed: {os.path.basename(final_path)}")
+            logger.info(f"[MASTER] ✅ File size: {video.output_video_size:,} bytes")
+            return final_path
+        else:
+            logger.warning(f"[MASTER] Chunked processing failed, falling back to normal processing")
+    
+    # ========== NORMAL PROCESSING ==========
+    logger.info(f"[MASTER] Using normal multi-pass processing")
+
     # Validate FFmpeg is available
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
@@ -1048,15 +1132,6 @@ def _apply_all_filters_production(video, options):
     styles = getattr(video, 'applied_styles', [])
     audio_quality = getattr(video, 'audio_quality', 'original')
 
-    # 🔥 FIX: Define aspect_dimensions at the TOP (before it's used)
-    aspect_dimensions = {
-        "16:9": (1920, 1080),
-        "9:16": (1080, 1920),
-        "1:1": (1080, 1080),
-        "4:5": (1080, 1350),
-        "2:3": (1080, 1620),
-    }
-
     # ========== 2. APPLY FILTERS IN STAGES ==========
     current_input = input_path
     temp_files = []
@@ -1067,7 +1142,7 @@ def _apply_all_filters_production(video, options):
     if fps and fps != 'original' and str(fps).isdigit(): total_stages += 1
     if styles: total_stages += len(styles)
     if quality in {"480p", "720p", "1080p"}: total_stages += 1
-    if aspect_ratio in aspect_dimensions: total_stages += 1  # ✅ Now aspect_dimensions exists
+    if aspect_ratio in aspect_dimensions: total_stages += 1
     
     completed_stages = 0
     
