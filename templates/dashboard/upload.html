@@ -1784,13 +1784,12 @@ function startProcessing() {
     console.log(`  FPS: ${document.getElementById('fps-select')?.value}`);
     console.log(`  Audio Quality: ${document.getElementById('audio-quality')?.value}`);
     
-    // Show processing modal
-    showProcessingModal();
 
     // SETUP WEBSOCKET FIRST (this will fall back to polling)
     setupWebSocket(currentVideoId)
     
-    // Call API to start processing
+    // call api for processing
+
     fetch(`/api/v1/videos/${currentVideoId}/process`, {
         method: 'POST',
         headers: {
@@ -1804,7 +1803,6 @@ function startProcessing() {
             // Token expired, try to refresh
             return refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
                 if (newToken) {
-                    // Retry with new token
                     return fetch(`/api/v1/videos/${currentVideoId}/process`, {
                         method: 'POST',
                         headers: {
@@ -1814,6 +1812,7 @@ function startProcessing() {
                         body: JSON.stringify(options)
                     });
                 }
+                throw new Error('Authentication failed');
             });
         }
         return response;
@@ -1829,21 +1828,17 @@ function startProcessing() {
     .then(data => {
         console.log('✅ Processing started:', data);
         
-        // Poll for processing status and redirect to results when done
-        startPolling(currentVideoId);
+        // 🔥 THEN: Redirect to processing page
+        // Store video ID in sessionStorage for the processing page to use
+        sessionStorage.setItem('processing_video_id', currentVideoId);
+        sessionStorage.setItem('processing_options', JSON.stringify(options));
+        
+        // Redirect to processing page
+        window.location.href = `/processing?video_id=${currentVideoId}`;
     })
     .catch(error => {
         console.error('❌ Error starting processing:', error);
         showAlert('Failed to start processing. Please try again.', 'danger');
-        // Hide modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('processing-modal'));
-        if (modal) modal.hide();
-        // Clean up WebSocket on error
-        if (processingSocket) {
-            processingSocket.disconnect();
-            processingSocket = null;
-        }
-        pollingActive = false;
     });
 }
 

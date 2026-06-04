@@ -1289,7 +1289,7 @@ def create_app(config_class=Config):
             },
             {
                 "value": "2K",
-                "label": "2K QHD",
+                "label": "2K",
                 "tiers": ["pro", "plus", "enterprise"],
             },
             {

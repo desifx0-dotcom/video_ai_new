@@ -9,11 +9,47 @@ import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 import tempfile
+import math
 
 from core.exceptions import ProcessingError
 
 logger = logging.getLogger(__name__)
 
+# Complete quality mapping for all resolutions
+QUALITY_MAP = {
+    "original": None,      # Keep original resolution
+    "360p": (640, 360),
+    "480p": (854, 480),
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "2K": (2560, 1440),
+    "3K": (3072, 1728),
+    "4k": (3840, 2160),
+    "4K": (3840, 2160),    # Alias for uppercase
+    "8k": (7680, 4320),
+    "8K": (7680, 4320),    # Alias for uppercase
+}
+
+# Quality aliases for case-insensitive matching
+QUALITY_ALIASES = {
+    "4K": "4k",
+    "8K": "8k",
+    "2K": "2k",  # Keep consistent
+}
+
+# Processing resolution (always 720p for memory efficiency)
+PROCESSING_WIDTH = 1280
+PROCESSING_HEIGHT = 720
+
+# Aspect ratio dimensions
+ASPECT_RATIO_DIMENSIONS = {
+    "16:9": (1920, 1080),
+    "9:16": (1080, 1920),
+    "1:1": (1080, 1080),
+    "4:5": (1080, 1350),
+    "21:9": (2560, 1080),
+    "2.35:1": (2560, 1090),
+}
 
 class FFmpegProvider:
     """FFmpeg provider for video/audio processing."""
@@ -960,7 +996,7 @@ class FFmpegProvider:
                 input_path, output_path, style, target_width, target_height,
                 force_no_chunking=True
             )
-        num_chunks = max(2, int(duration / chunk_duration) + 1)
+        num_chunks = max(2, math.ceil(duration / chunk_duration) + 1)
         logger.info(f"   Splitting {duration:.0f}s video into {num_chunks} chunks ({chunk_duration}s each)")
         
         chunk_dir = tempfile.mkdtemp(prefix="chunked_")
@@ -981,8 +1017,10 @@ class FFmpegProvider:
                     "ffmpeg", "-i", input_path,
                     "-ss", str(start_time),
                     "-t", str(chunk_duration),
+                    "-map", "0:v:0", "-map", "0:a:0"  #preserve audio
                     "-c", "copy",
-                    "-y", chunk_input
+                    "-y", chunk_input,
+                    "-pix_fmt", "yuv420p",
                 ]
                 
                 logger.info(f"   Extracting chunk {i+1}/{num_chunks}")
@@ -1016,8 +1054,14 @@ class FFmpegProvider:
             concat_cmd = [
                 "ffmpeg", "-f", "concat", "-safe", "0",
                 "-i", concat_file,
-                "-c", "copy",
-                "-movflags", "+faststart",
+                "-map", "0:v:0", "-map", "0:a:0",      # Map both video and audio
+                "-c:v", "libx264",                     # Video codec
+                "-preset", "fast",                   # Balance between speed and quality
+                "-crf", "23",                          # Good quality (lower = better)
+                "-c:a", "aac", "-b:a", "192k",         # Audio codec and bitrate
+                "-ar", "48000", "-ac", "2",            # Sample rate and stereo
+                "-movflags", "+faststart",             # Optimize for web streaming
+                "-pix_fmt", "yuv420p",                 # Compatible pixel format
                 "-y", output_path
             ]
             
@@ -1039,8 +1083,8 @@ class FFmpegProvider:
             if os.path.exists(chunk_dir):
                 shutil.rmtree(chunk_dir, ignore_errors=True)
 
-    def apply_video_style(self, input_path: str, output_path: str, style: str, 
-                          target_width: int = None, target_height: int = None, 
+    def apply_video_style(self, input_path: str, output_path: str, style: str,
+                          target_width: int = None, target_height: int = None,
                           preserve_settings: dict = None) -> bool:
         """
         PRODUCTION-READY: Apply style with automatic method selection.
@@ -1134,7 +1178,8 @@ class FFmpegProvider:
             "-crf", str(crf),
             "-threads", str(threads),
             "-c:a", "copy",
-            "-y", temp_styled
+            "-y", temp_styled,
+            "-pix_fmt", "yuv420p",
         ]
         
         result = subprocess.run(style_cmd, capture_output=True, text=True, timeout=300)
@@ -1181,6 +1226,7 @@ class FFmpegProvider:
                     "-c:a", "aac",
                     "-b:a", "128k",
                     "-movflags", "+faststart",
+                    "-pix_fmt", "yuv420p",
                     "-y", output_path
                 ]
                 
@@ -1210,20 +1256,47 @@ class FFmpegProvider:
             logger.error(f"Output file missing or empty: {output_path}")
             return False
 
+    def get_video_resolution(self, video_path: str) -> tuple:
+        """Get original video width and height."""
+        import subprocess
+        import json
+        
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json",
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                data = json.loads(result.stdout)
+                streams = data.get('streams', [])
+                if streams:
+                    width = streams[0].get('width', 1920)
+                    height = streams[0].get('height', 1080)
+                    return width, height
+        except Exception as e:
+            logger.error(f"Failed to get video resolution: {e}")
+        
+        return 1920, 1080  # Default fallback
+
     def apply_full_filter_chain_chunked(self, input_path: str, output_path: str,
                                           speed: float = 1.0, fps: str = "original",
                                           styles: List[str] = None, quality: str = "original",
                                           aspect_ratio: str = "original",
                                           target_width: int = None, target_height: int = None,
-                                          chunk_duration: int = 4) -> bool:
+                                          chunk_duration: int = 5) -> bool:
         """
         Apply multiple filters to large video using chunked processing.
-        FIXED: Proper chunk extraction with re-encoding.
+        Memory-efficient: processes at 720p, then scales to user's desired quality.
         """
         import tempfile
         import shutil
         import os
         import subprocess
+        import math
         
         if styles is None:
             styles = []
@@ -1233,114 +1306,201 @@ class FFmpegProvider:
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
         
-        # Get video duration
-        duration = self.get_video_duration(input_path)
+        # Get video duration and original resolution
+        try:
+            duration = self.get_video_duration(input_path)
+            original_width, original_height = self.get_video_resolution(input_path)
+            logger.info(f"   Original resolution: {original_width}x{original_height}")
+            logger.info(f"   Video duration: {duration:.1f}s")
+        except Exception as e:
+            logger.error(f"❌ Failed to get video info: {e}")
+            return False
         
         # Skip chunked processing for small videos
         if duration <= chunk_duration:
-            logger.info(f"Video duration {duration:.0f}s <= chunk duration {chunk_duration}s, using normal processing")
+            logger.info(f"   Video duration {duration:.0f}s <= chunk duration {chunk_duration}s, using normal processing")
             return False
         
-        logger.info(f"🔄 Using CHUNKED multi-pass processing for large video")
+        num_chunks = max(2, math.ceil(duration / chunk_duration))
+        chunk_duration_actual = duration / num_chunks
         
-        num_chunks = max(2, int(duration / chunk_duration))
-        logger.info(f"   Splitting {duration:.0f}s video into {num_chunks} chunks (~{chunk_duration}s each)")
+        logger.info(f"🔄 Using CHUNKED multi-pass processing for large video")
+        logger.info(f"   Splitting {duration:.0f}s video into {num_chunks} chunks ({chunk_duration_actual:.1f}s each)")
+        
+        # ========== DETERMINE FINAL OUTPUT RESOLUTION ==========
+        quality_lower = quality.lower() if quality else "original"
+        
+        # Handle quality aliases (4K -> 4k, 8K -> 8k)
+        if quality_lower in QUALITY_ALIASES:
+            quality_lower = QUALITY_ALIASES[quality_lower]
+            logger.info(f"   Quality alias resolved: {quality} -> {quality_lower}")
+        
+        # Determine final dimensions based on user selection
+        if quality_lower == "original":
+            # Use original video resolution
+            final_width, final_height = original_width, original_height
+            logger.info(f"   📊 Keeping original quality: {final_width}x{final_height}")
+        elif quality_lower in QUALITY_MAP and QUALITY_MAP[quality_lower]:
+            final_width, final_height = QUALITY_MAP[quality_lower]
+            logger.info(f"   📊 User selected quality: {quality_lower} -> {final_width}x{final_height}")
+        else:
+            # Fallback to original resolution
+            final_width, final_height = original_width, original_height
+            logger.info(f"   📊 Unknown quality '{quality}', using original: {final_width}x{final_height}")
+        
+        # Override if target dimensions provided (for aspect ratio)
+        if target_width and target_height:
+            final_width, final_height = target_width, target_height
+            logger.info(f"   📊 Target dimensions override: {final_width}x{final_height}")
         
         chunk_dir = tempfile.mkdtemp(prefix="chunked_full_")
         processed_chunks = []
         
+        # Processing resolution (always 720p for memory efficiency)
+        chunk_scale = f"scale={PROCESSING_WIDTH}:{PROCESSING_HEIGHT}"
+        
         try:
-            # STEP 1: Split and process each chunk
+            # STEP 1: Process each chunk
             for i in range(num_chunks):
-                start_time = i * chunk_duration
-                actual_duration = min(chunk_duration, duration - start_time)
+                start_time = i * chunk_duration_actual
+                actual_duration = min(chunk_duration_actual, duration - start_time)
                 
                 if actual_duration <= 0:
                     break
                 
-                # Temporary files for this chunk
                 chunk_input = os.path.join(chunk_dir, f"chunk_{i:03d}_input.mp4")
                 chunk_output = os.path.join(chunk_dir, f"chunk_{i:03d}_processed.mp4")
                 
-                logger.info(f"   Processing chunk {i+1}/{num_chunks} ({actual_duration:.1f}s from {start_time:.1f}s)")
+                logger.info(f"   📦 Processing chunk {i+1}/{num_chunks}")
+                logger.info(f"      Start: {start_time:.1f}s, Duration: {actual_duration:.1f}s")
                 
-                # Extract chunk with proper encoding (NOT just copy)
+                # Extract chunk with downscaling (memory efficient)
                 extract_cmd = [
                     "ffmpeg", "-ss", str(start_time), "-i", input_path,
                     "-t", str(actual_duration),
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                    "-c:a", "aac", "-b:a", "96k",
+                    "-vf", chunk_scale,
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "128k",
                     "-threads", "2",
+                    "-pix_fmt", "yuv420p",
                     "-y", chunk_input
                 ]
                 
+                logger.info(f"      🔧 Extracting chunk (downscaled to {PROCESSING_WIDTH}x{PROCESSING_HEIGHT})...")
                 result = subprocess.run(extract_cmd, capture_output=True, text=True, timeout=120)
-                if result.returncode != 0 or not os.path.exists(chunk_input) or os.path.getsize(chunk_input) == 0:
-                    logger.error(f"Failed to extract chunk {i}: {result.stderr[:200]}")
+                
+                if result.returncode != 0:
+                    logger.error(f"      ❌ Chunk extraction FAILED: {result.stderr[:300]}")
                     return False
                 
-                # Apply filter chain to this chunk (using same function as normal processing)
+                if not os.path.exists(chunk_input) or os.path.getsize(chunk_input) == 0:
+                    logger.error(f"      ❌ Chunk input file missing or empty")
+                    return False
+                
+                logger.info(f"      ✅ Chunk extracted: {os.path.getsize(chunk_input)/1024/1024:.1f}MB")
+                
+                # Apply filter chain to chunk (at 720p)
                 success = self._apply_filter_chain_to_chunk(
                     input_path=chunk_input,
                     output_path=chunk_output,
                     speed=speed,
                     fps=fps,
                     styles=styles,
-                    quality=quality,
-                    aspect_ratio=aspect_ratio,
-                    target_width=target_width,
-                    target_height=target_height
+                    quality="720p",  # Process at 720p
+                    aspect_ratio="original",  # Don't apply aspect ratio yet
+                    target_width=None,
+                    target_height=None
                 )
                 
                 if not success or not os.path.exists(chunk_output) or os.path.getsize(chunk_output) == 0:
-                    logger.error(f"Failed to process chunk {i}")
+                    logger.error(f"      ❌ Filter chain FAILED for chunk {i+1}")
                     return False
                 
+                logger.info(f"      ✅ Chunk processed: {os.path.getsize(chunk_output)/1024/1024:.1f}MB")
                 processed_chunks.append(chunk_output)
             
             if not processed_chunks:
-                logger.error("No chunks were successfully processed")
+                logger.error("❌ No chunks were successfully processed")
                 return False
             
-            # STEP 2: Create concat file
+            logger.info(f"   ✅ All {len(processed_chunks)} chunks processed successfully")
+            
+            # STEP 2: Concatenate chunks
             concat_file = os.path.join(chunk_dir, "concat.txt")
             with open(concat_file, "w") as f:
                 for chunk_path in processed_chunks:
-                    # Use relative paths for safety
-                    rel_path = os.path.basename(chunk_path)
-                    f.write(f"file '{rel_path}'\n")
+                    f.write(f"file '{chunk_path}'\n")
             
-            # STEP 3: Concatenate chunks
+            temp_concat = os.path.join(chunk_dir, "concatenated.mp4")
             concat_cmd = [
                 "ffmpeg", "-f", "concat", "-safe", "0",
                 "-i", concat_file,
-                "-c", "copy",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "192k",
+                "-pix_fmt", "yuv420p",
+                "-y", temp_concat
+            ]
+            
+            logger.info(f"   🔗 Concatenating {len(processed_chunks)} chunks...")
+            result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                logger.error(f"❌ Concatenation FAILED: {result.stderr[:300]}")
+                return False
+            
+            # STEP 3: Apply final scaling to user's desired quality
+            logger.info(f"   📊 Applying final scaling to {quality_lower} ({final_width}x{final_height})...")
+            
+            final_vf = []
+            
+            # Scale to target resolution
+            final_vf.append(f"scale={final_width}:{final_height}:force_original_aspect_ratio=decrease")
+            final_vf.append(f"pad={final_width}:{final_height}:(ow-iw)/2:(oh-ih)/2")
+            
+            # Apply aspect ratio if specified (overrides scaling)
+            if aspect_ratio in ASPECT_RATIO_DIMENSIONS:
+                ar_w, ar_h = ASPECT_RATIO_DIMENSIONS[aspect_ratio]
+                final_vf = [
+                    f"scale={ar_w}:{ar_h}:force_original_aspect_ratio=decrease",
+                    f"pad={ar_w}:{ar_h}:(ow-iw)/2:(oh-ih)/2"
+                ]
+                logger.info(f"   📊 Applying aspect ratio: {aspect_ratio} -> {ar_w}x{ar_h}")
+            
+            final_cmd = [
+                "ffmpeg", "-i", temp_concat,
+                "-vf", ",".join(final_vf),
+                "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                "-c:a", "aac", "-b:a", "192k",
+                "-ar", "48000", "-ac", "2",
                 "-movflags", "+faststart",
+                "-pix_fmt", "yuv420p",
                 "-y", output_path
             ]
             
-            # Run concat from chunk directory to avoid path issues
-            result = subprocess.run(concat_cmd, cwd=chunk_dir, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(final_cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
-                logger.error(f"Concatenation failed: {result.stderr[:500]}")
+                logger.error(f"❌ Final scaling FAILED: {result.stderr[:300]}")
                 return False
             
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 logger.info(f"✅ Chunked processing successful: {output_path}")
+                logger.info(f"   Final resolution: {final_width}x{final_height}")
+                logger.info(f"   Final size: {os.path.getsize(output_path)/1024/1024:.1f}MB")
                 return True
             else:
-                logger.error(f"Output file missing or empty: {output_path}")
+                logger.error(f"❌ Output file missing or empty")
                 return False
-                    
+                        
         except Exception as e:
-            logger.error(f"Chunked multi-pass processing failed: {e}")
+            logger.error(f"❌ Chunked processing failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
             
         finally:
             if os.path.exists(chunk_dir):
                 shutil.rmtree(chunk_dir, ignore_errors=True)
-
 
     def _apply_filter_chain_to_chunk(self, input_path: str, output_path: str,
                                             speed: float = 1.0, fps: str = "original",
@@ -1348,28 +1508,60 @@ class FFmpegProvider:
                                             aspect_ratio: str = "original",
                                             target_width: int = None, target_height: int = None) -> bool:
         """
-        Apply full filter chain to a single chunk - FIXED with memory-efficient settings.
+        Apply full filter chain to a single chunk with PROPER AUDIO MAPPING.
         """
         import subprocess
         import json
         import os
         import tempfile
         import shutil
-        
+
         if styles is None:
             styles = []
-        
-        # Use a temporary directory for this chunk's processing
+
         chunk_temp_dir = tempfile.mkdtemp(prefix="chunk_filter_")
-        
+
         try:
             current_input = input_path
-            
+
             style_filters = {
-                "black_and_white": "hue=s=0,eq=contrast=1.1",
                 "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
-                # Add other styles as needed
+                "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
+                "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
+                "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
+                "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
+                "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
+                "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
+                "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
+                "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+                "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
+                "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
+                "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
+                "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
+                "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
+                "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
+                "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
+                "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
+                "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
+                "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
+                "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
+                "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
+                "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
+                "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
+                "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
+                "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
+                "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
+                "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+                "black_and_white": "hue=s=0,eq=contrast=1.1",
+                "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
+                "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+                "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
+                "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
+                "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
+                "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
             }
+
+                # Get filter for the requested style
 
             aspect_dimensions = {
                 "16:9": (1920, 1080),
@@ -1379,11 +1571,66 @@ class FFmpegProvider:
                 "2:3": (1080, 1620),
             }
 
-            # Stage 1: Speed (use direct subprocess, not tempfile)
+            # Stage 1: Speed with AUDIO MAPPING
             if speed != 1.0:
                 speed_factor = 1.0 / speed
                 tempo_factor = speed
                 temp_speed = os.path.join(chunk_temp_dir, "speed.mp4")
+
+                # Check for audio
+                probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                            "-show_entries", "stream=codec_type", "-of", "json", current_input]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+                has_audio = False
+                if probe_result.returncode == 0 and probe_result.stdout.strip():
+                    data = json.loads(probe_result.stdout)
+                    has_audio = len(data.get('streams', [])) > 0
+                    logger.info(f"   Audio detected: {has_audio}")
+
+                if not has_audio:
+                    cmd = [
+                        "ffmpeg", "-i", current_input,
+                        "-filter:v", f"setpts={speed_factor}*PTS",
+                        "-an",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                        "-threads", "2",
+                        "-pix_fmt", "yuv420p",
+                        "-y", temp_speed
+                    ]
+                else:
+                    # ✅ CRITICAL: Use atempo with proper handling for speeds > 2.0
+                    if tempo_factor <= 2.0:
+                        audio_filter = f"atempo={tempo_factor}"
+                    elif tempo_factor <= 4.0:
+                        audio_filter = f"atempo=2.0,atempo={tempo_factor/2.0}"
+                    else:
+                        steps = int(tempo_factor / 2.0) + 1
+                        audio_filter = ",".join(["atempo=2.0"] * (steps - 1)) + f",atempo={tempo_factor/(2.0**(steps-1))}"
+
+                    cmd = [
+                        "ffmpeg", "-i", current_input,
+                        "-filter_complex", f"[0:v]setpts={speed_factor}*PTS[v];[0:a]{audio_filter}[a]",
+                        "-map", "[v]", "-map", "[a]",  # ✅ Explicit audio mapping
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                        "-threads", "2",
+                        "-c:a", "aac", "-b:a", "192k",
+                        "-ar", "48000",
+                        "-ac", "2",
+                        "-pix_fmt", "yuv420p",
+                        "-y", temp_speed
+                    ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    logger.error(f"Speed stage failed: {result.stderr[:300]}")
+                    return False
+                
+                current_input = temp_speed
+                logger.info(f"   ✅ Speed {speed}x applied")
+
+            # Stage 2: FPS with AUDIO MAPPING
+            if fps and fps != 'original' and str(fps).isdigit():
+                temp_fps = os.path.join(chunk_temp_dir, "fps.mp4")
                 
                 # Check for audio
                 probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0",
@@ -1391,104 +1638,143 @@ class FFmpegProvider:
                 probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
                 has_audio = False
                 if probe_result.returncode == 0 and probe_result.stdout.strip():
-                    try:
-                        data = json.loads(probe_result.stdout)
-                        has_audio = len(data.get('streams', [])) > 0
-                    except:
-                        pass
-                
-                # Memory-efficient encoding
-                if not has_audio:
-                    cmd = ["ffmpeg", "-i", current_input, "-filter:v", f"setpts={speed_factor}*PTS",
-                          "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                          "-threads", "2", "-y", temp_speed]
+                    data = json.loads(probe_result.stdout)
+                    has_audio = len(data.get('streams', [])) > 0
+
+                if has_audio:
+                    cmd = [
+                        "ffmpeg", "-i", current_input,
+                        "-vf", f"fps={fps}",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                        "-threads", "2",
+                        "-c:a", "aac", "-b:a", "192k",
+                        "-ar", "48000", "-ac", "2",
+                        "-map", "0:v:0", "-map", "0:a:0",  # ✅ Explicit audio mapping
+                        "-pix_fmt", "yuv420p",
+                        "-y", temp_fps
+                    ]
                 else:
-                    if tempo_factor > 2.0:
-                        audio_filter = f"atempo=2.0,atempo={tempo_factor/2.0}"
-                    else:
-                        audio_filter = f"atempo={tempo_factor}"
-                    
-                    cmd = ["ffmpeg", "-i", current_input,
-                          "-filter_complex", f"[0:v]setpts={speed_factor}*PTS[v];[0:a]{audio_filter}[a]",
-                          "-map", "[v]", "-map", "[a]",
-                          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                          "-threads", "2",
-                          "-c:a", "aac", "-b:a", "96k", "-y", temp_speed]
+                    cmd = [
+                        "ffmpeg", "-i", current_input,
+                        "-vf", f"fps={fps}",
+                        "-an",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                        "-threads", "2",
+                        "-pix_fmt", "yuv420p",
+                        "-y", temp_fps
+                    ]
                 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-                if result.returncode != 0 or not os.path.exists(temp_speed) or os.path.getsize(temp_speed) == 0:
-                    return False
-                current_input = temp_speed
-            
-            # Stage 2: FPS
-            if fps and fps != 'original' and str(fps).isdigit():
-                temp_fps = os.path.join(chunk_temp_dir, "fps.mp4")
-                cmd = ["ffmpeg", "-i", current_input, "-vf", f"fps={fps}",
-                      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                      "-threads", "2",
-                      "-c:a", "copy", "-y", temp_fps]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 if result.returncode != 0:
+                    logger.error(f"FPS stage failed: {result.stderr[:300]}")
                     return False
+                
                 current_input = temp_fps
-            
-            # Stage 3: Styles
+                logger.info(f"   ✅ FPS {fps} applied")
+
+            # Stage 3: Styles with AUDIO MAPPING
             if styles:
                 for style in styles:
                     if style in style_filters:
                         temp_style = os.path.join(chunk_temp_dir, f"style_{style}.mp4")
-                        cmd = ["ffmpeg", "-i", current_input, "-vf", style_filters[style],
-                              "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                              "-threads", "2",
-                              "-c:a", "copy", "-y", temp_style]
+                        
+                        cmd = [
+                            "ffmpeg", "-i", current_input,
+                            "-vf", style_filters[style],
+                            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                            "-threads", "2",
+                            "-c:a", "aac", "-b:a", "192k",
+                            "-ar", "48000", "-ac", "2",
+                            "-map", "0:v:0", "-map", "0:a:0",  # ✅ Explicit audio mapping
+                            "-pix_fmt", "yuv420p",
+                            "-y", temp_style
+                        ]
+                        
                         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                         if result.returncode != 0:
+                            logger.error(f"Style '{style}' failed: {result.stderr[:300]}")
                             return False
+                        
                         current_input = temp_style
-            
-            # Stage 4: Quality scaling
-            quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
+                        logger.info(f"   ✅ Style '{style}' applied")
+
+            # Stage 4: Quality scaling with AUDIO MAPPING
+            quality_map = {"480p": 480, "720p": 720, "1080p": 1080, "4k": 2160}
             if quality in quality_map:
                 target_h = quality_map[quality]
                 temp_quality = os.path.join(chunk_temp_dir, "quality.mp4")
-                cmd = ["ffmpeg", "-i", current_input, "-vf", f"scale=-2:{target_h}",
-                      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                      "-threads", "2",
-                      "-c:a", "copy", "-y", temp_quality]
+                
+                # Only scale down, not up
+                cmd = [
+                    "ffmpeg", "-i", current_input,
+                    "-vf", f"scale=-2:{target_h}",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                    "-threads", "2",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-ar", "48000", "-ac", "2",
+                    "-map", "0:v:0", "-map", "0:a:0",  # ✅ Explicit audio mapping
+                    "-pix_fmt", "yuv420p",
+                    "-y", temp_quality
+                ]
+                
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 if result.returncode != 0:
-                    return False
-                current_input = temp_quality
-            
-            # Stage 5: Aspect Ratio
+                    logger.warning(f"Quality scaling failed: {result.stderr[:200]}, continuing")
+                else:
+                    current_input = temp_quality
+                    logger.info(f"   ✅ Quality {quality} applied")
+
+            # Stage 5: Aspect Ratio with AUDIO MAPPING
             if aspect_ratio in aspect_dimensions:
                 target_w, target_h = aspect_dimensions[aspect_ratio]
                 temp_aspect = os.path.join(chunk_temp_dir, "aspect.mp4")
-                cmd = ["ffmpeg", "-i", current_input,
-                      "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
-                      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                      "-threads", "2",
-                      "-c:a", "copy", "-movflags", "+faststart", "-y", temp_aspect]
+                
+                cmd = [
+                    "ffmpeg", "-i", current_input,
+                    "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                    "-threads", "2",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-ar", "48000", "-ac", "2",
+                    "-map", "0:v:0", "-map", "0:a:0",  # ✅ Explicit audio mapping
+                    "-movflags", "+faststart",
+                    "-pix_fmt", "yuv420p",
+                    "-y", temp_aspect
+                ]
+                
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 if result.returncode != 0:
+                    logger.error(f"Aspect ratio failed: {result.stderr[:300]}")
                     return False
+                
                 current_input = temp_aspect
-            
+                logger.info(f"   ✅ Aspect ratio {aspect_ratio} applied")
+
             # Copy final result
-            import shutil
             shutil.copy2(current_input, output_path)
-            
+
+            #  Verify audio in output
+            verify_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "stream=codec_type", "-of", "json", output_path]
+
+            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
+            if verify_result.returncode == 0 and verify_result.stdout.strip():
+                data = json.loads(verify_result.stdout)
+                if data.get('streams'):
+                    logger.info(f"   ✅ Audio preserved in chunk output")
+                else:
+                    logger.warning(f"   ⚠️ Audio missing in chunk output")
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Filter chain on chunk failed: {e}")
             return False
-            
+
         finally:
-            # Cleanup
             if os.path.exists(chunk_temp_dir):
                 shutil.rmtree(chunk_temp_dir, ignore_errors=True)
-                
+
     def apply_multiple_styles(self, input_path: str, output_path: str, styles: List[str]) -> bool:
         """Apply multiple styles sequentially to a video."""
         if not styles:

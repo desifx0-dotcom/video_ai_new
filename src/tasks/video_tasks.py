@@ -9,6 +9,7 @@ import traceback
 import psutil
 from datetime import datetime
 from typing import Dict, Any, List
+from api.websocket import socketio
 # from api.websocket import send_progress_update, send_video_update, send_video_completed
 import uuid
 from .celery_app import celery_app
@@ -175,6 +176,24 @@ def _send_ws_failed(video_id, user_id, error_message, retry_count, can_retry):
     except Exception as e:
         logger.debug(f"WebSocket failure failed (non-critical): {e}")
 
+def _send_ws_retrying(video_id, user_id, retry_count, max_retries):
+    """Send WebSocket retry notification."""
+    try:
+        handlers = _get_ws_handlers()
+        if hasattr(handlers, 'send_video_update'):
+            handlers['send_video_update'](
+                video_id, user_id, "retrying", 0, "retrying",
+                f"Retrying... ({retry_count}/{max_retries})"
+            )
+        # Also emit custom retry event
+        if socketio:
+            socketio.emit('video_retrying', {
+                'video_id': video_id,
+                'retry_count': retry_count,
+                'max_retries': max_retries
+            }, room=f"user:{user_id}")
+    except Exception as e:
+        logger.debug(f"WebSocket retry notification failed: {e}")
 
 def _send_ws_progress(video_id, progress, step, estimated_time_remaining=None):
     """Send WebSocket progress update safely."""
@@ -1168,7 +1187,7 @@ def _apply_all_filters_production(video, options):
         # Check if video has audio stream
         probe_cmd = [
             "ffprobe", "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=codec_type", "-of", "json",
+            "-show_entries", "stream=codec_type", "-of", "json","-pix_fmt", "yuv420p",
             current_input
         ]
         probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
@@ -1186,6 +1205,7 @@ def _apply_all_filters_production(video, options):
                 "-filter:v", f"setpts={speed_factor}*PTS",
                 "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-pix_fmt", "yuv420p",
                 "-y", temp_speed
             ]
         else:
@@ -1207,6 +1227,7 @@ def _apply_all_filters_production(video, options):
                 "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "128k",
+                "-pix_fmt", "yuv420p",
                 "-y", temp_speed
             ]
         
@@ -1238,6 +1259,7 @@ def _apply_all_filters_production(video, options):
             "-vf", f"fps={fps}",
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "copy",
+            "-pix_fmt", "yuv420p",
             "-y", temp_fps
         ]
         
@@ -1303,6 +1325,7 @@ def _apply_all_filters_production(video, options):
                     "-vf", filter_str,
                     "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                     "-c:a", "copy",
+                    "-pix_fmt", "yuv420p",
                     "-y", temp_style
                 ]
                 
@@ -1321,7 +1344,7 @@ def _apply_all_filters_production(video, options):
         target_height = quality_map[quality]
         
         probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                    "-show_entries", "stream=height", "-of", "json", current_input]
+                    "-show_entries", "stream=height", "-of", "json","-pix_fmt", "yuv420p", current_input]
         probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
         
         current_height = 1080
@@ -1340,7 +1363,8 @@ def _apply_all_filters_production(video, options):
                 "ffmpeg", "-i", current_input,
                 "-vf", f"scale=-2:{target_height}",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy",
+                "-c:a", "copy","-pix_fmt", "yuv420p",
+                "-pix_fmt", "yuv420p",
                 "-y", temp_quality
             ]
             
@@ -1368,6 +1392,7 @@ def _apply_all_filters_production(video, options):
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "copy",
             "-movflags", "+faststart",
+            "-pix_fmt", "yuv420p",
             "-y", temp_aspect
         ]
         
@@ -1527,43 +1552,60 @@ def _get_audio_bitrate(self, audio_quality: str) -> str:
     }
     return bitrate_map.get(audio_quality, "128k")
 
-@celery_app.task(bind=True, max_retries=2)
+@celery_app.task(bind=True, max_retries=3)
 def apply_different_styles_async(self, video_id: str, user_id: str, styles: List[str], output_quality: str = "720p"):
     """
     Apply different video styles to the video while preserving ALL user settings.
     Uses ORIGINAL video for styling, then restores to processed dimensions.
     
-    This task sends WebSocket updates so frontend knows EXACTLY when processing completes.
+    PRODUCTION-LEVEL with proper error classification and retry logic.
+    
+    Retry Strategy:
+    - Permanent errors (missing video, invalid paths): FAIL IMMEDIATELY
+    - Transient errors (FFmpeg timeout, memory, network): RETRY with exponential backoff
     """
     from services.video_service import VideoService
     from providers.ffmpeg_provider import FFmpegProvider
+    from core.exceptions import ConfigurationError, ValidationError, ProcessingError
     import subprocess
     import json
     import os
     from datetime import datetime
-    from pathlib import Path
+    import traceback
     
     video_service = VideoService()
     ffmpeg = FFmpegProvider()
     
-    # Send initial WebSocket update - STYLE APPLY STARTED
+    # ========== VALIDATION FIRST - FAIL FAST ==========
+    # Get video
+    video = video_service.get_video_by_id(video_id)
+    if not video:
+        # PERMANENT ERROR - Don't retry
+        logger.error(f"Video {video_id} not found - PERMANENT FAILURE")
+        _send_ws_failed(video_id, user_id, "Video not found", self.request.retries, False)
+        return {"success": False, "video_id": video_id, "error": "Video not found", "permanent_failure": True}
+    
+    # Validate input file exists (PERMANENT ERROR)
+    input_path = video.original_path
+    if not input_path or not os.path.exists(input_path):
+        logger.error(f"Original video file missing: {input_path} - PERMANENT FAILURE")
+        _send_ws_failed(video_id, user_id, "Original video file missing", self.request.retries, False)
+        return {"success": False, "video_id": video_id, "error": "Original video file missing", "permanent_failure": True}
+    
+    # Validate styles list
+    if not styles or len(styles) == 0:
+        logger.error(f"No styles provided for video {video_id} - PERMANENT FAILURE")
+        _send_ws_failed(video_id, user_id, "No styles provided", self.request.retries, False)
+        return {"success": False, "video_id": video_id, "error": "No styles provided", "permanent_failure": True}
+    
+    # Send initial WebSocket update
     _send_ws_update(video_id, user_id, "processing", 0, "style_apply", f"Applying style '{styles[0]}' to video...")
     _send_ws_progress(video_id, 0, "style_apply", None)
     
     try:
-        # Get video
-        video = video_service.get_video_by_id(video_id)
-        if not video:
-            error_msg = f"Video not found: {video_id}"
-            _send_ws_failed(video_id, user_id, error_msg, self.request.retries, self.request.retries < self.max_retries)
-            raise ProcessingError(error_msg)
-        
-        # ========== USE ORIGINAL VIDEO ==========
-        input_path = video.original_path
-        if not input_path or not os.path.exists(input_path):
-            error_msg = f"Original video file not found: {input_path}"
-            _send_ws_failed(video_id, user_id, error_msg, self.request.retries, self.request.retries < self.max_retries)
-            raise ProcessingError(error_msg)
+        logger.info(f"🎨 Starting style application for video {video_id}")
+        logger.info(f"   Styles to apply: {styles}")
+        logger.info(f"   Output quality: {output_quality}")
         
         # Send progress - PREPARING
         _send_ws_update(video_id, user_id, "processing", 10, "style_apply", "Preparing video for style application...")
@@ -1577,20 +1619,26 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         _send_ws_update(video_id, user_id, "processing", 20, "style_apply", "Analyzing video dimensions...")
         
         if processed_path and os.path.exists(processed_path):
-            probe_cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", processed_path]
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-            if probe_result.returncode == 0:
-                info = json.loads(probe_result.stdout)
-                for stream in info.get("streams", []):
-                    if stream.get("codec_type") == "video":
-                        target_width = stream.get("width", 1920)
-                        target_height = stream.get("height", 1080)
-                        break
+            try:
+                probe_cmd = [
+                    "ffprobe", "-v", "quiet", "-print_format", "json",
+                    "-show_streams", processed_path
+                ]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+                if probe_result.returncode == 0:
+                    info = json.loads(probe_result.stdout)
+                    for stream in info.get("streams", []):
+                        if stream.get("codec_type") == "video":
+                            target_width = stream.get("width", 1920)
+                            target_height = stream.get("height", 1080)
+                            break
+            except Exception as e:
+                logger.warning(f"Failed to probe processed video: {e}")
         
         # Fallback to quality settings
         if not target_width or not target_height:
             quality_map = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
-            target_width, target_height = quality_map.get(video.output_quality, (1920, 1080))
+            target_width, target_height = quality_map.get(video.output_quality, (1280, 720))
         
         logger.info(f"Target dimensions for styled video: {target_width}x{target_height}")
         
@@ -1608,17 +1656,18 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         total_styles = len(styles)
         
         for idx, style in enumerate(styles):
-            current_progress = 30 + int((idx / total_styles) * 60)  # Progress from 30% to 90%
+            current_progress = 30 + int((idx / total_styles) * 60)
             
-            _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", f"Applying '{style}' style ({idx + 1}/{total_styles})...")
+            _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", 
+                           f"Applying '{style}' style ({idx + 1}/{total_styles})...")
             _send_ws_progress(video_id, current_progress, "style_apply", None)
             
             output_filename = f"{video_id}_{style}_{timestamp}.mp4"
             output_path = os.path.join(output_dir, output_filename)
             
-            logger.info(f"Applying style '{style}' to video {video_id}")
+            logger.info(f"🎨 Applying style '{style}' to video {video_id}")
             
-            # Apply style with target dimensions and preserve settings
+            # Apply style
             success = ffmpeg.apply_video_style(
                 input_path=input_path,
                 output_path=output_path,
@@ -1628,7 +1677,7 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
                 preserve_settings=preserve_settings
             )
             
-            if success and os.path.exists(output_path):
+            if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 results.append({
                     "style": style,
                     "output_path": output_path,
@@ -1636,14 +1685,14 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
                     "file_size": os.path.getsize(output_path)
                 })
                 logger.info(f"✅ Applied style '{style}' to video {video_id}")
-                
-                # Send progress update for this style
-                _send_ws_update(video_id, user_id, "processing", current_progress + 5, "style_apply", f"✅ '{style}' style applied")
+                _send_ws_update(video_id, user_id, "processing", current_progress + 5, "style_apply", 
+                               f"✅ '{style}' style applied")
             else:
                 logger.error(f"❌ Failed to apply style '{style}' to video {video_id}")
-                _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", f"⚠️ Failed to apply '{style}' style")
+                _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", 
+                               f"⚠️ Failed to apply '{style}' style")
         
-        # ========== UPDATE VIDEO WITH NEW STYLED VERSION ==========
+        # ========== UPDATE VIDEO ==========
         _send_ws_update(video_id, user_id, "processing", 95, "style_apply", "Finalizing styled video...")
         _send_ws_progress(video_id, 95, "style_apply", None)
         
@@ -1655,12 +1704,12 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
             video.applied_styles = styles
             video.updated_at = datetime.utcnow()
             video_service.update_video(video)
-            
             logger.info(f"✅ Video {video_id} updated with new style: {styles[0]}")
         
         # ========== SEND COMPLETION ==========
         _send_ws_completed(video_id, user_id, results[0]["output_url"] if results else "", 0, 0)
-        _send_ws_update(video_id, user_id, "completed", 100, "style_apply", f"✅ Style '{styles[0]}' applied successfully!")
+        _send_ws_update(video_id, user_id, "completed", 100, "style_apply", 
+                       f"✅ Style '{styles[0]}' applied successfully!")
         _send_ws_progress(video_id, 100, "style_apply", 0)
         
         return {
@@ -1671,16 +1720,75 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         }
         
     except Exception as e:
-        logger.error(f"Apply styles failed for {video_id}: {str(e)}", exc_info=True)
+        # ========== PRODUCTION ERROR HANDLING ==========
+        error_type = type(e).__name__
+        error_msg = str(e)
         
-        # Send failure notification
-        _send_ws_failed(video_id, user_id, str(e), self.request.retries, self.request.retries < self.max_retries)
+        # Classify error types
+        transient_errors = [
+            "TimeoutError", "ConnectionError", "HTTPError", "Timeout",
+            "ServiceUnavailable", "RateLimitError", "MemoryError",
+            "subprocess.TimeoutExpired", "ConnectionRefusedError"
+        ]
         
-        if self.request.retries < self.max_retries:
-            _send_ws_update(video_id, user_id, "retrying", 0, "style_apply", f"Retrying... ({self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60)
+        permanent_errors = [
+            "FileNotFoundError", "ValidationError", "ConfigurationError",
+            "ValueError", "TypeError", "KeyError"
+        ]
         
-        return {"success": False, "video_id": video_id, "error": str(e)}
+        is_transient = any(err in error_type for err in transient_errors)
+        is_permanent = any(err in error_type for err in permanent_errors)
+        
+        # Memory errors are special - may be transient with lower quality
+        is_memory_error = "MemoryError" in error_type or "malloc" in error_msg
+        
+        if is_permanent:
+            # PERMANENT ERROR - Don't retry
+            logger.error(f"PERMANENT error in style application for {video_id}: {error_type} - {error_msg}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            _send_ws_failed(video_id, user_id, f"Style application failed: {error_msg[:200]}", self.request.retries, False)
+            return {"success": False, "video_id": video_id, "error": error_msg, "permanent_failure": True}
+        
+        elif is_memory_error and self.request.retries == 0:
+            # Memory error - try one retry with lower quality
+            logger.warning(f"Memory error in style application for {video_id}, retrying with lower quality")
+            _send_ws_update(video_id, user_id, "retrying", 0, "style_apply", 
+                           "Memory issue detected, retrying with optimized settings...")
+            
+            # Reduce output quality for retry
+            if output_quality in ["1080p", "4k"]:
+                output_quality = "720p"
+                logger.info(f"Reduced output quality to {output_quality} for retry")
+            
+            raise self.retry(exc=e, countdown=30)
+        
+        elif is_transient or self.request.retries < self.max_retries:
+            # TRANSIENT ERROR - Retry with exponential backoff
+            delay = min(60 * (self.request.retries + 1), 300)  # 60s, 120s, 180s, max 300s
+            
+            logger.warning(f"TRANSIENT error in style application for {video_id}: {error_type} - {error_msg}")
+            logger.warning(f"Attempt {self.request.retries + 1}/{self.max_retries}, retrying in {delay}s")
+            
+            _send_ws_update(video_id, user_id, "retrying", 0, "style_apply", 
+                           f"Temporary issue: {error_type}. Retrying in {delay}s (attempt {self.request.retries + 1}/{self.max_retries})")
+            
+            raise self.retry(exc=e, countdown=delay)
+        
+        else:
+            # MAX RETRIES EXCEEDED - Final failure
+            logger.error(f"MAX RETRIES exceeded for style application {video_id}: {error_type} - {error_msg}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            _send_ws_failed(video_id, user_id, f"Style application failed after {self.max_retries} retries: {error_msg[:200]}", 
+                           self.request.retries, False)
+            
+            return {
+                "success": False, 
+                "video_id": video_id, 
+                "error": error_msg,
+                "error_type": error_type,
+                "max_retries_exceeded": True
+            }
 
 def _get_quality_resolution(quality):
     """Get resolution string for quality."""
