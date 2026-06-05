@@ -1851,6 +1851,8 @@ if (customSpeedRange) {
 }
 
 function applyTierRestrictions() {
+    
+    // Normalize tier value
     let actualTier = String(userTier).toLowerCase();
     if (actualTier.includes('.')) actualTier = actualTier.split('.')[1];
     
@@ -1883,11 +1885,17 @@ function applyTierRestrictions() {
     if (fpsSelect) {
         for (let i = 0; i < fpsSelect.options.length; i++) {
             const option = fpsSelect.options[i];
-            if (option.value && option.value !== 'original') {
+            if (option.value === 'original') {
+                option.disabled = false;
+            } else {
                 const allowedTiers = tierRestrictions.fps[option.value];
-                option.disabled = allowedTiers && !allowedTiers.includes(actualTier);
-                if (option.disabled) option.title = `Available on Pro+`;
-            }
+                if (allowedTiers && allowedTiers.includes(actualTier)) {
+                    option.disabled = false;
+                } else {
+                    option.disabled = true;
+                    option.title = `Available on Pro+`;
+                }
+              }
         }
     }
     
