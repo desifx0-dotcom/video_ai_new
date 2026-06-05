@@ -510,6 +510,9 @@ def create_app(config_class=Config):
     from api.v1.routers.auth_public import public_auth_bp
 
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
+    from api.v1.routers.refresh import refresh_bp
+    app.register_blueprint(refresh_bp, url_prefix="/api/v1/auth")
+    logger.info("✅ Registered refresh blueprint")
 
     # ===== IMPORTANT: Exempt ALL API routes from CSRF protection =====
     # Since we're using JWT tokens for API authentication, CSRF is not needed
@@ -1362,6 +1365,44 @@ def create_app(config_class=Config):
             credits_remaining=(credit_balance),
         )
 
+    @app.route("/processing")
+    def processing():
+        """Video processing status page."""
+        from flask import session, redirect, url_for, render_template, request
+        from services.user_service import UserService
+        from services.video_service import VideoService
+        
+        # Get video_id from query parameter
+        video_id = request.args.get('video_id')
+        
+        if not video_id:
+            # Try to get from session
+            video_id = session.get('processing_video_id')
+        
+        if not video_id:
+            return redirect(url_for('upload'))
+        
+        # Verify user is logged in and owns this video
+        user_id = session.get("user_id")
+        if not user_id:
+            return redirect(url_for("login_page"))
+        
+        user_service = UserService()
+        video_service = VideoService()
+        
+        user = user_service.get_user_by_id(user_id)
+        video = video_service.get_video_by_id(video_id)
+        
+        if not video or video.user_id != user_id:
+            return redirect(url_for('upload'))
+        
+        return render_template(
+            "dashboard/processing.html",
+            current_user=user,
+            video=video,
+            video_id=video_id
+        )
+
     @app.route("/history")
     def history():
         """Video history page."""
@@ -1534,19 +1575,28 @@ def create_app(config_class=Config):
             download_name=f"processed_video_{video_id}.mp4",
         )
 
-    @app.route("/results/<video_id>")
-    def results_page(video_id):
+    @app.route("/results")
+    def results_page():
         """Video results page."""
-        from flask import session, redirect, url_for, render_template
+        from flask import session, redirect, url_for, render_template, request
         from services.video_service import VideoService
         from services.user_service import UserService
         from services.style_service import StyleService
         import uuid
         import os
+        import logging
+
+        logger = logging.getLogger(__name__)
 
         user_id = session.get("user_id")
         if not user_id:
             return redirect(url_for("login_page"))
+        
+        # Get video_id from query parameter
+        video_id = request.args.get("video_id")
+        
+        if not video_id:
+            return redirect(url_for("dashboard"))
 
         video_service = VideoService()
         user_service = UserService()
@@ -1576,7 +1626,6 @@ def create_app(config_class=Config):
                 else:
                     thumb_path = thumb
 
-                #  Convert backslashes to forward slashes BEFORE the f-string
                 normalized_path = thumb_path.replace("\\", "/")
 
                 thumbnails.append(
@@ -1584,17 +1633,13 @@ def create_app(config_class=Config):
                         "id": str(uuid.uuid4()),
                         "url": f"/api/v1/videos/thumbnails/{normalized_path}",
                         "type": "ai",
-                        "selected": thumb_path
-                        == getattr(video, "selected_thumbnail", ""),
+                        "selected": thumb_path == getattr(video, "selected_thumbnail", ""),
                     }
                 )
 
         # Process extracted thumbnails
         if hasattr(video, "extracted_thumbnails") and video.extracted_thumbnails:
-            for i, thumb_path in enumerate(
-                video.extracted_thumbnails[:12]
-            ):  # Limit to 12
-                #  Convert backslashes to forward slashes BEFORE the f-string
+            for i, thumb_path in enumerate(video.extracted_thumbnails[:12]):
                 normalized_path = thumb_path.replace("\\", "/")
 
                 thumbnails.append(
@@ -1715,7 +1760,7 @@ def create_app(config_class=Config):
                 else "normal"
             ),
         )
-
+    
     @app.route("/debug/video-db/<video_id>")
     def debug_video_db(video_id):
         """Debug endpoint to check video values in database."""

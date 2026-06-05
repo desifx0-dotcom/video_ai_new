@@ -9,7 +9,6 @@ import traceback
 import psutil
 from datetime import datetime
 from typing import Dict, Any, List
-from api.websocket import socketio
 # from api.websocket import send_progress_update, send_video_update, send_video_completed
 import uuid
 from .celery_app import celery_app
@@ -178,6 +177,7 @@ def _send_ws_failed(video_id, user_id, error_message, retry_count, can_retry):
 
 def _send_ws_retrying(video_id, user_id, retry_count, max_retries):
     """Send WebSocket retry notification."""
+    from api.websocket import socketio
     try:
         handlers = _get_ws_handlers()
         if hasattr(handlers, 'send_video_update'):

@@ -7,6 +7,7 @@ from datetime import datetime
 # Import routers
 from .routers import auth, videos, users, billing, webhooks, admin
 from .routers.auth_public import public_auth_bp  # NEW - import public auth
+from .routers.refresh import refresh_bp
 
 # Create v1 blueprint
 api_v1_bp = Blueprint("api_v1_bp", __name__, url_prefix="/api/v1")
@@ -22,7 +23,7 @@ api_v1_bp.register_blueprint(users.router, url_prefix="/users")
 api_v1_bp.register_blueprint(billing.router, url_prefix="/billing")
 api_v1_bp.register_blueprint(webhooks.webhook_bp, url_prefix="/webhooks")
 api_v1_bp.register_blueprint(admin.admin_bp, url_prefix="/admin")
-
+api_v1_bp.register_blueprint(refresh_bp, url_prefix="/auth")
 
 @api_v1_bp.route("/")
 def index():

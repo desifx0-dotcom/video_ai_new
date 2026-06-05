@@ -15,6 +15,28 @@
 
     <div class="row">
         <div class="col-lg-8 mx-auto">
+            <!-- Credits Info -->
+            <div class="card mb-3">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-coins text-warning me-2"></i>
+                            <span>Credits Remaining:</span>
+                            <strong id="credits-remaining">{{ current_user.credits_remaining|default(0) }}</strong>
+                        </div>
+                        <div id="credit-deduction" style="display: none;">
+                            <small class="text-muted">
+                                <i class="fas fa-arrow-down text-danger me-1"></i>
+                                <span id="credit-deduction-amount">1</span> credit deducted
+                            </small>
+                        </div>
+                        <a href="{{ url_for('pricing') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-plus-circle me-1"></i>Get More
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Main Processing Card -->
             <div class="card">
                 <div class="card-body text-center py-5">
@@ -25,12 +47,12 @@
                         </div>
                     </div>
                     
-                    <!-- Success Icon (hidden initially) -->
+                    <!-- Success Icon -->
                     <div id="success-icon" class="mb-4" style="display: none;">
                         <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
                     </div>
                     
-                    <!-- Permanent Failure Icon (hidden initially) -->
+                    <!-- Failure Icon -->
                     <div id="error-icon" class="mb-4" style="display: none;">
                         <i class="fas fa-exclamation-circle text-danger" style="font-size: 4rem;"></i>
                     </div>
@@ -53,7 +75,7 @@
                         </small>
                     </div>
                     
-                    <!-- Action Buttons (always visible) -->
+                    <!-- Action Buttons -->
                     <div id="action-buttons">
                         <button id="close-button" class="btn btn-outline-secondary" 
                                 onclick="closeProcessing()">
@@ -61,7 +83,7 @@
                         </button>
                     </div>
                     
-                    <!-- Retry Button (only shown after ALL retries exhausted) -->
+                    <!-- Retry Button -->
                     <div id="retry-button-container" style="display: none;">
                         <p class="text-muted mb-3">Maximum retries exceeded. You can try again.</p>
                         <button class="btn btn-warning" onclick="retryProcessing()">
@@ -69,7 +91,7 @@
                         </button>
                     </div>
                     
-                    <!-- Success Actions (hidden initially) -->
+                    <!-- Success Actions -->
                     <div id="success-actions" style="display: none;">
                         <a id="view-results-btn" href="#" class="btn btn-primary me-2">
                             <i class="fas fa-chart-line me-2"></i>View Results
@@ -81,7 +103,7 @@
                 </div>
             </div>
             
-            <!-- Processing Steps (Simple List) -->
+            <!-- Processing Steps -->
             <div class="card mt-4">
                 <div class="card-body">
                     <h6 class="mb-3">Processing Steps</h6>
@@ -121,12 +143,12 @@
     </div>
 </div>
 
-<!-- Hidden video ID -->
-<input type="hidden" id="video-id" value="{{ video.id }}">
+<!-- Hidden fields -->
+<input type="hidden" id="video-id" value="{{ video_id or request.args.get('video_id') }}">
 <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
 {% endblock %}
 
-{% block scripts %}
+{% block extra_js %}
 <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
 <script>
     // DOM Elements
@@ -143,6 +165,9 @@
     const successActions = document.getElementById('success-actions');
     const statusMessage = document.getElementById('status-message');
     const viewResultsBtn = document.getElementById('view-results-btn');
+    const creditsRemainingSpan = document.getElementById('credits-remaining');
+    const creditDeductionDiv = document.getElementById('credit-deduction');
+    const creditDeductionAmountSpan = document.getElementById('credit-deduction-amount');
     
     let socket = null;
     let isProcessing = true;
@@ -150,6 +175,9 @@
     let permanentFailure = false;
     let totalRetries = 0;
     let maxRetries = 3;
+    let currentProgress = 0;
+    let pollInterval = null;
+    let retryCountDisplayed = false;
     
     // Step mapping
     const stepNames = {
@@ -165,54 +193,55 @@
     
     // Connect WebSocket
     function connectWebSocket() {
+        const token = localStorage.getItem('access_token');
+        
         socket = io({
             transports: ['websocket', 'polling'],
             reconnectionAttempts: 10,
-            reconnectionDelay: 1000
+            reconnectionDelay: 1000,
+            auth: { token: token }
         });
         
         socket.on('connect', function() {
             console.log('WebSocket connected');
-            socket.emit('join_video', { video_id: videoId });
+            // FIX: Use 'subscribe_video' instead of 'join_video'
+            socket.emit('subscribe_video', { video_id: videoId });
         });
         
         socket.on('video_processing', function(data) {
-            console.log('Processing update:', data);
-            // User sees normal progress - no retry info shown
+            // FIX: Only process updates for this video
+            if (data.video_id && data.video_id !== videoId) return;
             updateProgress(data.progress || 0, data.current_step, data.message);
         });
         
         socket.on('progress_update', function(data) {
+            if (data.video_id && data.video_id !== videoId) return;
             updateProgress(data.progress, data.current_step, data.message);
         });
         
         socket.on('video_completed', function(data) {
+            if (data.video_id && data.video_id !== videoId) return;
             console.log('Video completed!', data);
+            
+            // Show credit deduction
+            if (data.credits_deducted) {
+                showCreditDeduction(data.credits_deducted);
+            }
+            
             handleCompletion(data);
         });
         
-        // CRITICAL: Handle retries silently - user never sees this
-        socket.on('video_retrying', function(data) {
-            console.log('Video retrying (silent):', data);
-            // Just log it - UI continues to show "processing"
-            // No UI change for the user
-            totalRetries = data.retry_count || totalRetries;
-        });
-        
-        // Only show failure after ALL retries are exhausted
         socket.on('video_failed', function(data) {
+            if (data.video_id && data.video_id !== videoId) return;
             console.log('Video failed event:', data);
             
-            // Check if this is a final failure or just a retry attempt
             if (data.is_final === true || data.retry_count >= maxRetries) {
                 handlePermanentFailure(data);
-            } else {
-                // This is a retry attempt - user doesn't see anything
-                console.log(`Retry ${data.retry_count + 1}/${maxRetries} in progress - UI unchanged`);
-                // Progress continues to show as normal
-                if (data.message) {
-                    stepDetailEl.textContent = "Still processing... Taking a bit longer than expected";
-                }
+            } else if (!retryCountDisplayed) {
+                // Show retry message only once
+                retryCountDisplayed = true;
+                stepDetailEl.textContent = `Still processing... (Attempt ${data.retry_count + 1}/${maxRetries})`;
+                showToast(`Processing attempt ${data.retry_count + 1}/${maxRetries}`, 'info');
             }
         });
         
@@ -224,7 +253,31 @@
         });
     }
     
+    function showCreditDeduction(amount) {
+        if (creditDeductionAmountSpan) {
+            creditDeductionAmountSpan.textContent = amount;
+        }
+        if (creditDeductionDiv) {
+            creditDeductionDiv.style.display = 'block';
+            setTimeout(() => {
+                creditDeductionDiv.style.opacity = '0';
+                setTimeout(() => {
+                    creditDeductionDiv.style.display = 'none';
+                    creditDeductionDiv.style.opacity = '1';
+                }, 1000);
+            }, 3000);
+        }
+        
+        // Update credits remaining if available
+        if (creditsRemainingSpan) {
+            const currentCredits = parseInt(creditsRemainingSpan.textContent);
+            creditsRemainingSpan.textContent = currentCredits - amount;
+        }
+    }
+    
     function updateProgress(progress, step, message) {
+        currentProgress = progress;
+        
         // Update progress bar
         progressBar.style.width = `${progress}%`;
         progressBar.setAttribute('aria-valuenow', progress);
@@ -232,22 +285,53 @@
         // Update step info
         const stepInfo = stepNames[step] || stepNames['analyzing'];
         currentStepEl.textContent = stepInfo.name;
-        if (message && !message.includes('retry')) {
+        
+        if (message && !message.toLowerCase().includes('retry')) {
             stepDetailEl.textContent = message;
-        } else if (!message || message.includes('retry')) {
+        } else {
             stepDetailEl.textContent = stepInfo.detail;
         }
         
         // Update steps list icons
         updateStepIcons(step);
         
-        // Update estimated time
-        if (progress > 0 && progress < 100) {
-            const estimatedSeconds = Math.max(30, (100 - progress) * 3);
-            if (estimatedSeconds < 60) {
-                estimatedTimeEl.textContent = `${Math.ceil(estimatedSeconds)} seconds`;
+        // Update estimated time based on progress
+        updateEstimatedTime(progress);
+        
+        // Save progress to sessionStorage for page refresh recovery
+        sessionStorage.setItem(`processing_${videoId}_progress`, progress);
+        sessionStorage.setItem(`processing_${videoId}_step`, step);
+    }
+    
+    function updateEstimatedTime(progress) {
+        if (progress <= 0) {
+            estimatedTimeEl.textContent = '2-5 minutes';
+            return;
+        }
+        
+        if (progress >= 100) {
+            estimatedTimeEl.textContent = 'Complete!';
+            return;
+        }
+        
+        // Estimate based on progress and typical processing time (180 seconds)
+        const elapsed = (Date.now() - (window.processingStartTime || Date.now())) / 1000;
+        if (elapsed > 10 && progress > 5) {
+            const totalEstimated = (elapsed / progress) * 100;
+            const remaining = Math.max(5, totalEstimated - elapsed);
+            
+            if (remaining < 60) {
+                estimatedTimeEl.textContent = `${Math.ceil(remaining)} seconds`;
             } else {
-                estimatedTimeEl.textContent = `${Math.ceil(estimatedSeconds / 60)} minutes`;
+                estimatedTimeEl.textContent = `${Math.ceil(remaining / 60)} minutes`;
+            }
+        } else {
+            // Fallback estimation
+            const remainingSeconds = Math.max(30, (100 - progress) * 2);
+            if (remainingSeconds < 60) {
+                estimatedTimeEl.textContent = `${Math.ceil(remainingSeconds)} seconds`;
+            } else {
+                estimatedTimeEl.textContent = `${Math.ceil(remainingSeconds / 60)} minutes`;
             }
         }
     }
@@ -277,6 +361,12 @@
         isProcessing = false;
         processingCompleted = true;
         
+        // Stop polling
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+        
         // Update UI
         loadingSpinner.style.display = 'none';
         successIcon.style.display = 'block';
@@ -293,27 +383,33 @@
         estimatedTimeEl.textContent = 'Done';
         
         // Update results URL
-        if (data.results_url) {
-            viewResultsBtn.href = data.results_url;
-        } else {
-            viewResultsBtn.href = `/results?video_id=${videoId}`;
-        }
+        const resultsUrl = data.results_url || `/results?video_id=${videoId}`;
+        viewResultsBtn.href = resultsUrl;
+        
+        // Clean up session storage
+        sessionStorage.removeItem(`processing_${videoId}_progress`);
+        sessionStorage.removeItem(`processing_${videoId}_step`);
         
         // Disconnect WebSocket
         if (socket) socket.disconnect();
         
-        // Show success message
         showToast('Video processing completed!', 'success');
         
         // Auto-redirect after 3 seconds
         setTimeout(() => {
-            window.location.href = viewResultsBtn.href;
+            window.location.href = resultsUrl;
         }, 3000);
     }
     
     function handlePermanentFailure(data) {
         isProcessing = false;
         permanentFailure = true;
+        
+        // Stop polling
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
         
         // Show permanent failure UI
         loadingSpinner.style.display = 'none';
@@ -331,15 +427,18 @@
         
         if (socket) socket.disconnect();
         
-        showToast('Processing failed. You can try again.', 'danger');
+        showToast(data.error_message || 'Processing failed. You can try again.', 'danger');
     }
     
     function startPolling() {
         console.log('Starting polling fallback');
-        let pollCount = 0;
-        const maxPollCount = 60; // 3 minutes at 3 second intervals
         
-        const pollInterval = setInterval(async () => {
+        if (pollInterval) clearInterval(pollInterval);
+        
+        let pollCount = 0;
+        const maxPollCount = 120; // 6 minutes at 3 second intervals
+        
+        pollInterval = setInterval(async () => {
             pollCount++;
             
             if (processingCompleted || permanentFailure) {
@@ -354,19 +453,20 @@
             }
             
             try {
-                const response = await fetch(`/api/v1/videos/${videoId}/status`);
+                const token = localStorage.getItem('access_token');
+                const response = await fetch(`/api/v1/videos/${videoId}/status`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
                 const data = await response.json();
                 
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
                     handleCompletion(data);
                 } else if (data.status === 'failed') {
-                    // Check if this is final or just a retry
                     if (data.retry_count >= maxRetries) {
                         clearInterval(pollInterval);
                         handlePermanentFailure(data);
                     }
-                    // Otherwise continue polling - retry in progress
                 } else {
                     updateProgress(data.progress || 0, data.current_step, data.message);
                 }
@@ -377,21 +477,21 @@
     }
     
     function retryProcessing() {
-        // Manual retry after permanent failure
         fetch(`/api/v1/videos/${videoId}/retry`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
                 'X-CSRFToken': document.getElementById('csrf-token').value
             }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Reset UI for retry
                 permanentFailure = false;
                 isProcessing = true;
                 processingCompleted = false;
+                retryCountDisplayed = false;
                 
                 loadingSpinner.style.display = 'block';
                 errorIcon.style.display = 'none';
@@ -406,7 +506,6 @@
                 stepDetailEl.textContent = 'Restarting processing';
                 statusMessage.textContent = 'Retrying...';
                 
-                // Reconnect WebSocket
                 if (socket) socket.disconnect();
                 setTimeout(connectWebSocket, 1000);
                 
@@ -416,6 +515,7 @@
             }
         })
         .catch(error => {
+            console.error('Retry error:', error);
             showToast('Error retrying processing', 'danger');
         });
     }
@@ -441,12 +541,26 @@
         }, 5000);
     }
     
+    // Check for saved progress on page refresh
+    function restoreSavedProgress() {
+        const savedProgress = sessionStorage.getItem(`processing_${videoId}_progress`);
+        const savedStep = sessionStorage.getItem(`processing_${videoId}_step`);
+        
+        if (savedProgress && parseInt(savedProgress) > 0 && parseInt(savedProgress) < 100) {
+            console.log(`Restoring saved progress: ${savedProgress}% at step ${savedStep}`);
+            updateProgress(parseInt(savedProgress), savedStep, 'Resuming...');
+        }
+    }
+    
     // Initialize
+    window.processingStartTime = Date.now();
+    restoreSavedProgress();
     connectWebSocket();
     
-    // Start polling backup
+    // Start polling backup after 5 seconds if WebSocket doesn't connect
     setTimeout(() => {
-        if (isProcessing && !processingCompleted && !permanentFailure) {
+        if (isProcessing && !processingCompleted && !permanentFailure && (!socket || !socket.connected)) {
+            console.log('WebSocket not connected, starting polling');
             startPolling();
         }
     }, 5000);

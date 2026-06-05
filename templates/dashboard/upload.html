@@ -1100,39 +1100,23 @@ input:disabled {
 <!-- <script src="{{ url_for('static', filename='js/upload.js') }}"></script> -->
 <script>
 console.log("🔥🔥🔥 UPLOAD SCRIPT IS DEFINITELY RUNNING 🔥🔥🔥");
-console.log("Initial state - progress classes:", document.querySelector('.upload-progress')?.className);
-console.log("Initial state - preview classes:", document.querySelector('.upload-preview')?.className);
-window.previewShown = false;
-window.originalVideoInfo = null;
-// alert("Script is running!");
+
+// Store server tokens
 const serverAccessToken = '{{ access_token|safe }}';
 const serverRefreshToken = '{{ refresh_token|safe }}';
-const forcePreviewStyle = document.createElement('style');
-forcePreviewStyle.textContent = `
-//     .upload-preview { display: block !important; }
-//     .upload-progress { display: none !important; }
-// `;
-// document.head.appendChild(forcePreviewStyle);
 
-// Store them in localStorage if they exist
 if (serverAccessToken && serverAccessToken !== 'None') {
     localStorage.setItem('access_token', serverAccessToken);
     localStorage.setItem('refresh_token', serverRefreshToken);
     console.log("✅ Stored server tokens in localStorage");
-} else {
-    console.warn("⚠️ No tokens received from server");
 }
-
 
 // Upload variables
 let currentUpload = null;
-let uploadProgress = 0;
-let uploadSpeed = 0;
-let uploadStartTime = null;
-let currentVideoId = null;
 let currentFile = null;
+let currentVideoId = null;
 
-// Tier restrictions
+// Tier restrictions (same as before)
 const tierRestrictions = {
     quality: {
         '720p': ['free', 'starter', 'pro', 'plus', 'enterprise'],
@@ -1141,17 +1125,12 @@ const tierRestrictions = {
         '4k+hdr': ['plus', 'enterprise'],
     },
     styles: {
-        // Free tier styles
         'cinematic': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         'bright': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         'educational': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         'vlog': ['free', 'starter', 'pro', 'plus', 'enterprise'],
-        
-        // Starter tier styles
         'gaming': ['starter', 'pro', 'plus', 'enterprise'],
         'travel': ['starter', 'pro', 'plus', 'enterprise'],
-        
-        // Pro tier styles
         'professional': ['pro', 'plus', 'enterprise'],
         'documentary': ['pro', 'plus', 'enterprise'],
         'wedding': ['pro', 'plus', 'enterprise'],
@@ -1161,8 +1140,6 @@ const tierRestrictions = {
         'action': ['pro', 'plus', 'enterprise'],
         'minimalist': ['pro', 'plus', 'enterprise'],
         'vintage': ['pro', 'plus', 'enterprise'],
-        
-        // Plus tier styles
         'cinematic_pro': ['plus', 'enterprise'],
         'artistic': ['plus', 'enterprise'],
         'retro': ['plus', 'enterprise'],
@@ -1176,15 +1153,12 @@ const tierRestrictions = {
         'cool': ['plus', 'enterprise'],
         'sepia': ['plus', 'enterprise'],
         'black_and_white': ['plus', 'enterprise'],
-        
-        // Enterprise tier styles
         'hollywood': ['enterprise'],
         'dreamy': ['enterprise'],
         'neon': ['enterprise'],
         'pastel': ['enterprise'],
         'hdr': ['enterprise'],
     },
-    
     fps: {
         'original': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         '24': ['starter', 'pro', 'plus', 'enterprise'],
@@ -1200,1220 +1174,9 @@ const tierRestrictions = {
     }
 };
 
-// Current user tier
 const userTier = '{{ current_user.tier }}';
 
-// Function to show credit warning popup
-function showCreditWarning() {
-    const popup = document.getElementById('credit-warning-popup');
-    if (popup) {
-        popup.style.display = 'block';
-        
-        // Auto-hide after 10 seconds
-        setTimeout(() => {
-            hideCreditPopup();
-        }, 10000);
-    }
-}
-
-// Function to hide credit warning popup
-window.hideCreditPopup = function() {
-    const popup = document.getElementById('credit-warning-popup');
-    if (popup) {
-        popup.style.display = 'none';
-    }
-};
-
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("✅ DOM CONTENT LOADED - Initializing upload");
-    
-    const fileInput = document.getElementById('video-file');
-    const uploadArea = document.getElementById('upload-area');
-    const selectBtn = document.querySelector('.btn-primary[onclick*="video-file.click()"]');
-    
-    if (!fileInput) {
-        console.error("❌ File input not found!");
-        return;
-    }
-    
-    console.log("✅ File input found");
-    
-    // Quality dropdown handling
-    const qualitySelect = document.getElementById('quality-select');
-    if (qualitySelect) {
-        console.log("✅ Quality dropdown found with", qualitySelect.options.length, "options");
-        
-        // Log all options
-        for (let i = 0; i < qualitySelect.options.length; i++) {
-          qualitySelect.options[i].disabled = false;
-            console.log(`  Option ${i}: value="${qualitySelect.options[i].value}" text="${qualitySelect.options[i].text}" disabled=${qualitySelect.options[i].disabled}`);
-        }
-        
-        //Remove any disabled attributes from quality options
-        for (let i = 0; i < qualitySelect.options.length; i++) {
-            qualitySelect.options[i].disabled = false;
-        }
-        console.log("✅ All quality options enabled");
-        
-        // Add change event listener
-        qualitySelect.addEventListener('change', function() {
-            console.log("🎯 Quality changed to:", this.value);
-        });
-    } else {
-        console.error("❌ Quality dropdown not found!");
-    }
-    
-    // File input change handler
-    fileInput.addEventListener('change', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        console.log("📁 FILE SELECTED EVENT TRIGGERED");
-        console.log("Files:", this.files);
-        
-        if (this.files && this.files.length > 0) {
-            const file = this.files[0];
-            console.log("File name:", file.name);
-            console.log("File size:", file.size);
-            console.log("File type:", file.type);
-            
-            // Check credits before proceeding
-            const creditsRemaining = parseInt('{{ current_user.credits_remaining|default(0) }}');
-            console.log("Credits remaining:", creditsRemaining);
-            
-            if (creditsRemaining <= 0) {
-                showCreditWarning();
-                this.value = '';
-                return;
-            }
-            
-            currentFile = file;
-            showUploadProgress(file);
-            startUpload(file);
-        }
-    });
-
-    // Drag and drop handlers
-    if (uploadArea) {
-        uploadArea.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-        
-        uploadArea.addEventListener('dragleave', function(e) {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-        });
-        
-        uploadArea.addEventListener('drop', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            uploadArea.classList.remove('dragover');
-            
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                console.log("📁 File dropped:", files[0].name);
-                fileInput.files = files;
-                const event = new Event('change', { bubbles: true });
-                fileInput.dispatchEvent(event);
-            }
-        });
-    }
-    
-    // Apply tier restrictions (only for styles, not for quality)
-    applyTierRestrictions();
-    
-    console.log("✅ Upload initialization complete");
-});
-
-function showUploadProgress(file) {
-    console.log("Showing upload progress for:", file.name);
-    
-    const uploadArea = document.getElementById('upload-area');
-    const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
-    const uploadProgressDiv = uploadArea.querySelector('.upload-progress');
-    
-    if (!uploadPlaceholder || !uploadProgressDiv) {
-        console.error("❌ Upload elements not found!");
-        return;
-    }
-    
-    // Update file info
-    const fileName = uploadProgressDiv.querySelector('.file-name');
-    const fileSize = uploadProgressDiv.querySelector('.file-size');
-    
-    if (fileName) fileName.textContent = file.name;
-    if (fileSize) fileSize.textContent = formatFileSize(file.size);
-    
-    // Show progress, hide placeholder
-    uploadPlaceholder.classList.add('d-none');
-    uploadProgressDiv.classList.remove('d-none');
-    
-    console.log("✅ Progress display updated");
-}
-
-// Update resetUpload function
-function resetUpload() {
-    console.log("Resetting upload");
-        // Clear the flag
-    window.previewShown = false;
-    
-    const uploadArea = document.getElementById('upload-area');
-    const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
-    const uploadProgressDiv = uploadArea.querySelector('.upload-progress');
-    const uploadPreview = uploadArea.querySelector('.upload-preview');
-    const fileInput = document.getElementById('video-file');
-    const progressBar = uploadProgressDiv?.querySelector('.progress-bar');
-    
-    if (uploadPlaceholder) uploadPlaceholder.classList.remove('d-none');
-    if (uploadProgressDiv) uploadProgressDiv.classList.add('d-none');
-    if (uploadPreview) uploadPreview.classList.add('d-none');
-    if (fileInput) fileInput.value = '';
-    if (progressBar) progressBar.style.width = '0%';
-    
-    // Clear stored data
-    if (currentFile) {
-        URL.revokeObjectURL(document.getElementById('video-preview')?.src);
-    }
-    
-    currentUpload = null;
-    uploadProgress = 0;
-    uploadSpeed = 0;
-    uploadStartTime = null;
-    currentVideoId = null;
-    currentFile = null;
-}
-
-async function ensureValidToken() {
-    console.log("🔍 ensureValidToken called");
-    
-    let accessToken = localStorage.getItem('access_token');
-    let refreshToken = localStorage.getItem('refresh_token');
-    
-    console.log("Current tokens - access:", !!accessToken, "refresh:", !!refreshToken);
-    
-    // If no access token but have refresh token, try to refresh
-    if (!accessToken && refreshToken) {
-        console.log("No access token but have refresh token, attempting refresh");
-        return await refreshAccessToken(refreshToken);
-    }
-    
-    // If no tokens at all, but user is logged in (session exists)
-    if (!accessToken && !refreshToken) {
-        console.log("No tokens found, but user might still be logged in via session");
-        
-        // Try to get new tokens from server using session
-        try {
-            const response = await fetch('/api/v1/auth/refresh-session', {
-                method: 'POST',
-                credentials: 'same-origin' // This sends the session cookie
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                localStorage.setItem('access_token', data.access_token);
-                localStorage.setItem('refresh_token', data.refresh_token);
-                console.log("✅ Got new tokens from session");
-                return data.access_token;
-            }
-        } catch (e) {
-            console.error("Failed to get tokens from session:", e);
-        }
-        
-        // If all else fails, redirect to login
-        showAlert('Session expired. Please log in again.', 'warning');
-        setTimeout(() => {
-            window.location.href = '/auth/login';
-        }, 2000);
-        return null;
-    }
-    
-    // Check if token is expired
-    try {
-        const payload = JSON.parse(atob(accessToken.split('.')[1]));
-        const exp = payload.exp * 1000;
-        const now = Date.now();
-        
-        console.log(`Token expires in ${Math.round((exp - now)/1000)} seconds`);
-        
-        // If token expires in less than 5 minutes, refresh it
-        if (exp - now < 300000) { // 5 minutes
-            console.log("Token expiring soon, refreshing...");
-            return await refreshAccessToken(refreshToken);
-        }
-    } catch (e) {
-        console.log("Could not decode token, attempting refresh");
-        return await refreshAccessToken(refreshToken);
-    }
-    
-    return accessToken;
-}
-
-// Add refresh token function
-async function refreshAccessToken(refreshToken) {
-    if (!refreshToken) {
-        showAlert('Session expired. Please log in again.', 'warning');
-        setTimeout(() => {
-            window.location.href = '/auth/login';
-        }, 2000);
-        return null;
-    }
-    
-    try {
-        const response = await fetch('/api/v1/auth/refresh', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${refreshToken}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            localStorage.setItem('access_token', data.access_token);
-            console.log("✅ Token refreshed successfully");
-            return data.access_token;
-        } else {
-            // Refresh failed, redirect to login
-            showAlert('Session expired. Please log in again.', 'warning');
-            localStorage.clear();
-            setTimeout(() => {
-                window.location.href = '/auth/login';
-            }, 2000);
-            return null;
-        }
-    } catch (error) {
-        console.error('Error refreshing token:', error);
-        return null;
-    }
-}
-
-
-function showProcessingModal() {
-    // Check if modal already exists
-    let modal = document.getElementById('processing-modal');
-    
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'processing-modal';
-        modal.className = 'modal fade';
-        modal.setAttribute('tabindex', '-1');
-        modal.setAttribute('aria-hidden', 'true');
-        modal.innerHTML = `
-            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Processing Your Video</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <h5 class="mb-3">AI is working its magic!</h5>
-                        </div>
-                        
-                        <div class="processing-steps">
-                            <div class="step active">
-                                <i class="fas fa-upload text-primary me-2"></i>
-                                <span>Uploading</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                            <div class="step">
-                                <i class="fas fa-brain text-primary me-2"></i>
-                                <span>Analyzing Video</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                            <div class="step">
-                                <i class="fas fa-microphone text-primary me-2"></i>
-                                <span>Transcribing Audio</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                            <div class="step">
-                                <i class="fas fa-image text-primary me-2"></i>
-                                <span>Generating Thumbnails</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                            <div class="step">
-                                <i class="fas fa-film text-primary me-2"></i>
-                                <span>Applying Styles</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                            <div class="step">
-                                <i class="fas fa-file-export text-primary me-2"></i>
-                                <span>Finalizing Output</span>
-                                <i class="fas fa-check text-success ms-auto d-none"></i>
-                            </div>
-                        </div>
-                        
-                        <div class="progress mt-4">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                                 role="progressbar" style="width: 0%"></div>
-                        </div>
-                        <div class="mt-2 text-center">
-                            <small class="text-muted" id="processing-time">Estimated time: 2-5 minutes</small>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                            Close (Processing will continue in background)
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-    
-    // Reset steps and progress
-    const steps = modal.querySelectorAll('.step');
-    steps.forEach((step, index) => {
-        if (index === 0) {
-            step.classList.add('active');
-            step.classList.remove('completed');
-        } else {
-            step.classList.remove('active', 'completed');
-        }
-        const checkIcon = step.querySelector('.fa-check');
-        if (checkIcon) checkIcon.classList.add('d-none');
-    });
-    
-    const progressBar = modal.querySelector('.progress-bar');
-    if (progressBar) progressBar.style.width = '0%';
-    
-    // Show the modal
-    const bsModal = new bootstrap.Modal(modal);
-    bsModal.show();
-}
-
-
-function startUpload(file) {
-    // Prevent any default behavior
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-
-    console.log("Starting upload for:", file.name);
-    
-    // First, get the token
-    ensureValidToken().then(validToken => {
-        if (!validToken) {
-            console.log("No valid token, aborting upload");
-            return;
-        }
-
-        console.log("Valid token obtained, proceeding with upload");
-
-        // 🔥 FIX: Get options FIRST before using them!
-        const options = getProcessingOptions();
-        console.log("Processing options:", options);
-        
-        // NOW you can access options safely
-        if (options.speed !== undefined) {
-            console.log(`✅ Speed included in options: ${options.speed}x`);
-        } else {
-            console.warn("⚠️ Speed not found in options");
-        }
-
-        // Create FormData
-        const formData = new FormData();
-        formData.append('file', file);
-
-        // Add all form fields
-        formData.append('quality', options.quality);
-        
-        // Add styles (as array)
-        if (options.styles && Array.isArray(options.styles) && options.styles.length > 0) {
-            options.styles.forEach(style => {
-                formData.append('styles', style);
-            });
-        }
-
-        if (options.translation_language) {
-            formData.append('translation_language', options.translation_language);
-        }
-
-        formData.append('thumbnail_style', options.thumbnail_style);
-        formData.append('fps', options.fps);
-        formData.append('audio_quality', options.audio_quality);
-        formData.append('aspect_ratio', options.aspect_ratio);
-        formData.append('auto_transcribe', options.auto_transcribe ? 'true' : 'false');
-        formData.append('generate_chapters', options.generate_chapters ? 'true' : 'false');
-        formData.append('remove_silence', options.remove_silence ? 'true' : 'false');
-        formData.append('process_silent_video', options.process_silent_video ? 'true' : 'false');
-        
-        uploadStartTime = Date.now();
-        
-        const xhr = new XMLHttpRequest();
-        currentUpload = xhr;
-        
-        xhr.upload.addEventListener('progress', function(e) {
-            if (e.lengthComputable) {
-                uploadProgress = (e.loaded / e.total) * 100;
-                updateProgressBar(uploadProgress);
-                
-                const elapsedTime = (Date.now() - uploadStartTime) / 1000;
-                uploadSpeed = e.loaded / elapsedTime;
-                
-                updateUploadInfo(e.loaded, e.total, uploadSpeed);
-                console.log(`Upload progress: ${uploadProgress.toFixed(1)}%`);
-            }
-        });
-        
-        xhr.onreadystatechange = function() {
-            console.log("XHR readyState:", xhr.readyState, "status:", xhr.status);
-            
-            if (xhr.readyState === 4) {
-                console.log("✅ XHR completed with status:", xhr.status);
-                console.log("Response:", xhr.responseText);
-                
-                if (xhr.status === 201) {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        console.log("✅ Upload success with real data:", response);
-                        
-                        // Store video ID
-                        currentVideoId = response.id;
-                        console.log("✅ Video ID stored:", currentVideoId);
-                        
-                        // Update preview with real data
-                        if (currentFile) {
-                            console.log("🔄 Updating preview with REAL server data");
-                            showUploadPreview(response, currentFile);
-                        }
-                        
-                    } catch (e) {
-                        console.error("❌ Failed to parse response:", e);
-                        showAlert('Upload failed. Invalid server response.', 'danger');
-                        const previewVisible = document.querySelector('.upload-preview:not(.d-none)');
-                        if (!previewVisible) {
-                            resetUpload();
-                        }
-                    }
-                } else if (xhr.status === 0) {
-                    console.error("❌ Upload failed - connection issue. Check if server is running.");
-                    showAlert('Connection error. Please check if the server is running.', 'danger');
-                    resetUpload();
-                } else {
-                    console.error("❌ Upload failed with status:", xhr.status);
-                    const previewDiv = document.querySelector('.upload-preview');
-                    const previewVisible = previewDiv && previewDiv.style.display !== 'none' && !previewDiv.classList.contains('d-none');
-                    
-                    if (previewVisible) {
-                        console.log("Preview already showing, keeping it despite server error");
-                        showAlert('Video uploaded but server processing had issues. You can still view the local preview.', 'warning');
-                    } else {
-                        let errorMsg = 'Upload failed. Please try again.';
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            if (response.error) {
-                                errorMsg = response.error.message || errorMsg;
-                            }
-                        } catch (e) {}
-                        showAlert(errorMsg, 'danger');
-                        resetUpload();
-                    }
-                }
-            }
-        };
-
-        xhr.open('POST', '/api/v1/videos/upload');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.setRequestHeader('Authorization', `Bearer ${validToken}`);
-        
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        if (csrfToken) {
-            xhr.setRequestHeader('X-CSRFToken', csrfToken);
-        }
-        
-        xhr.send(formData);
-        
-    }).catch(error => {
-        console.error("Error in token validation:", error);
-        showAlert('Authentication error. Please log in again.', 'danger');
-        setTimeout(() => {
-            window.location.href = '/auth/login';
-        }, 2000);
-    });
-}
-
-function cancelUpload() {
-    if (currentUpload) {
-        currentUpload.abort();
-        showAlert('Upload cancelled.', 'warning');
-        resetUpload();
-    }
-}
-
-function startProcessing() {
-    console.log("Start Processing clicked");
-    
-    if (!currentVideoId) {
-        showAlert('Please upload a video first.', 'warning');
-        return;
-    }
-    
-    // Check token before processing
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-        showAlert('Please log in again.', 'warning');
-        setTimeout(() => window.location.href = '/auth/login', 2000);
-        return;
-    }
-    
-    // const options = getProcessingOptions();
-    let options = getProcessingOptions();
-    
-    //Ensure styles is always an array
-    if (!options.styles || options.styles === '') {
-        options.styles = [];
-    }
-    if (typeof options.styles === 'string') {
-        options.styles = options.styles ? [options.styles] : [];
-    }
-
-    console.log("Processing options being sent:", options);
-    // check what HTML elements are selected
-    console.log("🔍 UI Element Values:");
-    console.log(`  Quality: ${document.getElementById('quality-select')?.value}`);
-    console.log(`  Style: ${document.getElementById('style-select')?.value}`);
-    console.log(`  Aspect Ratio: ${document.getElementById('aspect-ratio-select')?.value}`);
-    console.log(`  Thumbnail Style: ${document.getElementById('thumbnail-style')?.value}`);
-    console.log(`  FPS: ${document.getElementById('fps-select')?.value}`);
-    console.log(`  Audio Quality: ${document.getElementById('audio-quality')?.value}`);
-    
-
-    // SETUP WEBSOCKET FIRST (this will fall back to polling)
-    setupWebSocket(currentVideoId)
-    
-    // call api for processing
-
-    fetch(`/api/v1/videos/${currentVideoId}/process`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(options)
-    })
-    .then(response => {
-        if (response.status === 401) {
-            // Token expired, try to refresh
-            return refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
-                if (newToken) {
-                    return fetch(`/api/v1/videos/${currentVideoId}/process`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${newToken}`
-                        },
-                        body: JSON.stringify(options)
-                    });
-                }
-                throw new Error('Authentication failed');
-            });
-        }
-        return response;
-    })
-    .then(response => {
-        if (!response) return;
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('✅ Processing started:', data);
-        
-        // 🔥 THEN: Redirect to processing page
-        // Store video ID in sessionStorage for the processing page to use
-        sessionStorage.setItem('processing_video_id', currentVideoId);
-        sessionStorage.setItem('processing_options', JSON.stringify(options));
-        
-        // Redirect to processing page
-        window.location.href = `/processing?video_id=${currentVideoId}`;
-    })
-    .catch(error => {
-        console.error('❌ Error starting processing:', error);
-        showAlert('Failed to start processing. Please try again.', 'danger');
-    });
-}
-
-// WebSocket connection with polling fallback
-let processingSocket = null;
-let pollingInterval = null;
-let pollingActive = false;
-
-function setupWebSocket(videoId) {
-    console.log('🔌 Setting up WebSocket connection...');
-    
-    try {
-        const token = localStorage.getItem('access_token');
-        const socket = io({
-            path: '/socket.io',
-            transports: ['websocket', 'polling'],
-            query: { token: token },
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000
-        });
-        
-        socket.on('connect', () => {
-            console.log('✅ WebSocket connected');
-            // Subscribe to video updates
-            socket.emit('subscribe_video', { video_id: videoId });
-        });
-        
-        socket.on('progress_update', (data) => {
-            console.log(`📊 WebSocket progress: ${data.progress}% - ${data.step}`);
-            updateProcessingModal(data.progress, data.step);
-            
-            if (data.progress >= 100) {
-                handleProcessingComplete();
-            }
-        });
-        
-        socket.on('video_completed', (data) => {
-            console.log('✅ Video completed via WebSocket');
-            handleProcessingComplete();
-        });
-        
-        socket.on('video_failed', (data) => {
-            console.error('❌ Video failed:', data.error_message);
-            handleProcessingFailed(data.error_message);
-        });
-        
-        socket.on('disconnect', (reason) => {
-            console.log('🔌 WebSocket disconnected:', reason);
-            // Fall back to polling
-            startPolling(videoId);
-        });
-        
-        socket.on('connect_error', (error) => {
-            console.warn('WebSocket connection error, falling back to polling:', error);
-            startPolling(videoId);
-        });
-        
-        processingSocket = socket;
-        
-    } catch (error) {
-        console.warn('WebSocket setup failed, using polling:', error);
-        startPolling(videoId);
-    }
-}
-
-function startPolling(videoId) {
-    if (pollingActive) return;
-    pollingActive = true;
-    
-    console.log('🔄 Starting polling fallback for video:', videoId);
-    
-    let attempts = 0;
-    let delay = 5000; // Start with 5 seconds (slower to avoid rate limiting)
-    const maxDelay = 30000;
-    const maxAttempts = 60; // 5 minutes max with 5-30 second intervals
-    
-    function poll() {
-        attempts++;
-        
-        fetch(`/api/v1/videos/${videoId}/status`, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-        })
-        .then(async response => {
-            if (response.status === 429) {
-                // Rate limited - increase delay significantly
-                console.warn('Rate limited, increasing delay to', delay * 2);
-                delay = Math.min(delay * 2, maxDelay);
-                setTimeout(poll, delay);
-                return;
-            }
-            
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        })
-        .then(data => {
-            if (!data) return;
-            
-            console.log(`Poll ${attempts}: ${data.status} - ${data.progress}%`);
-            updateProcessingModal(data.progress, data.current_step);
-            
-            if (data.status === 'completed') {
-                handleProcessingComplete();
-            } else if (data.status === 'failed') {
-                handleProcessingFailed(data.error);
-            } else if (attempts < maxAttempts) {
-                // Adjust delay based on progress
-                if (data.progress > 80) delay = 3000;
-                else if (data.progress > 50) delay = 5000;
-                else delay = Math.min(delay + 1000, maxDelay);
-                
-                setTimeout(poll, delay);
-            } else {
-                handleTimeout();
-            }
-        })
-        .catch(error => {
-            console.error('Polling error:', error);
-            if (attempts < maxAttempts) {
-                delay = Math.min(delay * 1.5, maxDelay);
-                setTimeout(poll, delay);
-            } else {
-                handleTimeout();
-            }
-        });
-    }
-    
-    setTimeout(poll, delay);
-}
-
-// Improved polling with exponential backoff
-function pollVideoStatus(videoId, maxAttempts = 60, initialDelay = 2000) {
-    let attempt = 0;
-    let delay = initialDelay;
-    
-    function poll() {
-        fetch(`/api/v1/videos/${videoId}/status`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log(`📊 Status update: ${data.status} - ${data.progress}%`);
-            
-            // Update progress bar
-            updateProgressBar(data.progress);
-            updateStatusMessage(data.status, data.current_step);
-            
-            if (data.status === 'completed') {
-                console.log('✅ Video processing complete!');
-                showVideoResults(videoId, data.output_url);
-                return;
-            } else if (data.status === 'failed') {
-                console.error('❌ Video processing failed:', data.error_message);
-                showError(data.error_message);
-                return;
-            }
-            
-            // Continue polling with exponential backoff
-            attempt++;
-            if (attempt < maxAttempts) {
-                // Increase delay gradually (max 30 seconds)
-                delay = Math.min(delay * 1.5, 30000);
-                setTimeout(poll, delay);
-            }
-        })
-        .catch(error => {
-            console.error('Polling error:', error);
-            attempt++;
-            if (attempt < maxAttempts) {
-                setTimeout(poll, delay);
-            }
-        });
-    }
-    
-    poll();
-}
-
-// set up WebSocket for real-time updates
-function setupWebSocket(videoId) {
-    const socket = io({
-        transports: ['websocket', 'polling'],
-        auth: { token: localStorage.getItem('access_token') }
-    });
-    
-    socket.on('connect', () => {
-        console.log('🔌 WebSocket connected');
-        socket.emit('join', { room: `video_${videoId}` });
-    });
-    
-    socket.on('video_status_update', (data) => {
-        console.log(`📡 WebSocket update: ${data.status} - ${data.progress}%`);
-        updateProgressBar(data.progress);
-        updateStatusMessage(data.status, data.step);
-        
-        if (data.status === 'completed') {
-            showVideoResults(videoId, data.output_url);
-        }
-    });
-    
-    return socket;
-}
-
-function updateProcessingModal(progress, step) {
-    const progressBar = document.querySelector('#processing-modal .progress-bar');
-    if (progressBar) {
-        progressBar.style.width = `${progress}%`;
-        progressBar.setAttribute('aria-valuenow', progress);
-    }
-    
-    // Update current step display
-    const stepText = document.getElementById('current-step');
-    if (stepText && step) {
-        const stepDisplay = step.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-        stepText.textContent = stepDisplay;
-    }
-    
-    // Update active step in the steps list
-    const steps = document.querySelectorAll('.processing-steps .step');
-    const stepMap = {
-        'uploading': 0, 'analyzing': 1, 'transcribing': 2,
-        'generating_thumbnails': 3, 'applying_styles': 4, 'finalizing': 5
-    };
-    
-    const stepIndex = stepMap[step];
-    if (stepIndex !== undefined && steps[stepIndex]) {
-        steps.forEach((s, idx) => {
-            if (idx < stepIndex) {
-                s.classList.add('completed');
-                s.classList.remove('active');
-                const checkIcon = s.querySelector('.fa-check');
-                if (checkIcon) checkIcon.classList.remove('d-none');
-            } else if (idx === stepIndex) {
-                s.classList.add('active');
-                s.classList.remove('completed');
-            }
-        });
-    }
-}
-
-function handleProcessingComplete() {
-    // Clean up
-    if (processingSocket) {
-        processingSocket.disconnect();
-        processingSocket = null;
-    }
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-    }
-    pollingActive = false;
-    
-    const modalBody = document.querySelector('#processing-modal .modal-body');
-    if (modalBody) {
-        modalBody.innerHTML = `
-            <div class="text-center">
-                <i class="fas fa-check-circle text-success fa-4x mb-3"></i>
-                <h5>Processing Complete!</h5>
-                <p>Your video is ready to view.</p>
-            </div>
-        `;
-    }
-    
-    setTimeout(() => {
-        const modal = bootstrap.Modal.getInstance(document.getElementById('processing-modal'));
-        if (modal) modal.hide();
-        window.location.href = `/results/${currentVideoId}`;
-    }, 1500);
-}
-
-function handleProcessingFailed(error) {
-    if (processingSocket) processingSocket.disconnect();
-    pollingActive = false;
-    
-    const modalBody = document.querySelector('#processing-modal .modal-body');
-    if (modalBody) {
-        modalBody.innerHTML = `
-            <div class="text-center">
-                <i class="fas fa-exclamation-triangle text-danger fa-4x mb-3"></i>
-                <h5>Processing Failed</h5>
-                <p class="text-muted">${error || 'An error occurred during processing'}</p>
-                <button class="btn btn-primary mt-3" onclick="location.reload()">Try Again</button>
-            </div>
-        `;
-    }
-    showAlert('Video processing failed. Please try again.', 'danger');
-}
-
-function handleUploadSuccess(response) {
-    const videoId = response.id;
-    
-    // Show progress section
-    showProcessingUI();
-    
-    // Start polling and WebSocket
-    pollVideoStatus(videoId);
-    setupWebSocket(videoId);
-    
-    // Don't redirect! Let user watch progress
-    // window.location.href = '/results'; // ← REMOVE THIS
-}
-
-function handleTimeout() {
-    if (processingSocket) processingSocket.disconnect();
-    pollingActive = false;
-    
-    const modalBody = document.querySelector('#processing-modal .modal-body');
-    if (modalBody) {
-        modalBody.innerHTML = `
-            <div class="text-center">
-                <i class="fas fa-clock text-warning fa-4x mb-3"></i>
-                <h5>Still Processing</h5>
-                <p>Your video is still being processed. You can check the history page later.</p>
-                <a href="/history" class="btn btn-primary mt-3">Go to History</a>
-            </div>
-        `;
-    }
-}
-
-function updateProcessingProgress() {
-    let progress = 0;
-    const interval = setInterval(() => {
-        progress += Math.random() * 10;
-        if (progress >= 100) {
-            progress = 100;
-            clearInterval(interval);
-            
-            setTimeout(() => {
-                const modal = bootstrap.Modal.getInstance(document.getElementById('processing-modal'));
-                if (modal) modal.hide();
-                showAlert('Video processing completed! Check your history.', 'success');
-                window.location.href = '/history';
-            }, 2000);
-        }
-        
-        const progressBar = document.querySelector('#processing-modal .progress-bar');
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
-        }
-    }, 1000);
-}
-
-// Speed display update
-const speedModeSelect = document.getElementById('speed-mode-select');
-const customSpeedContainer = document.getElementById('custom-speed-container');
-const customSpeedRange = document.getElementById('custom-speed-range');
-const speedValueDisplay = document.getElementById('speed-value-display');
-const speedEffectDescription = document.getElementById('speed-effect-description');
-
-function getSpeedValue() {
-    const speedModeSelect = document.getElementById('speed-mode-select');
-    const customSpeedRange = document.getElementById('custom-speed-range');
-    
-    if (!speedModeSelect) return 1.0;
-    
-    const mode = speedModeSelect.value;
-    const speedMap = {
-        'normal': 1.0,
-        'slow_2x': 0.5,
-        'slow_3x': 0.33,
-        'slow_4x': 0.25,
-        'fast_2x': 2.0,
-        'fast_3x': 3.0,
-        'fast_4x': 4.0,
-        'custom': customSpeedRange ? parseFloat(customSpeedRange.value) : 1.0
-    };
-    
-    let speed = speedMap[mode] || 1.0;
-    // Ensure speed is a number, not string
-    speed = parseFloat(speed);
-    console.log(`🎯 Speed value: ${speed}x (mode: ${mode})`);
-    return speed;
-}
-
-function updateSpeedDescription() {
-    const speed = getSpeedValue();
-    let description;
-    if (speed < 1.0) {
-        description = `🏃 ${(1/speed).toFixed(1)}x Slower — Video will be ${(1/speed).toFixed(1)}x longer in duration`;
-    } else if (speed > 1.0) {
-        description = `⚡ ${speed.toFixed(1)}x Faster — Video will be ${speed.toFixed(1)}x shorter in duration`;
-    } else {
-        description = `⏱️ Normal speed — Video duration unchanged`;
-    }
-    speedEffectDescription.innerHTML = `<i class="fas fa-clock me-1"></i> ${description}`;
-}
-
-speedModeSelect.addEventListener('change', function() {
-    if (this.value === 'custom') {
-        customSpeedContainer.style.display = 'block';
-    } else {
-        customSpeedContainer.style.display = 'none';
-        updateSpeedDescription();
-    }
-});
-
-customSpeedRange.addEventListener('input', function() {
-    speedValueDisplay.textContent = this.value;
-    updateSpeedDescription();
-});
-
-function getProcessingOptions() {
-    const qualitySelect = document.getElementById('quality-select');
-    let qualityValue = qualitySelect?.value || '720p';
-    
-    // Get the selected style(s)
-    const styleSelect = document.getElementById('style-select');
-    let styles = [];
-    
-    if (styleSelect && styleSelect.value && styleSelect.value !== '') {
-        styles = [styleSelect.value];
-    }
-    
-    // Get aspect ratio
-    const aspectRatioSelect = document.getElementById('aspect-ratio-select');
-    let aspectRatio = aspectRatioSelect?.value || 'original';
-    
-    // Get thumbnail style
-    let thumbnailStyle = document.getElementById('thumbnail-style')?.value || 'default';
-
-    // Get speed value using the same function
-    const speed = getSpeedValue();
-    
-    // DEBUG: Log the speed value
-    console.log("🎯 SPEED VALUE FROM getSpeedValue():", speed);
-
-    
-    // Map display values to schema values if needed
-    const qualityMap = {
-        'original': 'original',
-        '720p': '720p',
-        '1080p': '1080p',
-        '4k': '4k',
-        '8k': '4k'
-    };
-    
-    const options = {
-        quality: qualityMap[qualityValue] || qualityValue,
-        styles: styles,  // ← This must be an array
-        translation_language: document.getElementById('translation-select')?.value || '',
-        thumbnail_style: thumbnailStyle,
-        fps: document.getElementById('fps-select')?.value || 'original',
-        audio_quality: document.getElementById('audio-quality')?.value || 'original',
-        aspect_ratio: aspectRatio,  // ← Make sure this is included
-        auto_transcribe: document.getElementById('auto-transcribe')?.checked || false,
-        generate_chapters: document.getElementById('generate-chapters')?.checked || false,
-        remove_silence: document.getElementById('remove-silence')?.checked || false,
-        process_silent_video: document.getElementById('process-silent-video')?.checked || false,
-        //Speed control
-        speed: speed,
-
-    };
-    
-    console.log("📦 Final processing options:", options);
-    return options;
-}
-
-function applyTierRestrictions() {
-    console.log("Applying tier restrictions for:", userTier);
-    
-    // Normalize tier value
-    let actualTier = String(userTier).toLowerCase();
-    if (actualTier.includes('.')) {
-        actualTier = actualTier.split('.')[1];
-    }
-    console.log("✅ Actual tier (for restriction checks):", actualTier);
-    
-    // Quality restrictions
-    const qualitySelect = document.getElementById('quality-select');
-    if (qualitySelect) {
-        for (let i = 0; i < qualitySelect.options.length; i++) {
-            const option = qualitySelect.options[i];
-            if (option.value) {
-                const allowedTiers = tierRestrictions.quality[option.value];
-                if (allowedTiers && !allowedTiers.includes(actualTier)) {
-                    option.disabled = true;
-                    option.title = `Available on ${allowedTiers[0]}+`;
-                    console.log(`  ${option.value} - disabled (requires ${allowedTiers[0]}+)`);
-                } else {
-                    option.disabled = false;
-                    console.log(`  ${option.value} - enabled`);
-                }
-            } else {
-                option.disabled = false;
-            }
-        }
-    }
-    
-    // Style restrictions - FIX THIS SECTION
-    const styleSelect = document.getElementById('style-select');
-    if (styleSelect) {
-        let enabledCount = 0;
-        let disabledCount = 0;
-        
-        for (let i = 0; i < styleSelect.options.length; i++) {
-            const option = styleSelect.options[i];
-            if (option.value) {
-                const allowedTiers = tierRestrictions.styles[option.value];
-                if (allowedTiers && allowedTiers.includes(actualTier)) {
-                    option.disabled = false;
-                    enabledCount++;
-                } else if (allowedTiers) {
-                    option.disabled = true;
-                    option.title = `Available on ${allowedTiers[0]}+`;
-                    disabledCount++;
-                } else {
-                    option.disabled = false;
-                    enabledCount++;
-                }
-            } else {
-                option.disabled = false;  // "No style" option always available
-            }
-        }
-        console.log(`Styles: ${enabledCount} enabled, ${disabledCount} disabled`);
-    }
-    
-    // FPS restrictions
-    const fpsSelect = document.getElementById('fps-select');
-    if (fpsSelect) {
-        for (let i = 0; i < fpsSelect.options.length; i++) {
-            const option = fpsSelect.options[i];
-            if (option.value === 'original') {
-                option.disabled = false;
-            } else {
-                const allowedTiers = tierRestrictions.fps[option.value];
-                if (allowedTiers && allowedTiers.includes(actualTier)) {
-                    option.disabled = false;
-                } else {
-                    option.disabled = true;
-                    option.title = `Available on Pro+`;
-                }
-            }
-        }
-    }
-
-    // Audio quality restrictions
-    const audioSelect = document.getElementById('audio-quality');
-    if (audioSelect) {
-        for (let i = 0; i < audioSelect.options.length; i++) {
-            const option = audioSelect.options[i];
-            if (option.value === 'original') {
-                option.disabled = false;
-            } else {
-                const allowedTiers = tierRestrictions.audio_quality[option.value];
-                if (allowedTiers && allowedTiers.includes(actualTier)) {
-                    option.disabled = false;
-                } else {
-                    option.disabled = true;
-                    option.title = `Available on ${option.value === '256k' ? 'Pro' : 'Plus'}+`;
-                }
-            }
-        }
-    }
-}
-
-function updateProgressBar(progress) {
-    const progressBar = document.querySelector('.upload-progress .progress-bar');
-    if (progressBar) progressBar.style.width = `${progress}%`;
-}
-
-function updateUploadInfo(loaded, total, speed) {
-    const speedElement = document.querySelector('.upload-speed');
-    const timeElement = document.querySelector('.time-remaining');
-    
-    if (speedElement) {
-        speedElement.textContent = `${formatFileSize(speed)}/s`;
-    }
-    
-    if (timeElement && speed > 0) {
-        const remainingBytes = total - loaded;
-        const remainingSeconds = remainingBytes / speed;
-        timeElement.textContent = formatTime(remainingSeconds);
-    }
-}
-
+// Helper functions
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -2429,38 +1192,23 @@ function formatDuration(seconds) {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-function formatTime(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-}
-
 function showAlert(message, type) {
     const alertDiv = document.createElement('div');
     alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
     alertDiv.innerHTML = `
         ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
-    
     const container = document.querySelector('.container-fluid');
     if (container) {
         container.insertBefore(alertDiv, container.firstChild);
     } else {
         document.body.insertBefore(alertDiv, document.body.firstChild);
     }
-    
     setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.remove();
-        }
+        if (alertDiv.parentNode) alertDiv.remove();
     }, 5000);
 }
-
-// Make functions globally available for onclick handlers
-window.cancelUpload = cancelUpload;
-window.resetUpload = resetUpload;
-window.startProcessing = startProcessing;
 
 // Force preview to show
 window.forceShowPreview = function(videoData, file) {
@@ -2502,18 +1250,6 @@ window.forceShowPreview = function(videoData, file) {
         };
     }
 };
-
-// Helper function to convert resolution to quality label
-function getQualityLabelFromResolution(width, height) {
-    // Standard quality mappings
-    if (width >= 3840 || height >= 2160) return "4K";
-    if (width >= 2560 || height >= 1440) return "2K";
-    if (width >= 1920 || height >= 1080) return "1080p";
-    if (width >= 1280 || height >= 720) return "720p";
-    if (width >= 854 || height >= 480) return "480p";
-    if (width >= 640 || height >= 360) return "360p";
-    return "SD";
-}
 
 // showUploadPreview function
 function showUploadPreview(videoData, file) {
@@ -2667,490 +1403,540 @@ function showUploadPreview(videoData, file) {
     console.log("=".repeat(50));
 }
 
-// function to fetch thumbnails separately
-async function fetchThumbnails(videoId) {
-    try {
-        const response = await fetch(`/api/v1/videos/${videoId}/thumbnails`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+function showCreditWarning() {
+    const popup = document.getElementById('credit-warning-popup');
+    if (popup) popup.style.display = 'block';
+}
+
+window.hideCreditPopup = function() {
+    const popup = document.getElementById('credit-warning-popup');
+    if (popup) popup.style.display = 'none';
+};
+
+function getSpeedValue() {
+    const speedModeSelect = document.getElementById('speed-mode-select');
+    const customSpeedRange = document.getElementById('custom-speed-range');
+    if (!speedModeSelect) return 1.0;
+    const mode = speedModeSelect.value;
+    const speedMap = {
+        'normal': 1.0, 'slow_2x': 0.5, 'slow_3x': 0.33, 'slow_4x': 0.25,
+        'fast_2x': 2.0, 'fast_3x': 3.0, 'fast_4x': 4.0,
+        'custom': customSpeedRange ? parseFloat(customSpeedRange.value) : 1.0
+    };
+    return parseFloat(speedMap[mode] || 1.0);
+}
+
+function getProcessingOptions() {
+    const styleSelect = document.getElementById('style-select');
+    let styles = [];
+    if (styleSelect && styleSelect.value && styleSelect.value !== '') {
+        styles = [styleSelect.value];
+    }
+    
+    return {
+        quality: document.getElementById('quality-select')?.value || '720p',
+        styles: styles,
+        translation_language: document.getElementById('translation-select')?.value || '',
+        thumbnail_style: document.getElementById('thumbnail-style')?.value || 'default',
+        fps: document.getElementById('fps-select')?.value || 'original',
+        audio_quality: document.getElementById('audio-quality')?.value || 'original',
+        aspect_ratio: document.getElementById('aspect-ratio-select')?.value || 'original',
+        auto_transcribe: document.getElementById('auto-transcribe')?.checked || false,
+        generate_chapters: document.getElementById('generate-chapters')?.checked || false,
+        remove_silence: document.getElementById('remove-silence')?.checked || false,
+        process_silent_video: document.getElementById('process-silent-video')?.checked || false,
+        speed: getSpeedValue(),
+    };
+}
+
+function showUploadProgress(file) {
+    const uploadArea = document.getElementById('upload-area');
+    const uploadPlaceholder = uploadArea?.querySelector('.upload-placeholder');
+    const uploadProgressDiv = uploadArea?.querySelector('.upload-progress');
+    if (!uploadPlaceholder || !uploadProgressDiv) return;
+    
+    const fileName = uploadProgressDiv.querySelector('.file-name');
+    const fileSize = uploadProgressDiv.querySelector('.file-size');
+    if (fileName) fileName.textContent = file.name;
+    if (fileSize) fileSize.textContent = formatFileSize(file.size);
+    
+    uploadPlaceholder.classList.add('d-none');
+    uploadProgressDiv.classList.remove('d-none');
+}
+
+function resetUpload() {
+    const uploadArea = document.getElementById('upload-area');
+    const uploadPlaceholder = uploadArea?.querySelector('.upload-placeholder');
+    const uploadProgressDiv = uploadArea?.querySelector('.upload-progress');
+    const uploadPreview = uploadArea?.querySelector('.upload-preview');
+    const fileInput = document.getElementById('video-file');
+    const progressBar = uploadProgressDiv?.querySelector('.progress-bar');
+    
+    if (uploadPlaceholder) uploadPlaceholder.classList.remove('d-none');
+    if (uploadProgressDiv) uploadProgressDiv.classList.add('d-none');
+    if (uploadPreview) uploadPreview.classList.add('d-none');
+    if (fileInput) fileInput.value = '';
+    if (progressBar) progressBar.style.width = '0%';
+    
+    if (currentFile) {
+        URL.revokeObjectURL(document.getElementById('video-preview')?.src);
+    }
+    currentUpload = null;
+    currentFile = null;
+    currentVideoId = null;
+}
+
+function cancelUpload() {
+    if (currentUpload) {
+        currentUpload.abort();
+        showAlert('Upload cancelled.', 'warning');
+        resetUpload();
+    }
+}
+
+async function ensureValidToken() {
+    let accessToken = localStorage.getItem('access_token');
+    let refreshToken = localStorage.getItem('refresh_token');
+    
+    // If we have an access token, check if it's expired
+    if (accessToken) {
+        try {
+            const payload = JSON.parse(atob(accessToken.split('.')[1]));
+            const exp = payload.exp * 1000;
+            const now = Date.now();
+            
+            // If token has more than 5 minutes left, use it
+            if (exp - now > 300000) {  // 5 minutes = 300,000 ms
+                console.log("✅ Token valid, using existing");
+                return accessToken;
             }
+            
+            // Token is expiring soon or expired, try to refresh
+            console.log("⏰ Token expiring soon, attempting refresh");
+        } catch (e) {
+            console.warn("Token decode failed, attempting refresh");
+        }
+    }
+    
+    // Try to refresh using refresh token
+    if (refreshToken) {
+        try {
+            const response = await fetch('/api/v1/auth/refresh', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${refreshToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                localStorage.setItem('access_token', data.access_token);
+                
+                // If a new refresh token was issued, store it
+                if (data.refresh_token) {
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    console.log("✅ New refresh token issued");
+                }
+                
+                console.log("✅ Token refreshed successfully");
+                return data.access_token;
+            } else {
+                const error = await response.json();
+                console.error("Refresh failed:", error);
+                
+                // If refresh token is expired, redirect to login
+                if (response.status === 401) {
+                    localStorage.clear();
+                    showAlert('Session expired. Please log in again.', 'warning');
+                    setTimeout(() => window.location.href = '/auth/login', 2000);
+                    return null;
+                }
+            }
+        } catch (error) {
+            console.error("Refresh network error:", error);
+        }
+    }
+    
+    // Last resort: try session recovery
+    try {
+        const response = await fetch('/api/v1/auth/refresh-session', {
+            method: 'POST',
+            credentials: 'same-origin'
         });
         
         if (response.ok) {
             const data = await response.json();
-            console.log("📸 Fetched thumbnails:", data);
-            displayThumbnails(
-                data.ai_thumbnails || [],
-                data.extracted_thumbnails || [],
-                videoId
-            );
+            localStorage.setItem('access_token', data.access_token);
+            if (data.refresh_token) {
+                localStorage.setItem('refresh_token', data.refresh_token);
+            }
+            console.log("✅ Session recovery successful");
+            return data.access_token;
         }
-    } catch (error) {
-        console.error("Failed to fetch thumbnails:", error);
+    } catch (e) {
+        console.error("Session recovery failed:", e);
     }
+    
+    // All authentication methods failed
+    showAlert('Please log in again.', 'warning');
+    setTimeout(() => window.location.href = '/auth/login', 2000);
+    return null;
 }
 
-function displayThumbnails(aiThumbnails, extractedThumbnails, videoId) {
-    console.log("🎨 displayThumbnails called");
-    console.log("AI Thumbnails:", aiThumbnails);
-    console.log("Extracted Thumbnails:", extractedThumbnails);
-    
-    currentThumbnailId = videoId;
-    
-    const thumbnailSection = document.getElementById('thumbnail-section');
-    if (thumbnailSection) thumbnailSection.style.display = 'block';
-    
-    function getThumbnailUrl(thumb) {
-        if (typeof thumb === 'string') {
-            return `/api/v1/videos/thumbnails/${encodeURIComponent(thumb)}`;
+async function refreshAccessToken(refreshToken) {
+    if (!refreshToken) return null;
+    try {
+        const response = await fetch('/api/v1/auth/refresh', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${refreshToken}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('access_token', data.access_token);
+            return data.access_token;
         }
-        if (thumb.url) return thumb.url;
-        if (thumb.path) return `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path)}`;
-        return null;
+    } catch (e) {}
+    return null;
+}
+
+function startUpload(file) {
+   // Prevent any default behavior
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
     
-    function getThumbnailId(thumb, index) {
-        if (typeof thumb === 'string') return `thumb_${index}`;
-        return thumb.id || `thumb_${index}`;
-    }
+    console.log("Starting upload for:", file.name);
     
-    // Helper function to load image with retry
-    function loadImageWithRetry(imgElement, url, maxRetries = 3, retryDelay = 500) {
-        let retryCount = 0;
+    ensureValidToken().then(validToken => {
+        if (!validToken) return;
         
-        function attemptLoad() {
-            const img = new Image();
-            img.onload = () => {
-                imgElement.src = url;
-                imgElement.style.opacity = '1';
-                console.log(`✅ Thumbnail loaded: ${url}`);
-                imgElement.dispatchEvent(new Event('thumbnail-loaded'));
-            };
-            img.onerror = () => {
-                retryCount++;
-                if (retryCount < maxRetries) {
-                    console.log(`⚠️ Thumbnail load failed (attempt ${retryCount}/${maxRetries}), retrying...`, url);
-                    setTimeout(attemptLoad, retryDelay * retryCount);
-                } else {
-                    console.error(`❌ Thumbnail failed after ${maxRetries} retries:`, url);
-                    imgElement.src = '/static/images/placeholder-thumbnail.png';
-                    imgElement.style.opacity = '0.5';
+        const options = getProcessingOptions();
+        console.log("Processing options:", options);
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('quality', options.quality);
+        
+        if (options.styles && options.styles.length > 0) {
+            options.styles.forEach(style => formData.append('styles', style));
+        }
+        
+        if (options.translation_language) {
+            formData.append('translation_language', options.translation_language);
+        }
+        
+        formData.append('thumbnail_style', options.thumbnail_style);
+        formData.append('fps', options.fps);
+        formData.append('audio_quality', options.audio_quality);
+        formData.append('aspect_ratio', options.aspect_ratio);
+        formData.append('auto_transcribe', options.auto_transcribe ? 'true' : 'false');
+        formData.append('generate_chapters', options.generate_chapters ? 'true' : 'false');
+        formData.append('remove_silence', options.remove_silence ? 'true' : 'false');
+        formData.append('process_silent_video', options.process_silent_video ? 'true' : 'false');
+        
+        const xhr = new XMLHttpRequest();
+        currentUpload = xhr;
+        
+        xhr.upload.addEventListener('progress', function(e) {
+            if (e.lengthComputable) {
+                const progress = (e.loaded / e.total) * 100;
+                const progressBar = document.querySelector('.upload-progress .progress-bar');
+                if (progressBar) progressBar.style.width = `${progress}%`;
+            }
+        });
+        
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 201) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    currentVideoId = response.id;
+                    console.log("✅ Upload success, video ID:", currentVideoId);
+                    
+                    // CRITICAL P DON'T redirect immediately
+                    // Instead, show the preview and wait for user to click "Start Processing"
+                     // Update preview with real data
+                    if (currentFile) {
+                        console.log("🔄 Updating preview with REAL server data");
+                        showUploadPreview(response, currentFile);
+                    }
+
+                    // Store video ID for later use
+                    sessionStorage.setItem('uploaded_video_id', currentVideoId);
+                    
+                    // Update UI to show preview (hide progress, show preview)
+                    const progressDiv = document.querySelector('.upload-progress');
+                    const previewDiv = document.querySelector('.upload-preview');
+                    if (progressDiv && previewDiv) {
+                        progressDiv.classList.add('d-none');
+                        previewDiv.classList.remove('d-none');
+                    }
+                    
+                    // Update preview with video info
+                    const videoPreview = document.getElementById('video-preview');
+                    const filenameEl = document.getElementById('preview-filename');
+                    const sizeEl = document.getElementById('preview-size');
+                    const durationEl = document.getElementById('preview-duration');
+                    
+                    if (filenameEl) filenameEl.textContent = response.original_filename || file.name;
+                    if (sizeEl) sizeEl.textContent = formatFileSize(response.file_size || file.size);
+                    if (durationEl && response.duration) durationEl.textContent = formatDuration(response.duration);
+                    
+                    // Create video preview
+                    if (videoPreview && file) {
+                        if (videoPreview.src) URL.revokeObjectURL(videoPreview.src);
+                        videoPreview.src = URL.createObjectURL(file);
+                        
+                        videoPreview.onloadedmetadata = function() {
+                            const resolution = `${videoPreview.videoWidth}x${videoPreview.videoHeight}`;
+                            const resolutionEl = document.getElementById('preview-resolution');
+                            if (resolutionEl) resolutionEl.textContent = resolution;
+                        };
+                    }
+                    
+                    // Enable the Start Processing button
+                    const startBtn = document.getElementById('start-processing-btn');
+                    if (startBtn) {
+                        startBtn.disabled = false;
+                        startBtn.classList.remove('disabled');
+                    }
+                    
+                    showAlert('Video uploaded successfully! You can now start processing.', 'success');
+                    
+                } catch (e) {
+                    console.error("Upload error:", e);
+                    showAlert('Upload failed. Please try again.', 'danger');
+                    resetUpload();
                 }
-            };
-            img.src = url;
-        }
-        
-        attemptLoad();
-    }
-    
-    // Display AI thumbnails with retry
-    const aiGrid = document.getElementById('ai-thumbnails-grid');
-    const aiCount = document.getElementById('ai-thumbnail-count');
-    
-    if (aiGrid && aiThumbnails && aiThumbnails.length > 0) {
-        aiCount.textContent = aiThumbnails.length;
-        aiGrid.innerHTML = '';
-        
-        aiThumbnails.forEach((thumb, index) => {
-            const thumbUrl = getThumbnailUrl(thumb);
-            const thumbId = getThumbnailId(thumb, index);
-            
-            if (!thumbUrl) return;
-            
-            const card = document.createElement('div');
-            card.className = 'thumbnail-card';
-            card.setAttribute('data-thumbnail-id', thumbId);
-            card.setAttribute('data-thumbnail-type', 'ai');
-            
-            const img = document.createElement('img');
-            img.className = 'thumbnail-image';
-            img.style.opacity = '0';
-            img.style.transition = 'opacity 0.3s ease';
-            img.alt = `Thumbnail ${index + 1}`;
-            
-            const badge = document.createElement('div');
-            badge.className = 'thumbnail-badge';
-            badge.textContent = `AI #${index + 1}`;
-            
-            const actions = document.createElement('div');
-            actions.className = 'thumbnail-actions';
-            actions.innerHTML = `
-                <button class="btn-icon" onclick="selectThumbnail('${thumbId}', 'ai', '${thumbUrl}')" title="Select as main">
-                    <i class="fas fa-check"></i>
-                </button>
-                <button class="btn-icon" onclick="downloadThumbnail('${thumbUrl}')" title="Download">
-                    <i class="fas fa-download"></i>
-                </button>
-            `;
-            
-            card.appendChild(img);
-            card.appendChild(badge);
-            card.appendChild(actions);
-            aiGrid.appendChild(card);
-            
-            // Load image with retry
-            loadImageWithRetry(img, thumbUrl, 5, 300);
-        });
-        
-        const regenContainer = document.getElementById('regenerate-thumbnail-btn-container');
-        if (regenContainer && userTier !== 'free' && userTier !== 'starter') {
-            regenContainer.style.display = 'block';
-            fetchRemainingRegenerations(currentThumbnailId);
-        }
-    }
-    
-    // Store extracted thumbnails for pagination
-    if (extractedThumbnails && extractedThumbnails.length > 0) {
-        allExtractedThumbnails = extractedThumbnails.map((thumb, index) => {
-            if (typeof thumb === 'string') {
-                return {
-                    id: `extracted_${index}`,
-                    url: `/api/v1/videos/thumbnails/${encodeURIComponent(thumb)}`,
-                    path: thumb
-                };
+            } else if (xhr.readyState === 4 && xhr.status !== 201) {
+                // Check for specific error messages
+                let errorMsg = 'Upload failed. Please try again.';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.error && response.error.message) {
+                        errorMsg = response.error.message;
+                    }
+                } catch (e) {}
+                showAlert(errorMsg, 'danger');
+                resetUpload();
             }
-            if (thumb.url) return thumb;
-            if (thumb.path) {
-                return {
-                    id: thumb.id || `extracted_${index}`,
-                    url: `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path)}`,
-                    path: thumb.path
-                };
-            }
-            return thumb;
-        });
+        };
         
-        document.getElementById('extracted-count').textContent = extractedThumbnails.length;
-        currentThumbnailPage = 1;
-        renderExtractedThumbnailsPageWithRetry();
-    }
+        xhr.open('POST', '/api/v1/videos/upload');
+        xhr.setRequestHeader('Authorization', `Bearer ${validToken}`);
+        
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (csrfToken) xhr.setRequestHeader('X-CSRFToken', csrfToken);
+        
+        xhr.send(formData);
+        
+    }).catch(error => {
+        console.error("Upload error:", error);
+        showAlert('Authentication error. Please log in again.', 'danger');
+        setTimeout(() => window.location.href = '/auth/login', 2000);
+    });
 }
 
-// Updated renderExtractedThumbnailsPageWithRetry
-function renderExtractedThumbnailsPageWithRetry() {
-    const grid = document.getElementById('extracted-thumbnails-grid');
-    if (!grid) return;
+function startProcessing() {
+    console.log("Start Processing clicked");
     
-    const start = (currentThumbnailPage - 1) * thumbnailsPerPage;
-    const end = start + thumbnailsPerPage;
-    const pageThumbnails = allExtractedThumbnails.slice(start, end);
-    
-    if (pageThumbnails.length === 0) {
-        grid.innerHTML = '<p class="text-muted text-center">No extracted thumbnails available</p>';
+    if (!currentVideoId) {
+        showAlert('Please upload a video first.', 'warning');
         return;
     }
     
-    grid.innerHTML = '';
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        showAlert('Please log in again.', 'warning');
+        setTimeout(() => window.location.href = '/auth/login', 2000);
+        return;
+    }
     
-    pageThumbnails.forEach((thumb, idx) => {
-        const thumbUrl = thumb.url || `/api/v1/videos/thumbnails/${encodeURIComponent(thumb.path || thumb)}`;
-        const thumbId = thumb.id || `extracted_${start + idx}`;
-        
-        const card = document.createElement('div');
-        card.className = 'thumbnail-card';
-        card.setAttribute('data-thumbnail-id', thumbId);
-        card.setAttribute('data-thumbnail-type', 'extracted');
-        
-        const img = document.createElement('img');
-        img.className = 'thumbnail-image';
-        img.style.opacity = '0';
-        img.style.transition = 'opacity 0.3s ease';
-        img.alt = `Frame ${start + idx + 1}`;
-        
-        const badge = document.createElement('div');
-        badge.className = 'thumbnail-badge';
-        badge.textContent = `Frame ${start + idx + 1}`;
-        
-        const actions = document.createElement('div');
-        actions.className = 'thumbnail-actions';
-        actions.innerHTML = `
-            <button class="btn-icon" onclick="selectThumbnail('${thumbId}', 'extracted', '${thumbUrl}')" title="Select as main">
-                <i class="fas fa-check"></i>
-            </button>
-            <button class="btn-icon" onclick="downloadThumbnail('${thumbUrl}')" title="Download">
-                <i class="fas fa-download"></i>
-            </button>
-        `;
-        
-        card.appendChild(img);
-        card.appendChild(badge);
-        card.appendChild(actions);
-        grid.appendChild(card);
-        
-        // Load image with retry
-        function loadWithRetry(retries = 5, delay = 300) {
-            let attempt = 0;
-            
-            function tryLoad() {
-                const testImg = new Image();
-                testImg.onload = () => {
-                    img.src = thumbUrl;
-                    img.style.opacity = '1';
-                    console.log(`✅ Frame ${start + idx + 1} loaded`);
-                };
-                testImg.onerror = () => {
-                    attempt++;
-                    if (attempt < retries) {
-                        console.log(`⚠️ Frame ${start + idx + 1} load failed (attempt ${attempt}/${retries}), retrying...`);
-                        setTimeout(tryLoad, delay * attempt);
-                    } else {
-                        console.error(`❌ Frame ${start + idx + 1} failed after ${retries} retries`);
-                        img.src = '/static/images/placeholder-thumbnail.png';
-                        img.style.opacity = '0.5';
-                    }
-                };
-                testImg.src = thumbUrl;
-            }
-            
-            tryLoad();
+    let options = getProcessingOptions();
+    
+    // Ensure styles is always an array
+    if (!options.styles || options.styles === '') {
+        options.styles = [];
+    }
+    if (typeof options.styles === 'string') {
+        options.styles = options.styles ? [options.styles] : [];
+    }
+
+    console.log("Processing options:", options);
+    
+    // Save options for processing page
+    sessionStorage.setItem('processing_video_id', currentVideoId);
+    sessionStorage.setItem('processing_options', JSON.stringify(options));
+    
+    // 🔥 NO WEBSOCKET HERE - processing.html handles it
+    fetch(`/api/v1/videos/${currentVideoId}/process`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(options)
+    })
+    .then(response => {
+        if (response.status === 401) {
+            return refreshAccessToken(localStorage.getItem('refresh_token')).then(newToken => {
+                if (newToken) {
+                    return fetch(`/api/v1/videos/${currentVideoId}/process`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${newToken}`
+                        },
+                        body: JSON.stringify(options)
+                    });
+                }
+                throw new Error('Authentication failed');
+            });
         }
-        
-        loadWithRetry();
+        return response;
+    })
+    .then(response => {
+        if (!response) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    })
+    .then(data => {
+        console.log('✅ Processing started:', data);
+        // Redirect to processing page
+        window.location.href = `/processing?video_id=${currentVideoId}`;
+    })
+    .catch(error => {
+        console.error('❌ Error:', error);
+        showAlert('Failed to start processing. Please try again.', 'danger');
     });
-    
-    // Update pagination controls
-    const totalPages = Math.ceil(allExtractedThumbnails.length / thumbnailsPerPage);
-    document.getElementById('current-thumbnail-page').textContent = currentThumbnailPage;
-    document.getElementById('total-thumbnail-pages').textContent = totalPages;
-    
-    const prevBtn = document.getElementById('prev-thumbnail-page');
-    const nextBtn = document.getElementById('next-thumbnail-page');
-    
-    if (prevBtn) prevBtn.disabled = currentThumbnailPage === 1;
-    if (nextBtn) nextBtn.disabled = currentThumbnailPage === totalPages;
-    
-    const paginationContainer = document.getElementById('thumbnail-pagination');
-    if (paginationContainer) {
-        paginationContainer.style.display = totalPages > 1 ? 'flex' : 'none';
-    }
 }
 
-// Update selectThumbnail to handle the actual API call
-async function selectThumbnail(thumbnailId, type, thumbnailUrl) {
-    console.log(`🎯 Selecting thumbnail: ${thumbnailId} (${type})`);
-    
-    try {
-        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/thumbnails/select`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            },
-            body: JSON.stringify({ 
-                thumbnail_id: thumbnailId, 
-                type: type,
-                thumbnail_url: thumbnailUrl 
-            })
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            showAlert('Thumbnail selected successfully!', 'success');
-            
-            // Update UI to show selected state
-            document.querySelectorAll('.thumbnail-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            const selectedCard = document.querySelector(`.thumbnail-card[data-thumbnail-id="${thumbnailId}"]`);
-            if (selectedCard) {
-                selectedCard.classList.add('selected');
-            }
-            
-            // Update the video preview thumbnail if needed
-            const videoPlayer = document.getElementById('video-preview');
-            if (videoPlayer && thumbnailUrl) {
-                // Optionally update poster image
-                videoPlayer.poster = thumbnailUrl;
-            }
+// Speed display update
+const speedModeSelect = document.getElementById('speed-mode-select');
+const customSpeedContainer = document.getElementById('custom-speed-container');
+const customSpeedRange = document.getElementById('custom-speed-range');
+const speedValueDisplay = document.getElementById('speed-value-display');
+const speedEffectDescription = document.getElementById('speed-effect-description');
+
+function updateSpeedDescription() {
+    const speed = getSpeedValue();
+    let description;
+    if (speed < 1.0) {
+        description = `🏃 ${(1/speed).toFixed(1)}x Slower — Video will be ${(1/speed).toFixed(1)}x longer in duration`;
+    } else if (speed > 1.0) {
+        description = `⚡ ${speed.toFixed(1)}x Faster — Video will be ${speed.toFixed(1)}x shorter in duration`;
+    } else {
+        description = `⏱️ Normal speed — Video duration unchanged`;
+    }
+    if (speedEffectDescription) speedEffectDescription.innerHTML = `<i class="fas fa-clock me-1"></i> ${description}`;
+}
+
+if (speedModeSelect) {
+    speedModeSelect.addEventListener('change', function() {
+        if (this.value === 'custom') {
+            if (customSpeedContainer) customSpeedContainer.style.display = 'block';
         } else {
-            const error = await response.json();
-            showAlert(error.message || 'Failed to select thumbnail', 'danger');
+            if (customSpeedContainer) customSpeedContainer.style.display = 'none';
+            updateSpeedDescription();
         }
-    } catch (error) {
-        console.error('Error selecting thumbnail:', error);
-        showAlert('Failed to select thumbnail', 'danger');
-    }
+    });
 }
 
-function previousThumbnailPage() {
-    if (currentThumbnailPage > 1) {
-        currentThumbnailPage--;
-        renderExtractedThumbnailsPage();
-    }
+if (customSpeedRange) {
+    customSpeedRange.addEventListener('input', function() {
+        if (speedValueDisplay) speedValueDisplay.textContent = this.value;
+        updateSpeedDescription();
+    });
 }
 
-function nextThumbnailPage() {
-    const totalPages = Math.ceil(allExtractedThumbnails.length / thumbnailsPerPage);
-    if (currentThumbnailPage < totalPages) {
-        currentThumbnailPage++;
-        renderExtractedThumbnailsPage();
-    }
-}
-
-// Select thumbnail as main
-async function selectThumbnail(thumbnailId, type) {
-    try {
-        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/thumbnails/select`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            },
-            body: JSON.stringify({ thumbnail_id: thumbnailId, type: type })
-        });
-        
-        if (response.ok) {
-            showAlert('Thumbnail selected successfully!', 'success');
-            
-            // Update UI to show selected state
-            document.querySelectorAll('.thumbnail-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            document.querySelector(`.thumbnail-card[data-thumbnail-id="${thumbnailId}"]`).classList.add('selected');
-        }
-    } catch (error) {
-        console.error('Error selecting thumbnail:', error);
-        showAlert('Failed to select thumbnail', 'danger');
-    }
-}
-
-// Download thumbnail
-function downloadThumbnail(url) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'thumbnail.jpg';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-// Regenerate thumbnail
-async function regenerateThumbnail() {
-    if (!currentThumbnailId) return;
+function applyTierRestrictions() {
+    let actualTier = String(userTier).toLowerCase();
+    if (actualTier.includes('.')) actualTier = actualTier.split('.')[1];
     
-    const regenBtn = document.querySelector('.regenerate-thumbnail-btn');
-    const originalText = regenBtn.innerHTML;
-    regenBtn.disabled = true;
-    regenBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
-    
-    try {
-        const response = await fetch(`/api/v1/videos/${currentThumbnailId}/regenerate-thumbnail`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            },
-            body: JSON.stringify({ style: document.getElementById('thumbnail-style')?.value || 'default' })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            showAlert('New thumbnail generated!', 'success');
-            // Refresh thumbnails
-            await fetchVideoDetails(currentThumbnailId);
-            
-            if (data.regenerations_remaining !== undefined) {
-                thumbnailRegenerationsRemaining = data.regenerations_remaining;
-                updateRegenerationInfo();
+    // Apply quality restrictions
+    const qualitySelect = document.getElementById('quality-select');
+    if (qualitySelect) {
+        for (let i = 0; i < qualitySelect.options.length; i++) {
+            const option = qualitySelect.options[i];
+            if (option.value) {
+                const allowedTiers = tierRestrictions.quality[option.value];
+                option.disabled = allowedTiers && !allowedTiers.includes(actualTier);
             }
-        } else {
-            showAlert(data.error?.message || 'Failed to regenerate thumbnail', 'danger');
         }
-    } catch (error) {
-        console.error('Error regenerating thumbnail:', error);
-        showAlert('Failed to regenerate thumbnail', 'danger');
-    } finally {
-        regenBtn.disabled = false;
-        regenBtn.innerHTML = originalText;
+    }
+    
+    // Apply style restrictions
+    const styleSelect = document.getElementById('style-select');
+    if (styleSelect) {
+        for (let i = 0; i < styleSelect.options.length; i++) {
+            const option = styleSelect.options[i];
+            if (option.value) {
+                const allowedTiers = tierRestrictions.styles[option.value];
+                option.disabled = allowedTiers && !allowedTiers.includes(actualTier);
+            }
+        }
+    }
+    
+    // Apply FPS restrictions
+    const fpsSelect = document.getElementById('fps-select');
+    if (fpsSelect) {
+        for (let i = 0; i < fpsSelect.options.length; i++) {
+            const option = fpsSelect.options[i];
+            if (option.value && option.value !== 'original') {
+                const allowedTiers = tierRestrictions.fps[option.value];
+                option.disabled = allowedTiers && !allowedTiers.includes(actualTier);
+                if (option.disabled) option.title = `Available on Pro+`;
+            }
+        }
+    }
+    
+    // Apply audio quality restrictions
+    const audioSelect = document.getElementById('audio-quality');
+    if (audioSelect) {
+        for (let i = 0; i < audioSelect.options.length; i++) {
+            const option = audioSelect.options[i];
+            if (option.value && option.value !== 'original') {
+                const allowedTiers = tierRestrictions.audio_quality[option.value];
+                option.disabled = allowedTiers && !allowedTiers.includes(actualTier);
+            }
+        }
     }
 }
 
-function updateRegenerationInfo() {
-    const regenText = document.querySelector('.regenerate-thumbnail-btn + p');
-    if (regenText && thumbnailRegenerationsRemaining !== undefined) {
-        regenText.innerHTML = `<i class="fas fa-info-circle me-1"></i>
-            ${thumbnailRegenerationsRemaining} regenerations remaining this month`;
-    }
-}
-
-// Function to manage advanced options access - SHOW but DISABLE for lower tiers
 function checkAdvancedOptionsAccess() {
-    const userTier = '{{ current_user.tier }}';
-    const advancedOptionsDiv = document.getElementById('advanced-options');
-    const advancedToggle = document.querySelector('[data-bs-target="#advanced-options"]');
-    
-    // Normalize tier value (handle various formats: 'pro', 'Pro', 'Tier.PRO', etc.)
     let normalizedTier = String(userTier).toLowerCase();
-    if (normalizedTier.includes('.')) {
-        normalizedTier = normalizedTier.split('.')[1];
-    }
+    if (normalizedTier.includes('.')) normalizedTier = normalizedTier.split('.')[1];
     
-    // Pro tier and above can USE advanced options
     const allowedTiers = ['pro', 'plus', 'enterprise'];
     const canUse = allowedTiers.includes(normalizedTier);
     
-    console.log(`🔧 Advanced Options - User Tier: ${userTier}, Normalized: ${normalizedTier}, Can Use: ${canUse}`);
+    const controlsToManage = ['fps-select', 'audio-quality', 'generate-chapters', 'process-silent-video'];
     
-    // ALWAYS show the advanced options section
-    if (advancedOptionsDiv) {
-        advancedOptionsDiv.parentElement.style.display = 'block';
+    for (const controlId of controlsToManage) {
+        const control = document.getElementById(controlId);
+        if (control) {
+            control.disabled = !canUse;
+            control.style.opacity = canUse ? '1' : '0.6';
+            control.style.cursor = canUse ? 'default' : 'not-allowed';
+        }
     }
-    if (advancedToggle) {
-        advancedToggle.style.display = 'inline-block';
-    }
     
-    // Define controls that should be enabled/disabled
-    const controlsToManage = [
-        'fps-select',
-        'audio-quality',
-        'generate-chapters',
-        'process-silent-video'
-    ];
-    
+    // Show upgrade message for free/starter users
     if (!canUse) {
-        // DISABLE all advanced options for Free/Starter users
-        console.log('🔒 Advanced options locked - user cannot use them');
-        
-        for (const controlId of controlsToManage) {
-            const control = document.getElementById(controlId);
-            if (control) {
-                control.disabled = true;
-                control.style.opacity = '0.6';
-                control.style.cursor = 'not-allowed';
-            }
-        }
-        
-        // Also disable specific options within selects
-        const fpsSelect = document.getElementById('fps-select');
-        if (fpsSelect) {
-            const fps60Option = fpsSelect.querySelector('option[value="60"]');
-            if (fps60Option) fps60Option.disabled = true;
-        }
-        
-        const audioSelect = document.getElementById('audio-quality');
-        if (audioSelect) {
-            const option256k = audioSelect.querySelector('option[value="256k"]');
-            const option320k = audioSelect.querySelector('option[value="320k"]');
-            if (option256k) option256k.disabled = true;
-            if (option320k) option320k.disabled = true;
-        }
-        
-        // Add upgrade badge to toggle button if not already there
-        const toggleBtn = advancedToggle;
-        if (toggleBtn && !toggleBtn.querySelector('.upgrade-badge')) {
+        const advancedToggle = document.querySelector('[data-bs-target="#advanced-options"]');
+        if (advancedToggle && !advancedToggle.querySelector('.upgrade-badge')) {
             const badge = document.createElement('span');
             badge.className = 'badge bg-warning text-dark ms-2 upgrade-badge';
             badge.style.fontSize = '0.7rem';
             badge.innerHTML = '<i class="fas fa-crown me-1"></i>Pro+ Feature';
-            toggleBtn.appendChild(badge);
+            advancedToggle.appendChild(badge);
         }
         
-        // Add upgrade message if not already there
         const optionsPanel = document.getElementById('advanced-options');
         if (optionsPanel && !optionsPanel.querySelector('.upgrade-message')) {
             const cardBody = optionsPanel.querySelector('.card-body');
-            if (cardBody && !cardBody.querySelector('.upgrade-message')) {
+            if (cardBody) {
                 const upgradeMsg = document.createElement('div');
                 upgradeMsg.className = 'alert alert-warning mt-3 upgrade-message';
                 upgradeMsg.innerHTML = `
@@ -3167,91 +1953,78 @@ function checkAdvancedOptionsAccess() {
                 cardBody.appendChild(upgradeMsg);
             }
         }
-    } else {
-        // ENABLE all advanced options for Pro/Plus/Enterprise users
-        console.log('✅ Advanced options unlocked - user can use all features');
-        
-        // Remove upgrade badge if exists
-        const upgradeBadge = document.querySelector('.upgrade-badge');
-        if (upgradeBadge) upgradeBadge.remove();
-        
-        // Remove upgrade message if exists
-        const upgradeMsg = document.querySelector('.upgrade-message');
-        if (upgradeMsg) upgradeMsg.remove();
-        
-        // Enable all controls
-        for (const controlId of controlsToManage) {
-            const control = document.getElementById(controlId);
-            if (control) {
-                control.disabled = false;
-                control.style.opacity = '1';
-                control.style.cursor = 'default';
-            }
-        }
-        
-        // Enable specific options within selects
-        const fpsSelect = document.getElementById('fps-select');
-        if (fpsSelect) {
-            const fps60Option = fpsSelect.querySelector('option[value="60"]');
-            if (fps60Option) fps60Option.disabled = false;
-        }
-        
-        const audioSelect = document.getElementById('audio-quality');
-        if (audioSelect) {
-            const option256k = audioSelect.querySelector('option[value="256k"]');
-            const option320k = audioSelect.querySelector('option[value="320k"]');
-            if (option256k) option256k.disabled = false;
-            if (option320k && normalizedTier === 'enterprise') {
-                option320k.disabled = false;
-            } else if (option320k) {
-                option320k.disabled = true;
-                option320k.title = 'Available on Enterprise tier';
-            }
-        }
     }
 }
 
-// Call this during page initialization
+// Initialize on DOM load
 document.addEventListener('DOMContentLoaded', function() {
+    console.log("✅ DOM CONTENT LOADED - Initializing upload");
+    
+    const fileInput = document.getElementById('video-file');
+    const uploadArea = document.getElementById('upload-area');
+    
+    if (!fileInput) {
+        console.error("❌ File input not found!");
+        return;
+    }
+    
+    // File input change handler
+    fileInput.addEventListener('change', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (this.files && this.files.length > 0) {
+            const file = this.files[0];
+            const creditsRemaining = parseInt('{{ current_user.credits_remaining|default(0) }}');
+            
+            if (creditsRemaining <= 0) {
+                showCreditWarning();
+                this.value = '';
+                return;
+            }
+            
+            currentFile = file;
+            showUploadProgress(file);
+            startUpload(file);
+        }
+    });
+    
+    // Drag and drop handlers
+    if (uploadArea) {
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                const event = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(event);
+            }
+        });
+    }
+    
+    applyTierRestrictions();
     checkAdvancedOptionsAccess();
+    updateSpeedDescription();
+    
+    console.log("✅ Upload initialization complete");
 });
 
-async function fetchRemainingRegenerations(videoId) {
-    try {
-        const response = await fetch(`/api/v1/videos/${videoId}/regenerations-remaining`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-        });
-        const data = await response.json();
-        if (data.remaining !== undefined) {
-            thumbnailRegenerationsRemaining = data.remaining;
-            updateRegenerationInfo();
-        }
-    } catch (error) {
-        console.error('Error fetching regenerations:', error);
-    }
-}
-
-async function fetchVideoDetails(videoId) {
-    try {
-        const response = await fetch(`/api/v1/videos/${videoId}`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-        });
-        const data = await response.json();
-        
-        if (data.ai_thumbnails || data.extracted_thumbnails) {
-            displayThumbnails(data.ai_thumbnails, data.extracted_thumbnails, videoId);
-        }
-    } catch (error) {
-        console.error('Error fetching video details:', error);
-    }
-}
-
-// Hide progress, show preview
-progressDiv.classList.add('d-none');
-previewDiv.classList.remove('d-none');
-
-
-console.log("✅ Upload script setup complete");
+// Make functions globally available
+window.cancelUpload = cancelUpload;
+window.resetUpload = resetUpload;
 </script>
 {% endblock %}
 
