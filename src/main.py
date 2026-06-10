@@ -12,7 +12,8 @@ from functools import wraps
 import redis
 import json
 import uuid
-
+import tempfile
+import threading
 
 # Adding the src directory to Python path
 src_path = Path(__file__).parent
@@ -92,94 +93,106 @@ def timeago_filter(date):
 
 
 def create_app(config_class=Config):
-    """Application factory function."""
+    """Application factory function - PRODUCTION OPTIMIZED ORDER."""
 
     log_level = os.getenv("LOG_LEVEL", "INFO")
     setup_logging(level=log_level)
 
     logger.info("🚀 Starting Video AI Studio application...")
 
-    # Create Flask app
+    # ========== 1. CREATE FLASK APP FIRST ==========
     app = Flask(__name__, static_folder="../static", template_folder="../templates")
 
-    # Initialize Redis for production
+    # ========== 2. LOAD CONFIGURATION ==========
+    app.config.from_object(config_class)
+    config_class.init_app(app)
+
+    # ========== 3. SESSION & JWT CONFIGURATION ==========
+    app.config.update(
+        SECRET_KEY=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
+        SESSION_COOKIE_NAME="video_ai_session",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=False,  #set True in production with HTTps
+        SESSION_COOKIE_SAMESITE="Lax",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+        SESSION_REFRESH_EACH_REQUEST=True,
+        JWT_SECRET_KEY=os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY")),
+        JWT_ACCESS_TOKEN_EXPIRES=timedelta(hours=1),
+        JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=30),
+        JWT_TOKEN_LOCATION=["headers"],
+        JWT_HEADER_NAME="Authorization",
+        JWT_HEADER_TYPE="Bearer",
+        WTF_CSRF_CHECK_DEFAULT=False,
+        WTF_CSRF_ENABLED=True,
+        WTF_CSRF_TIME_LIMIT=3600,
+        # Large file upload settings
+        MAX_CONTENT_LENGTH=2 * 1024 * 1024 * 1024,
+        UPLOAD_FOLDER=tempfile.gettempdir(),
+        MAX_FORM_MEMORY_SIZE=500 * 1024,
+        MAX_FORM_PARTS=1000,
+        SEND_FILE_MAX_AGE_DEFAULT=0,
+    )
+
+    # ========== 4. INITIALIZE REDIS (for rate limiting & caching) ==========
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    redis_client = None
     try:
         redis_client = redis.from_url(redis_url)
         redis_client.ping()
         app.config["REDIS_CLIENT"] = redis_client
         logger.info("✅ Redis connected successfully")
     except Exception as e:
-        logger.warning(
-            f"⚠️ Redis connection failed: {e}. Some features will be limited."
-        )
-        app.config["REDIS_CLIENT"] = None
+        logger.warning(f"⚠️ Redis connection failed: {e}. Some features will be limited.")
 
-   # CUSTOM RATE LIMIT FUNCTION WITH CENTRALIZED EXEMPTIONS
-    def get_rate_limit():
-        """Return rate limit based on request path."""
-        path = request.path
-        
-        # CENTRALIZED CONFIGURATION - Add/remove paths here
-        # Format: (path_pattern, limit)
-        # limit = None means no limit, otherwise format like "100 per hour"
-        EXEMPT_RULES = [
-            # Static and media files - no limits
-            ('/static/', None),
-            ('/api/v1/videos/thumbnails/', None),
-            ('/processed/', None),
-            ('/preview/', None),
-            ('/uploads/', None),
-            
-            # Health and monitoring - no limits
-            ('/health', None),
-            ('/metrics', None),
-            ('/status', None),
-            
-            # Auth endpoints - moderate limits
-            ('/auth/login', '10 per minute, 100 per hour'),
-            ('/auth/register', '5 per hour, 10 per day'),
-            ('/auth/forgot-password', '3 per hour'),
-            ('/auth/reset-password', '3 per hour'),
-            
-            # API endpoints - standard limits
-            ('/api/v1/videos/upload', '5 per minute, 50 per hour'),
-            ('/api/v1/videos/process', '10 per minute, 100 per hour'),
-            
-            # Dashboard and upload pages - moderate limits
-            ('/dashboard', '100 per minute'),
-            ('/upload', '30 per minute'),
-            ('/history', '100 per minute'),
-            ('/settings', '50 per minute'),
-        ]
-        
-        # Check each rule
-        for pattern, limit in EXEMPT_RULES:
-            if path == pattern or path.startswith(pattern):
-                if limit is None:
-                    # Return a very high limit (effectively no limit)
-                    return "1000000 per hour"
-                return limit
-        
-        # Default limit for all other endpoints
-        return "1000 per day, 200 per hour"
+    # ========== 5. INITIALIZE JWT ==========
+    jwt = JWTManager(app)
+    logger.info("✅ JWT Manager initialized")
 
+    # ========== 6. INITIALIZE CSRF PROTECTION ==========
+    csrf = CSRFProtect()
+    csrf.init_app(app)
+    logger.info("✅ CSRF protection initialized")
 
+    # ========== 7. INITIALIZE CORS ==========
+    CORS(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": app.config.get("CORS_ORIGINS", ["*"]),
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+                "allow_headers": [
+                    "Content-Type", "Authorization", "X-Requested-With",
+                    "Accept", "Origin", "X-CSRF-Token",
+                ],
+                "expose_headers": [
+                    "Content-Range", "X-Content-Range",
+                    "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+                ],
+                "supports_credentials": True,
+                "max_age": 600,
+            },
+            r"/socket.io/*": {
+                "origins": app.config.get("CORS_ORIGINS", ["*"]),
+                "methods": ["GET", "POST"],
+                "allow_headers": ["Authorization"],
+                "credentials": True,
+            },
+        },
+    )
+    logger.info("✅ CORS configured")
 
-    # Initialize rate limiter with custom function
+    # ========== 8. INITIALIZE RATE LIMITER ==========
     try:
         limiter = Limiter(
             app=app,
             key_func=get_remote_address,
-            default_limits=["2000 per day", "500 per hour"],  # Empty default, we use the custom function
+            default_limits=["2000 per day", "500 per hour"],
             storage_uri=redis_url if redis_client else "memory://",
             strategy="fixed-window",
-            # application_limits=[get_rate_limit]
         )
-        logger.info("✅ Rate limiter initialized with centralized exemptions")
+        logger.info("✅ Rate limiter initialized")
     except TypeError as e:
-        # Fallback for older versions
-        logger.warning(f"Rate limiter initialization with custom function failed: {e}, using fallback")
+        logger.warning(f"Rate limiter fallback: {e}")
         limiter = Limiter(
             app=app,
             key_func=get_remote_address,
@@ -187,61 +200,53 @@ def create_app(config_class=Config):
             storage_uri=redis_url if redis_client else "memory://",
         )
 
-    app.config.from_object(config_class)
-    config_class.init_app(app)
+    # ========== 9. INITIALIZE SOCKETIO (BEFORE MIDDLEWARE & ROUTES) ==========
+    # Configure message queue
+    message_queue = None
+    if os.getenv("FLASK_ENV") != "development" and app.config.get("SOCKETIO_MESSAGE_QUEUE"):
+        queue_url = app.config.get("SOCKETIO_MESSAGE_QUEUE")
+        if queue_url and not queue_url.startswith("mock://"):
+            message_queue = queue_url
+            logger.info(f"🌐 SocketIO using message queue: {message_queue}")
+    else:
+        logger.info("🌐 SocketIO running without message queue (development mode)")
 
-    # Register custom filters
-    app.jinja_env.filters["timeago"] = timeago_filter
-    logger.info("✅ Registered timeago filter")
-
-    # Load configuration
-    app.config.from_object(config_class)
-    config_class.init_app(app)
-
-    # === CRITICAL: Session & JWT Configuration ==
-    # Session configuration
-    app.config.update(
-        SECRET_KEY=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
-        SESSION_COOKIE_NAME="video_ai_session",
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
-        SESSION_COOKIE_SAMESITE="Lax",
-        PERMANENT_SESSION_LIFETIME=timedelta(days=30),  # For remember me
-        SESSION_REFRESH_EACH_REQUEST=True,  # Refresh session on each request
-        # JWT Configuration
-        JWT_SECRET_KEY=os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY")),
-        JWT_ACCESS_TOKEN_EXPIRES=timedelta(hours=1),
-        JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=30),
-        JWT_TOKEN_LOCATION=["headers"],
-        JWT_HEADER_NAME="Authorization",
-        JWT_HEADER_TYPE="Bearer",
-        # CSRF Configuration
-        WTF_CSRF_CHECK_DEFAULT=False,  # Don't check CSRF on all requests by default
-        WTF_CSRF_ENABLED=True,  # Enable CSRF protection
-        WTF_CSRF_TIME_LIMIT=3600,  # CSRF token valid for 1 hour
+    # Create SocketIO instance
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins="*",
+        async_mode="eventlet",  #gevent , threading in production
+        message_queue=message_queue,
+        logger=True if app.debug else False,
+        engineio_logger=True if app.debug else False,
+        ping_timeout=60,  # Keep connections alive longer
+        ping_interval=25,  # Send ping every 25 second
+        # Increase buffer for large messages
+        max_http_buffer_size=100 * 1024 * 1024,
+        # Allow auth via query string
+        cors_credentials=True,
     )
-    # =====================================
-
-    # Initialize JWT
-    jwt = JWTManager(app)
-    logger.info("✅ JWT Manager initialized")
-
-    # Initialize CSRF protection
-    csrf = CSRFProtect()
-    csrf.init_app(app)
-    logger.info("✅ CSRF protection initialized")
     
-    # Custom decorator to exempt API routes from CSRF
-    def csrf_exempt_for_api(f):
-        """Decorator to exempt API routes from CSRF protection."""
+    #Set global instance BEFORE registering handlers
+    from api.websocket import set_socketio_instance, register_websocket_handlers
+    set_socketio_instance(socketio)
+    logger.info("✅ SocketIO instance set globally")
+    
+    # Register WebSocket handlers
+    register_websocket_handlers(socketio)
+    logger.info("✅ WebSocket handlers registered")
 
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            # This function doesn't need to do anything
-            # The @csrf.exempt decorator will be applied to all API routes
-            return f(*args, **kwargs)
+    # ========== 10. INITIALIZE MONITORING & EXTENSIONS ==========
+    init_monitoring(app)
+    init_extensions(app)
+    register_middleware(app)
+    logger.info("✅ Monitoring and extensions initialized")
 
-        return decorated_function
+    # ========== 11. REGISTER API ROUTES (AFTER SocketIO) ==========
+    register_api_routes(app)
+    logger.info("✅ API routes registered")
+
+    # ========== 12. REGISTER TEMPLATE FILTERS & CONTEXT PROCESSORS ==========
 
     # Make csrf_token available to all templates using the public method
     @app.context_processor
@@ -273,92 +278,18 @@ def create_app(config_class=Config):
 
     @app.template_filter("currency")
     def currency_format(value):
+        
         """Format currency."""
         if value is None:
             return "$0.00"
         return f"${value:,.2f}"
-
-    # registered custom filters
+    
+    app.jinja_env.filters["timeago"] = timeago_filter
     app.jinja_env.filters["datetimeformat"] = datetimeformat
     app.jinja_env.filters["currency"] = currency_format
     app.jinja_env.filters["format_duration"] = format_duration
-    logger.info(f"📱 Environment: {os.getenv('FLASK_ENV', 'development')}")
-    logger.info(f"🔧 Database Provider: {app.config.get('DATABASE_PROVIDER')}")
-    logger.info(f"📧 Email Provider: {app.config.get('EMAIL_PROVIDER')}")
 
-    # Initialize extensions
-    init_extensions(app)
-
-    # Setup CORS
-    CORS(
-        app,
-        resources={
-            r"/api/*": {
-                "origins": app.config.get("CORS_ORIGINS", ["*"]),
-                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-                "allow_headers": [
-                    "Content-Type",
-                    "Authorization",
-                    "X-Requested-With",
-                    "Accept",
-                    "Origin",
-                    "X-CSRF-Token",
-                ],
-                "expose_headers": [
-                    "Content-Range",
-                    "X-Content-Range",
-                    "X-RateLimit-Limit",
-                    "X-RateLimit-Remaining",
-                    "X-RateLimit-Reset",
-                ],
-                "supports_credentials": True,
-                "max_age": 600,
-            },
-            r"/socket.io/*": {
-                "origins": app.config.get("CORS_ORIGINS", ["*"]),
-                "methods": ["GET", "POST"],
-                "allow_headers": ["Authorization"],
-                "credentials": True,
-            },
-        },
-    )
-
-    # Register middleware
-    register_middleware(app)
-
-    # Initialize monitoring
-    init_monitoring(app)
-
-    # Register API routes
-    register_api_routes(app)
-
-    # Initialize SocketIO with proper message queue handling
-    message_queue = None
-    if os.getenv("FLASK_ENV") != "development" and app.config.get(
-        "SOCKETIO_MESSAGE_QUEUE"
-    ):
-        # Only use message queue in production with valid URL
-        queue_url = app.config.get("SOCKETIO_MESSAGE_QUEUE")
-        if queue_url and not queue_url.startswith("mock://"):
-            message_queue = queue_url
-            logger.info(f"🌐 SocketIO using message queue: {message_queue}")
-        else:
-            logger.info("🌐 SocketIO running without message queue (invalid URL)")
-    else:
-        logger.info("🌐 SocketIO running without message queue (development mode)")
-
-    socketio = SocketIO(
-        app,
-        cors_allowed_origins="*",
-        async_mode="eventlet",
-        message_queue=message_queue,
-        logger=True if app.debug else False,
-        engineio_logger=True if app.debug else False,
-    )
-    set_socketio_instance(socketio)
-
-    # Register WebSocket handlers
-    register_websocket_handlers(socketio)
+    # ========== 13. REGISTER PAGE ROUTES (HTML pages) ==========
 
     # Register CLI commands
     from app.cli import register_cli_commands
@@ -467,8 +398,6 @@ def create_app(config_class=Config):
         thread.start()
         logger.info("Started Redis notification processor thread")
 
-    # Inside create_app() function, after creating the app but before returning
-    @app.context_processor
     def inject_user():
         """Make current_user available to all templates."""
         from flask import session
@@ -516,13 +445,13 @@ def create_app(config_class=Config):
 
     # ===== IMPORTANT: Exempt ALL API routes from CSRF protection =====
     # Since we're using JWT tokens for API authentication, CSRF is not needed
-    # This will fix your upload issue while maintaining security
+    # This will fix upload issue while maintaining security
     csrf.exempt(api_v1_bp)
     logger.info("✅ Exempted all API routes from CSRF protection")
 
     logger.info("✅ Registered API v1 blueprint at /api/v1")
+    
     # Health check endpoint
-
     @app.route("/health")
     def health_check():
         """Comprehensive health check."""
@@ -770,6 +699,16 @@ def create_app(config_class=Config):
         print(f"Session set for user: {data.get('user_id')}")
 
         return jsonify({"success": True})
+
+    @app.route("/api/ws-status")
+    def ws_status():
+        """Check WebSocket server status."""
+        from api.websocket import get_socketio
+        socketio = get_socketio()
+        return jsonify({
+            "websocket_initialized": socketio is not None,
+            "status": "ready" if socketio else "not_initialized"
+        })
 
     @app.route("/api/v1/auth/session-check", methods=["GET"])
     def session_check():

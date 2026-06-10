@@ -2,7 +2,8 @@
 Video router for API v1 - Complete production version with tier enforcement.
 """
 
-from flask import Blueprint, request, jsonify, send_file, g
+from flask import Blueprint, request, jsonify, send_file, g , current_app
+import tempfile
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
 import logging

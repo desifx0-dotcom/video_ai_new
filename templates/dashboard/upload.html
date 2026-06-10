@@ -334,12 +334,14 @@
                                         <select class="form-select" id="audio-quality">
                                             <option value="original">Original</option>
                                             <option value="128k">128 kbps</option>
-                                            <option value="192k">192 kbps</option>
+                                            <option value="192k" {% if current_user.tier not in ['starter','pro', 'plus', 'enterprise'] %}disabled{% endif %}>
+                                                192 kbps {% if current_user.tier not in ['starter','pro', 'plus', 'enterprise'] %}(Starter+){% endif %}
+                                            </option>
                                             <option value="256k" {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}disabled{% endif %}>
                                                 256 kbps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
                                             </option>
-                                            <option value="320k" {% if current_user.tier not in ['plus', 'enterprise'] %}disabled{% endif %}>
-                                                320 kbps {% if current_user.tier not in ['plus', 'enterprise'] %}(Plus+){% endif %}
+                                            <option value="320k" {% if current_user.tier not in ['enterprise'] %}disabled{% endif %}>
+                                                320 kbps {% if current_user.tier not in ['enterprise'] %}(Plus+){% endif %}
                                             </option>
                                         </select>
                                         <div class="form-text small text-muted">
@@ -1100,7 +1102,7 @@ input:disabled {
 <!-- <script src="{{ url_for('static', filename='js/upload.js') }}"></script> -->
 <script>
 console.log("🔥🔥🔥 UPLOAD SCRIPT IS DEFINITELY RUNNING 🔥🔥🔥");
-
+alert("upload.html running now")
 // Store server tokens
 const serverAccessToken = '{{ access_token|safe }}';
 const serverRefreshToken = '{{ refresh_token|safe }}';
@@ -1170,7 +1172,7 @@ const tierRestrictions = {
         '128k': ['free', 'starter', 'pro', 'plus', 'enterprise'],
         '192k': ['starter', 'pro', 'plus', 'enterprise'],
         '256k': ['pro', 'plus', 'enterprise'],
-        '320k': ['plus', 'enterprise']
+        '320k': [ 'enterprise']
     }
 };
 
@@ -1253,9 +1255,7 @@ window.forceShowPreview = function(videoData, file) {
 
 // showUploadPreview function
 function showUploadPreview(videoData, file) {
-    console.log("=".repeat(50));
     console.log("📹 showUploadPreview CALLED");
-    console.log("=".repeat(50));
     console.log("videoData.original_fps:", videoData.original_fps);
     console.log("videoData.original_audio_quality:", videoData.original_audio_quality);
     console.log("videoData.original_aspect_ratio:", videoData.original_aspect_ratio);
@@ -1274,65 +1274,47 @@ function showUploadPreview(videoData, file) {
         return;
     }
     
-    // ALWAYS UPDATE filename and size (even if called second time)
+    // Update filename and size
     const filenameEl = document.getElementById('preview-filename');
     if (filenameEl) {
         filenameEl.textContent = videoData.original_filename || file.name;
-        console.log("✅ Set filename to:", filenameEl.textContent);
     }
     
     const sizeEl = document.getElementById('preview-size');
     if (sizeEl) {
         sizeEl.textContent = formatFileSize(videoData.file_size || file.size);
-        console.log("✅ Set size to:", sizeEl.textContent);
     }
     
-    // ALWAYS UPDATE FPS
+    // Update FPS
     const fpsEl = document.getElementById('preview-fps');
     if (fpsEl) {
-        // Check if we have real data from server
-        let fpsValue = videoData.original_fps;
-        if (!fpsValue || fpsValue === 'unknown') {
-            // Try other possible field names
-            fpsValue = videoData.fps_display || videoData.original_fps_display || 'unknown';
-        }
+        let fpsValue = videoData.original_fps || 'unknown';
         fpsEl.textContent = fpsValue;
-        console.log("✅ Set FPS to:", fpsValue);
     }
     
-    // ALWAYS UPDATE Audio Quality
+    // Update Audio Quality
     const audioEl = document.getElementById('preview-audio-quality');
     if (audioEl) {
-        let audioValue = videoData.original_audio_quality;
-        if (!audioValue || audioValue === 'unknown') {
-            audioValue = videoData.audio_quality_display || 'unknown';
-        }
+        let audioValue = videoData.original_audio_quality || 'unknown';
         audioEl.textContent = audioValue;
-        console.log("✅ Set Audio Quality to:", audioValue);
     }
     
-    // ALWAYS UPDATE Aspect Ratio
+    // Update Aspect Ratio
     const aspectEl = document.getElementById('preview-aspect-ratio');
     if (aspectEl) {
-        let aspectValue = videoData.original_aspect_ratio;
-        if (!aspectValue || aspectValue === 'unknown') {
-            aspectValue = videoData.aspect_ratio_display || 'unknown';
-        }
+        let aspectValue = videoData.original_aspect_ratio || 'unknown';
         aspectEl.textContent = aspectValue;
-        console.log("✅ Set Aspect Ratio to:", aspectValue);
     }
     
     // Duration and Resolution
     const resolutionEl = document.getElementById('preview-resolution');
     const durationEl = document.getElementById('preview-duration');
 
-    // Always update duration if available in response
     if (videoData.duration && durationEl) {
         durationEl.textContent = formatDuration(videoData.duration);
-        console.log("✅ Set duration from response:", formatDuration(videoData.duration));
     }
 
-    // Create video preview URL (only if not already showing the same file)
+    // Create video preview URL
     try {
         if (videoPreview.src && videoPreview.src !== '') {
             URL.revokeObjectURL(videoPreview.src);
@@ -1340,13 +1322,8 @@ function showUploadPreview(videoData, file) {
         
         const videoUrl = URL.createObjectURL(file);
         videoPreview.src = videoUrl;
-        console.log("✅ Video preview URL created");
         
         videoPreview.onloadedmetadata = function() {
-            console.log("🎬 Video metadata loaded");
-            console.log("   Duration:", videoPreview.duration);
-            console.log("   Resolution:", videoPreview.videoWidth, "x", videoPreview.videoHeight);
-            
             if (durationEl && !videoData.duration) {
                 durationEl.textContent = formatDuration(videoPreview.duration);
             }
@@ -1354,7 +1331,6 @@ function showUploadPreview(videoData, file) {
             if (resolutionEl) {
                 const resolution = `${videoPreview.videoWidth}x${videoPreview.videoHeight}`;
                 resolutionEl.textContent = resolution;
-                console.log("✅ Set resolution to:", resolution);
             }
         };
         
@@ -1363,7 +1339,7 @@ function showUploadPreview(videoData, file) {
             if (durationEl && !videoData.duration) {
                 durationEl.textContent = formatDuration(videoData.duration || 0);
             }
-            if (resolutionEl && resolutionEl.textContent === 'unknown') {
+            if (resolutionEl) {
                 resolutionEl.textContent = videoData.original_resolution || 'unknown';
             }
         };
@@ -1374,33 +1350,11 @@ function showUploadPreview(videoData, file) {
         if (resolutionEl) resolutionEl.textContent = videoData.original_resolution || 'unknown';
     }
 
-    // Give the server a moment to fully write files
-    setTimeout(() => {
-        if (videoData.ai_thumbnails && videoData.ai_thumbnails.length > 0) {
-            console.log("🎨 Displaying thumbnails from API response after delay");
-            displayThumbnails(
-                videoData.ai_thumbnails,
-                videoData.extracted_thumbnails || [],
-                videoData.id
-            );
-        } else if (currentVideoId) {
-            console.log("🔄 Fetching thumbnails from API after delay for video:", currentVideoId);
-            setTimeout(() => fetchThumbnails(currentVideoId), 500);
-        }
-    }, 500); // 500ms delay to ensure files are written
-    
-
     // Show preview, hide progress
     progressDiv.classList.add('d-none');
     previewDiv.classList.remove('d-none');
-
-    // for frontend error("video details" section)
-    console.log("=".repeat(50));
-    console.log("✅ PREVIEW DISPLAYED with values:");
-    console.log("   FPS:", document.getElementById('preview-fps')?.textContent);
-    console.log("   Audio:", document.getElementById('preview-audio-quality')?.textContent);
-    console.log("   Aspect:", document.getElementById('preview-aspect-ratio')?.textContent);
-    console.log("=".repeat(50));
+    
+    console.log("✅ Upload preview displayed");
 }
 
 function showCreditWarning() {
@@ -1600,14 +1554,20 @@ async function refreshAccessToken(refreshToken) {
     return null;
 }
 
+
 function startUpload(file) {
-   // Prevent any default behavior
+    // Prevent any default behavior
     if (event) {
         event.preventDefault();
         event.stopPropagation();
     }
     
     console.log("Starting upload for:", file.name);
+    
+    // Reset upload variables
+    let uploadStartTime = Date.now();
+    let lastLoaded = 0;
+    let lastTime = uploadStartTime;
     
     ensureValidToken().then(validToken => {
         if (!validToken) return;
@@ -1639,11 +1599,49 @@ function startUpload(file) {
         const xhr = new XMLHttpRequest();
         currentUpload = xhr;
         
+        // Get DOM elements for speed display
+        const speedElement = document.querySelector('.upload-speed');
+        const timeElement = document.querySelector('.time-remaining');
+        const progressBar = document.querySelector('.upload-progress .progress-bar');
+        
+        // Progress event listener - calculates speed and time remaining
         xhr.upload.addEventListener('progress', function(e) {
             if (e.lengthComputable) {
+                // Update progress bar
                 const progress = (e.loaded / e.total) * 100;
-                const progressBar = document.querySelector('.upload-progress .progress-bar');
                 if (progressBar) progressBar.style.width = `${progress}%`;
+                
+                // Calculate upload speed (MB/s)
+                const now = Date.now();
+                const timeElapsed = (now - lastTime) / 1000; // seconds
+                const bytesUploaded = e.loaded - lastLoaded;
+                
+                if (timeElapsed >= 0.5 && bytesUploaded > 0) { // Update every 0.5 seconds
+                    const speedBytesPerSec = bytesUploaded / timeElapsed;
+                    const speedMBPerSec = speedBytesPerSec / (1024 * 1024);
+                    
+                    if (speedElement) {
+                        speedElement.textContent = `${speedMBPerSec.toFixed(1)} MB/s`;
+                    }
+                    
+                    // Calculate time remaining
+                    const remainingBytes = e.total - e.loaded;
+                    const remainingSeconds = remainingBytes / speedBytesPerSec;
+                    
+                    if (timeElement && remainingSeconds > 0 && remainingSeconds < 3600) {
+                        const minutes = Math.floor(remainingSeconds / 60);
+                        const seconds = Math.floor(remainingSeconds % 60);
+                        if (minutes > 0) {
+                            timeElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                        } else {
+                            timeElement.textContent = `${seconds} seconds`;
+                        }
+                    }
+                    
+                    // Reset for next calculation
+                    lastLoaded = e.loaded;
+                    lastTime = now;
+                }
             }
         });
         
@@ -1654,14 +1652,12 @@ function startUpload(file) {
                     currentVideoId = response.id;
                     console.log("✅ Upload success, video ID:", currentVideoId);
                     
-                    // CRITICAL P DON'T redirect immediately
-                    // Instead, show the preview and wait for user to click "Start Processing"
-                     // Update preview with real data
+                    // Update preview with real data
                     if (currentFile) {
                         console.log("🔄 Updating preview with REAL server data");
                         showUploadPreview(response, currentFile);
                     }
-
+                    
                     // Store video ID for later use
                     sessionStorage.setItem('uploaded_video_id', currentVideoId);
                     
@@ -1683,6 +1679,15 @@ function startUpload(file) {
                     if (sizeEl) sizeEl.textContent = formatFileSize(response.file_size || file.size);
                     if (durationEl && response.duration) durationEl.textContent = formatDuration(response.duration);
                     
+                    // Update additional metadata if available from response
+                    const fpsEl = document.getElementById('preview-fps');
+                    const audioEl = document.getElementById('preview-audio-quality');
+                    const aspectEl = document.getElementById('preview-aspect-ratio');
+                    
+                    if (fpsEl && response.original_fps) fpsEl.textContent = response.original_fps;
+                    if (audioEl && response.original_audio_quality) audioEl.textContent = response.original_audio_quality;
+                    if (aspectEl && response.original_aspect_ratio) aspectEl.textContent = response.original_aspect_ratio;
+                    
                     // Create video preview
                     if (videoPreview && file) {
                         if (videoPreview.src) URL.revokeObjectURL(videoPreview.src);
@@ -1702,6 +1707,10 @@ function startUpload(file) {
                         startBtn.classList.remove('disabled');
                     }
                     
+                    // Reset speed display to show completion
+                    if (speedElement) speedElement.textContent = 'Complete!';
+                    if (timeElement) timeElement.textContent = 'Done';
+                    
                     showAlert('Video uploaded successfully! You can now start processing.', 'success');
                     
                 } catch (e) {
@@ -1710,7 +1719,10 @@ function startUpload(file) {
                     resetUpload();
                 }
             } else if (xhr.readyState === 4 && xhr.status !== 201) {
-                // Check for specific error messages
+                // Reset speed display on error
+                if (speedElement) speedElement.textContent = '0 MB/s';
+                if (timeElement) timeElement.textContent = '--:--';
+                
                 let errorMsg = 'Upload failed. Please try again.';
                 try {
                     const response = JSON.parse(xhr.responseText);
@@ -1737,6 +1749,7 @@ function startUpload(file) {
         setTimeout(() => window.location.href = '/auth/login', 2000);
     });
 }
+
 
 function startProcessing() {
     console.log("Start Processing clicked");
@@ -1769,7 +1782,7 @@ function startProcessing() {
     sessionStorage.setItem('processing_video_id', currentVideoId);
     sessionStorage.setItem('processing_options', JSON.stringify(options));
     
-    // 🔥 NO WEBSOCKET HERE - processing.html handles it
+    // NO WEBSOCKET HERE - processing.html handles it
     fetch(`/api/v1/videos/${currentVideoId}/process`, {
         method: 'POST',
         headers: {
@@ -1811,6 +1824,7 @@ function startProcessing() {
         showAlert('Failed to start processing. Please try again.', 'danger');
     });
 }
+
 
 // Speed display update
 const speedModeSelect = document.getElementById('speed-mode-select');
@@ -1893,7 +1907,7 @@ function applyTierRestrictions() {
                     option.disabled = false;
                 } else {
                     option.disabled = true;
-                    option.title = `Available on Pro+`;
+                    option.title = `Upgrade your Tier`;
                 }
               }
         }
@@ -1915,12 +1929,12 @@ function applyTierRestrictions() {
 function checkAdvancedOptionsAccess() {
     let normalizedTier = String(userTier).toLowerCase();
     if (normalizedTier.includes('.')) normalizedTier = normalizedTier.split('.')[1];
-    
+
     const allowedTiers = ['pro', 'plus', 'enterprise'];
     const canUse = allowedTiers.includes(normalizedTier);
-    
+
     const controlsToManage = ['fps-select', 'audio-quality', 'generate-chapters', 'process-silent-video'];
-    
+
     for (const controlId of controlsToManage) {
         const control = document.getElementById(controlId);
         if (control) {
@@ -1929,7 +1943,7 @@ function checkAdvancedOptionsAccess() {
             control.style.cursor = canUse ? 'default' : 'not-allowed';
         }
     }
-    
+
     // Show upgrade message for free/starter users
     if (!canUse) {
         const advancedToggle = document.querySelector('[data-bs-target="#advanced-options"]');
@@ -1940,7 +1954,7 @@ function checkAdvancedOptionsAccess() {
             badge.innerHTML = '<i class="fas fa-crown me-1"></i>Pro+ Feature';
             advancedToggle.appendChild(badge);
         }
-        
+
         const optionsPanel = document.getElementById('advanced-options');
         if (optionsPanel && !optionsPanel.querySelector('.upgrade-message')) {
             const cardBody = optionsPanel.querySelector('.card-body');

@@ -159,12 +159,15 @@ def _send_ws_update(video_id, user_id, status, progress, step=None, message=None
 def _send_ws_completed(video_id, user_id, result_url, processing_time, total_cost):
     """Send WebSocket completion safely."""
     try:
+        logger.info(f"🔔 _send_ws_completed called for video {video_id}")
         handlers = _get_ws_handlers()
         if 'completed' in handlers:
             handlers['completed'](video_id, user_id, result_url, processing_time, total_cost)
+            logger.info(f"✅ _send_ws_completed executed for video {video_id}")
+        else:
+            logger.warning(f"⚠️ No 'completed' handler found for video {video_id}")
     except Exception as e:
-        logger.debug(f"WebSocket completion failed (non-critical): {e}")
-
+        logger.error(f"WebSocket completion failed: {e}", exc_info=True)
 
 def _send_ws_failed(video_id, user_id, error_message, retry_count, can_retry):
     """Send WebSocket failure safely."""
@@ -1092,7 +1095,7 @@ def _apply_all_filters_production(video, options):
         target_width, target_height = aspect_dimensions[aspect_ratio]
     
     # Use chunked processing for large videos (> 1GB OR > 2K resolution)
-    use_chunked = file_size_mb > 100 or width > 1920 or height > 1080
+    use_chunked = file_size_mb > 100 or width > 1920 or height > 1080  #if it is more than 100mb or more than 1k
     
     if use_chunked:
         logger.info(f"[MASTER] Large video detected ({file_size_mb:.0f}MB, {width}x{height})")

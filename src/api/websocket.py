@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
+
 from flask import request
 from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 from flask_jwt_extended import decode_token
@@ -136,14 +137,18 @@ def send_video_completed(
             "timestamp": datetime.utcnow().isoformat(),
         }
 
+        logger.info(f"🔔 ATTEMPTING to send video_completed event for {video_id}")
+        logger.info(f"   Rooms: video:{video_id}, user:{user_id}")
+        
         _socketio.emit(WS_EVENTS["VIDEO_COMPLETED"], data, room=f"video:{video_id}")
         _socketio.emit(WS_EVENTS["VIDEO_COMPLETED"], data, room=f"user:{user_id}")
-
-        logger.info(f"Video completed notification sent: {video_id}")
+        
+        logger.info(f"✅ video_completed event SENT for {video_id}")
 
     except Exception as e:
         logger.error(f"Send video completed error: {e}")
-
+        import traceback
+        traceback.print_exc()
 
 def send_video_failed(
     video_id: str, user_id: str, error_message: str, retry_count: int, can_retry: bool
@@ -288,58 +293,73 @@ def send_progress_update(
 
 def register_websocket_handlers(socketio_instance: SocketIO):
     """Register all WebSocket event handlers."""
-    
+
     @socketio_instance.on("connect")
     def handle_connect():
-        """Handle WebSocket connection."""
+        """Handle WebSocket connection with production-grade token extraction."""
         try:
+            # Try multiple token sources (production robust)
+            token = None
+            
+            # Source 1: Query parameter (most common for WebSocket)
             token = request.args.get("token")
+            
+            # Source 2: Auth header
+            if not token:
+                auth_header = request.headers.get('Authorization', '')
+                if auth_header.startswith('Bearer '):
+                    token = auth_header[7:]
+            
+            # Source 3: Auth object (for some Socket.IO clients)
+            if not token and hasattr(request, 'auth') and request.auth:
+                token = request.auth.get('token')
+            
             if not token:
                 logger.warning("WebSocket connection attempt without token")
                 disconnect()
                 return False
-
+            
+            # Verify token
             try:
                 decoded = decode_token(token)
                 user_id = decoded["sub"]
-
+                
                 user = user_service.get_user_by_id(user_id)
                 if not user or not user.is_active():
                     logger.warning(f"Invalid user attempting WebSocket: {user_id}")
                     disconnect()
                     return False
-
+                
+                # Store connection info
                 connected_clients[request.sid] = {
                     "user_id": user_id,
                     "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
                     "connected_at": datetime.utcnow().isoformat(),
                 }
-
+                
+                # Join user rooms
                 join_room(f"user:{user_id}")
                 join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
-
+                
                 if getattr(user, 'is_admin', False):
                     join_room("admin")
-
+                
                 logger.info(f"WebSocket connected: {user_id}")
-
-                emit(
-                    WS_EVENTS["CONNECT"],
-                    {
-                        "status": "connected",
-                        "user_id": user_id,
-                        "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
-                )
-
+                
+                emit(WS_EVENTS["CONNECT"], {
+                    "status": "connected",
+                    "user_id": user_id,
+                    "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+                
                 return True
-
+                
             except Exception as e:
                 logger.error(f"Token verification failed: {e}")
                 disconnect()
                 return False
-
+                
         except Exception as e:
             logger.error(f"WebSocket connection error: {e}")
             disconnect()
@@ -354,11 +374,29 @@ def register_websocket_handlers(socketio_instance: SocketIO):
 
     @socketio_instance.on("subscribe_video")
     def handle_subscribe_video(data: Dict[str, Any]):
-        """Subscribe to video processing updates."""
+        """Subscribe to video processing updates with proper state recovery."""
         try:
             user_info = connected_clients.get(request.sid)
             if not user_info:
-                raise UnauthorizedError("Not authenticated")
+                # Try to get user from token (for reconnection cases)
+                token = request.args.get("token")
+                if token:
+                    try:
+                        decoded = decode_token(token)
+                        user_id = decoded["sub"]
+                        user = user_service.get_user_by_id(user_id)
+                        if user and user.is_active():
+                            user_info = {
+                                "user_id": user_id,
+                                "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                            }
+                            connected_clients[request.sid] = user_info
+                            join_room(f"user:{user_id}")
+                    except Exception as e:
+                        logger.error(f"Token re-auth failed: {e}")
+                
+                if not user_info:
+                    raise UnauthorizedError("Not authenticated")
 
             video_id = data.get("video_id")
             if not video_id:
@@ -368,19 +406,55 @@ def register_websocket_handlers(socketio_instance: SocketIO):
             if not video:
                 return {"error": "Video not found or access denied"}
 
+            # Join the video room
             join_room(f"video:{video_id}")
-
-            emit(
-                WS_EVENTS["VIDEO_PROCESSING"],
-                {
-                    "video_id": video_id,
-                    "status": getattr(video, 'status', "unknown"),
-                    "progress": video.get_progress() if hasattr(video, 'get_progress') else 0,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-                room=request.sid,
-            )
-
+            logger.info(f"User {user_info['user_id']} subscribed to video:{video_id}")
+            
+            # Get current processing status
+            status = video_service.get_processing_status(video_id, user_info["user_id"])
+            
+            if status:
+                current_status = status.get("status")
+                current_progress = status.get("progress", 0)
+                
+                if current_status == "completed":
+                    # If already completed, send completion event immediately
+                    logger.info(f"Video {video_id} already completed, sending completion event to subscriber")
+                    emit(WS_EVENTS["VIDEO_COMPLETED"], {
+                        "video_id": video_id,
+                        "user_id": user_info["user_id"],
+                        "status": "completed",
+                        "result_url": getattr(video, 'output_video_url', None),
+                        "processing_time": getattr(video, 'processing_time', 0),
+                        "total_cost": getattr(video, 'total_cost', 0),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }, room=request.sid)
+                    
+                elif current_status == "failed":
+                    # If already failed, send failure event
+                    logger.info(f"Video {video_id} already failed, sending failure event to subscriber")
+                    emit(WS_EVENTS["VIDEO_FAILED"], {
+                        "video_id": video_id,
+                        "user_id": user_info["user_id"],
+                        "status": "failed",
+                        "error_message": getattr(video, 'error_message', 'Processing failed'),
+                        "retry_count": getattr(video, 'retry_count', 0),
+                        "can_retry": True,
+                        "is_final": True,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }, room=request.sid)
+                else:
+                    # Still processing - send current progress
+                    emit(WS_EVENTS["VIDEO_PROCESSING"], {
+                        "video_id": video_id,
+                        "user_id": user_info["user_id"],
+                        "status": current_status,
+                        "progress": current_progress,
+                        "current_step": status.get("current_step"),
+                        "message": status.get("message", f"Processing... {current_progress}%"),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }, room=request.sid)
+            
             return {"status": "subscribed", "video_id": video_id}
 
         except Exception as e:

@@ -7,6 +7,8 @@ import json
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+import grpc
+from grpc import ssl_channel_credentials
 
 import firebase_admin
 from firebase_admin import credentials, firestore

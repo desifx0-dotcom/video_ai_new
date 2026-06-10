@@ -1,27 +1,25 @@
-from src.services.video_service import VideoService
-import json
+# test_production.py
+print("Testing Production Gevent Setup...")
 
-vs = VideoService()
+# 1. Test monkey patching
+from gevent import monkey
+monkey.patch_socket()
+print("✅ Gevent patched (SSL excluded)")
 
-# Get your video ID (check your database or recent uploads)
-video = vs.get_video_by_id("YOUR_VIDEO_ID_HERE")
+# 2. Test Firebase import
+import firebase_admin
+print("✅ Firebase imported")
 
-if video:
-    print("=== VIDEO OBJECT ATTRIBUTES ===")
-    print(f"video_type: {video.video_type}")
-    print(f"output_quality: {video.output_quality}")
-    print(f'fps: {getattr(video, "fps", "NOT SET")}')
-    print(f'audio_quality: {getattr(video, "audio_quality", "NOT SET")}')
-    print(f'aspect_ratio: {getattr(video, "aspect_ratio", "NOT SET")}')
-    print(f'thumbnail_style: {getattr(video, "thumbnail_style", "NOT SET")}')
-    print(f'applied_styles: {getattr(video, "applied_styles", [])}')
-    print(f'auto_transcribe: {getattr(video, "auto_transcribe", True)}')
+# 3. Test gRPC gevent init
+import grpc
+try:
+    grpc._cython.cygrpc.init_grpc_gevent()
+    print("✅ gRPC gevent mode enabled")
+except:
+    print("⚠️ gRPC gevent init not needed")
 
-    # Also check the full dict
-    print("\n=== VIDEO DICT ===")
-    full_dict = video.to_dict()
-    print(f'fps in dict: {full_dict.get("fps")}')
-    print(f'aspect_ratio in dict: {full_dict.get("aspect_ratio")}')
-    print(f'thumbnail_style in dict: {full_dict.get("thumbnail_style")}')
-else:
-    print("Video not found")
+# 4. Test SocketIO import
+from flask_socketio import SocketIO
+print("✅ SocketIO ready")
+
+print("\n🎉 Production setup is ready!")

@@ -191,68 +191,139 @@
         'completed': { step: 'finalize', name: 'Complete!', detail: 'Your video is ready' }
     };
     
-    // Connect WebSocket
+    
     function connectWebSocket() {
         const token = localStorage.getItem('access_token');
         
+        if (!token) {
+            console.error('No token found for WebSocket connection');
+            startPolling();
+            return;
+        }
+        
+        console.log('Connecting WebSocket...');
+        
+        // Send token as query parameter
         socket = io({
+            path: '/socket.io',
             transports: ['websocket', 'polling'],
-            reconnectionAttempts: 10,
+            reconnectionAttempts: 10,  // Increased for long processing
             reconnectionDelay: 1000,
-            auth: { token: token }
+            reconnectionDelayMax: 5000,
+            timeout: 20000,
+            query: { token: token }
         });
         
         socket.on('connect', function() {
-            console.log('WebSocket connected');
-            // FIX: Use 'subscribe_video' instead of 'join_video'
+            console.log('WebSocket connected successfully, subscribing to video...');
+            // Always subscribe on every connect/reconnect
             socket.emit('subscribe_video', { video_id: videoId });
+            
+            // Also send a ping to confirm connection is alive
+            socket.emit('ping', { timestamp: Date.now() });
+        });
+        
+        socket.on('connect_error', function(error) {
+            console.error('WebSocket connection error:', error);
+            startPolling();
         });
         
         socket.on('video_processing', function(data) {
-            // FIX: Only process updates for this video
+            console.log('📡 Received video_processing:', data);
             if (data.video_id && data.video_id !== videoId) return;
             updateProgress(data.progress || 0, data.current_step, data.message);
         });
         
         socket.on('progress_update', function(data) {
+            console.log('📡 Received progress_update:', data);
             if (data.video_id && data.video_id !== videoId) return;
             updateProgress(data.progress, data.current_step, data.message);
         });
         
         socket.on('video_completed', function(data) {
+            console.log('🎉 Received video_completed event!', data);
             if (data.video_id && data.video_id !== videoId) return;
-            console.log('Video completed!', data);
-            
-            // Show credit deduction
+            console.log('✅ This is our video! Handling completion...');
             if (data.credits_deducted) {
                 showCreditDeduction(data.credits_deducted);
             }
-            
             handleCompletion(data);
         });
         
         socket.on('video_failed', function(data) {
+            console.log('❌ Received video_failed event:', data);
             if (data.video_id && data.video_id !== videoId) return;
-            console.log('Video failed event:', data);
-            
             if (data.is_final === true || data.retry_count >= maxRetries) {
                 handlePermanentFailure(data);
             } else if (!retryCountDisplayed) {
-                // Show retry message only once
                 retryCountDisplayed = true;
                 stepDetailEl.textContent = `Still processing... (Attempt ${data.retry_count + 1}/${maxRetries})`;
                 showToast(`Processing attempt ${data.retry_count + 1}/${maxRetries}`, 'info');
             }
         });
         
-        socket.on('disconnect', function() {
-            console.log('WebSocket disconnected');
+        socket.on('disconnect', function(reason) {
+            console.log(`WebSocket disconnected: ${reason}`);
             if (isProcessing && !processingCompleted && !permanentFailure) {
+                // Only start polling if we're still processing
                 startPolling();
             }
         });
+        
+        socket.on('reconnect', function(attemptNumber) {
+            console.log(`WebSocket reconnected after ${attemptNumber} attempts, re-subscribing...`);
+            // CRITICAL: Re-subscribe on reconnect!
+            socket.emit('subscribe_video', { video_id: videoId });
+        });
     }
-    
+
+    // Also update the initial connection to check if video is already completed
+    async function checkIfAlreadyCompleted() {
+        try {
+            const token = localStorage.getItem('access_token');
+            const response = await fetch(`/api/v1/videos/${videoId}/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            
+            if (data.status === 'completed') {
+                console.log('Video already completed! Redirecting...');
+                handleCompletion(data);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('Failed to check video status:', e);
+            return false;
+        }
+    }
+
+    // Initialize
+    window.processingStartTime = Date.now();
+    restoreSavedProgress();
+
+    // First check if video is already completed
+    checkIfAlreadyCompleted().then(isCompleted => {
+        if (!isCompleted) {
+            connectWebSocket();
+            
+            // Start polling backup after 10 seconds if WebSocket doesn't connect
+            setTimeout(() => {
+                if (isProcessing && !processingCompleted && !permanentFailure && (!socket || !socket.connected)) {
+                    console.log('WebSocket not connected after 10 seconds, starting polling');
+                    startPolling();
+                }
+            }, 10000);
+            
+            // Also set up a heartbeat to keep connection alive
+            setInterval(() => {
+                if (socket && socket.connected && isProcessing && !processingCompleted) {
+                    socket.emit('ping', { timestamp: Date.now() });
+                }
+            }, 30000);
+        }
+    });
+        
     function showCreditDeduction(amount) {
         if (creditDeductionAmountSpan) {
             creditDeductionAmountSpan.textContent = amount;
@@ -400,7 +471,49 @@
             window.location.href = resultsUrl;
         }, 3000);
     }
-    
+
+    // Force check status when WebSocket is delayed
+    async function forceCheckStatus() {
+        try {
+            const token = localStorage.getItem('access_token');
+            const response = await fetch(`/api/v1/videos/${videoId}/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            
+            if (data.status === 'completed') {
+                console.log('Status check found completed video!');
+                handleCompletion(data);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+// In your initialization, add a safety check
+setTimeout(async () => {
+    // Check every 5 seconds for up to 10 minutes
+    let checks = 0;
+    const checkInterval = setInterval(async () => {
+        checks++;
+        if (processingCompleted || permanentFailure) {
+            clearInterval(checkInterval);
+            return;
+        }
+        
+        const completed = await forceCheckStatus();
+        if (completed) {
+            clearInterval(checkInterval);
+        }
+        
+        if (checks > 120) { // 10 minutes max
+            clearInterval(checkInterval);
+        }
+    }, 5000);
+}, 10000); // Start checking after 10 seconds
+
     function handlePermanentFailure(data) {
         isProcessing = false;
         permanentFailure = true;
@@ -430,52 +543,89 @@
         showToast(data.error_message || 'Processing failed. You can try again.', 'danger');
     }
     
+
     function startPolling() {
         console.log('Starting polling fallback');
         
         if (pollInterval) clearInterval(pollInterval);
         
         let pollCount = 0;
-        const maxPollCount = 120; // 6 minutes at 3 second intervals
+        const MAX_POLLS = 360;           // 30 minutes (360 × 5s)
+        const POLL_INTERVAL = 5000;      // Check every 5 seconds
         
         pollInterval = setInterval(async () => {
             pollCount++;
+            const elapsedMinutes = Math.floor(pollCount * POLL_INTERVAL / 60000);
             
-            if (processingCompleted || permanentFailure) {
+            // Update UI - just show elapsed time (no warnings)
+            if (stepDetailEl) {
+                stepDetailEl.textContent = `Processing... ${elapsedMinutes} minute${elapsedMinutes !== 1 ? 's' : ''} elapsed`;
+            }
+            
+            // ========== TIMEOUT CHECK (30 minutes) ==========
+            if (pollCount > MAX_POLLS) {
                 clearInterval(pollInterval);
+                
+                // One final check
+                try {
+                    const finalCheck = await fetch(`/api/v1/videos/${videoId}/status`, {
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+                    });
+                    const finalData = await finalCheck.json();
+                    
+                    if (finalData.status === 'completed') {
+                        handleCompletion(finalData);
+                        return;
+                    }
+                } catch (e) {}
+                
+                // Real timeout
+                handlePermanentFailure({
+                    error_message: 'Processing timeout after 30 minutes. Please try again.',
+                    retry_count: maxRetries,
+                    is_final: true
+                });
                 return;
             }
             
-            if (pollCount > maxPollCount) {
-                clearInterval(pollInterval);
-                handlePermanentFailure({ error_message: 'Processing timed out' });
-                return;
-            }
-            
+            // ========== CHECK STATUS ==========
             try {
                 const token = localStorage.getItem('access_token');
                 const response = await fetch(`/api/v1/videos/${videoId}/status`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+                
+                if (!response.ok) {
+                    return;  // Just wait for next poll
+                }
+                
                 const data = await response.json();
                 
+                // SUCCESS
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
                     handleCompletion(data);
-                } else if (data.status === 'failed') {
-                    if (data.retry_count >= maxRetries) {
-                        clearInterval(pollInterval);
-                        handlePermanentFailure(data);
-                    }
-                } else {
-                    updateProgress(data.progress || 0, data.current_step, data.message);
+                    return;
                 }
+                
+                // FAILURE
+                if (data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    handlePermanentFailure(data);
+                    return;
+                }
+                
+                // STILL PROCESSING - Do nothing, just wait for next poll
+                
             } catch (error) {
                 console.error('Polling error:', error);
+                // Just wait for next poll, don't show error
             }
-        }, 3000);
+            
+        }, POLL_INTERVAL);
     }
-    
+
+
     function retryProcessing() {
         fetch(`/api/v1/videos/${videoId}/retry`, {
             method: 'POST',
@@ -520,12 +670,14 @@
         });
     }
     
+
     function closeProcessing() {
         if (confirm('Processing will continue in the background. You can check progress later from your history page.')) {
             window.location.href = '/history';
         }
     }
     
+
     function showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `alert alert-${type === 'danger' ? 'danger' : type} alert-dismissible fade show position-fixed`;
@@ -541,6 +693,7 @@
         }, 5000);
     }
     
+    
     // Check for saved progress on page refresh
     function restoreSavedProgress() {
         const savedProgress = sessionStorage.getItem(`processing_${videoId}_progress`);
@@ -552,6 +705,7 @@
         }
     }
     
+
     // Initialize
     window.processingStartTime = Date.now();
     restoreSavedProgress();
@@ -567,6 +721,7 @@
     
     // Make functions global
     window.closeProcessing = closeProcessing;
+    
     window.retryProcessing = retryProcessing;
 </script>
 {% endblock %}

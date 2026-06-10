@@ -1429,9 +1429,13 @@ class FFmpegProvider:
             concat_file = os.path.join(chunk_dir, "concat.txt")
             with open(concat_file, "w") as f:
                 for chunk_path in processed_chunks:
-                    f.write(f"file '{chunk_path}'\n")
-            
+                    abs_path = os.path.abspath(chunk_path).replace('\\', '/')
+                    f.write(f"file '{abs_path}'\n")
+
             temp_concat = os.path.join(chunk_dir, "concatenated.mp4")
+            concat_success = False
+
+            # METHOD 1: Concat demuxer (fastest)
             concat_cmd = [
                 "ffmpeg", "-f", "concat", "-safe", "0",
                 "-i", concat_file,
@@ -1440,14 +1444,47 @@ class FFmpegProvider:
                 "-pix_fmt", "yuv420p",
                 "-y", temp_concat
             ]
-            
-            logger.info(f"   🔗 Concatenating {len(processed_chunks)} chunks...")
+
+            logger.info(f"   🔗 Concatenating using demxure(method 1){len(processed_chunks)} chunks...")
+
             result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=300)
-            
-            if result.returncode != 0:
-                logger.error(f"❌ Concatenation FAILED: {result.stderr[:300]}")
-                return False
-            
+
+            if result.returncode == 0 and os.path.exists(temp_concat) and os.path.getsize(temp_concat) > 0:
+                concat_success = True
+                logger.info(f"   ✅ Concat demuxer succeeded")
+            else:
+                logger.warning(f"   ⚠️ Concat demuxer failed, trying filter complex...")
+                
+                # METHOD 2: Filter complex (more reliable for problematic videos)
+                filter_inputs = []
+                for chunk_path in processed_chunks:
+                    filter_inputs.extend(["-i", chunk_path])
+                
+                filter_complex = f"concat=n={len(processed_chunks)}:v=1:a=1"
+                filter_cmd = filter_inputs + [
+                    "-filter_complex", filter_complex,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-pix_fmt", "yuv420p",
+                    "-y", temp_concat
+                ]
+
+                logger.info(f"   🔗 Concatenating using (method 2){len(processed_chunks)} chunks...")
+                
+                result = subprocess.run(filter_cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode == 0 and os.path.exists(temp_concat) and os.path.getsize(temp_concat) > 0:
+                    concat_success = True
+                    logger.info(f"   ✅ Filter complex succeeded")
+                else:
+                    logger.error(f"   ❌ Both concat methods failed")
+
+            if not concat_success:
+                logger.warning(f"   ⚠️ Falling back to normal processing")
+                return False  # This triggers the fallback in _apply_all_filters_production
+
+            logger.info(f"   🔗 Concatenated {len(processed_chunks)} chunks successfully")
+
             # STEP 3: Apply final scaling to user's desired quality
             logger.info(f"   📊 Applying final scaling to {quality_lower} ({final_width}x{final_height})...")
             
@@ -1466,10 +1503,21 @@ class FFmpegProvider:
                 ]
                 logger.info(f"   📊 Applying aspect ratio: {aspect_ratio} -> {ar_w}x{ar_h}")
             
+            #to ensure quality isn't lost when scaling up
+            if final_width > PROCESSING_WIDTH or final_height > PROCESSING_HEIGHT:
+                # Scaling UP - use better preset
+                preset = "medium"  # Better quality for upscaling
+                crf = "18"         # Lower CRF = better quality
+            else:
+                # Scaling DOWN - can use faster preset
+                preset = "fast"
+                crf = "23"
+
             final_cmd = [
                 "ffmpeg", "-i", temp_concat,
                 "-vf", ",".join(final_vf),
-                "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                "-c:v", "libx264", "-preset", preset,  # ← Use adaptive preset
+                "-crf", crf,                            # ← Use adaptive CR
                 "-c:a", "aac", "-b:a", "192k",
                 "-ar", "48000", "-ac", "2",
                 "-movflags", "+faststart",

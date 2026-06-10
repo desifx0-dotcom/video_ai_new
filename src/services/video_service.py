@@ -384,47 +384,61 @@ class VideoService:
         except Exception as e:
             logger.error(f"❌ FFmpeg validation failed: {e}")
             return False
-        
+
     def _validate_upload(self, user, filename, file_size, content_type):
-        """Validate file upload against user tier and file constraints."""
+        """
+        Validate file upload against user tier and file constraints.
+        Uses TIER_UPLOAD_LIMITS for dynamic size limits per tier.
+        """
+        from core.constants import ALLOWED_VIDEO_EXTENSIONS, ALLOWED_VIDEO_MIME_TYPES
+        from src.config import TIER_UPLOAD_LIMITS # Import tier limits
 
-        # Import constants if not already imported
-        from core.constants import (
-            MAX_UPLOAD_SIZE,
-            ALLOWED_VIDEO_EXTENSIONS,
-            ALLOWED_VIDEO_MIME_TYPES,
-        )
-
-        # Check file size
-        max_size = getattr(user, "max_upload_size", MAX_UPLOAD_SIZE)
-        if file_size > max_size:
+        # ========== 1. TIER-BASED SIZE LIMIT ==========
+        # Get upload limit based on user's tier (NOT hardcoded!)
+        tier_name = user.tier.value if hasattr(user.tier, 'value') else str(user.tier)
+        
+        # Tier upload limits (MB to bytes)
+        # tier_limits_mb = {
+        #     "free": 100,      # 100MB
+        #     "starter": 500,   # 500MB
+        #     "pro": 1024,      # 1GB
+        #     "plus": 2048,     # 2GB (Your tier!)
+        #     "enterprise": 5120, # 5GB
+        # }
+        
+        max_size_mb = TIER_UPLOAD_LIMITS.get(tier_name, 100)
+        max_size_bytes = max_size_mb * 1024 * 1024
+        
+        if file_size > max_size_bytes:
             raise FileUploadError(
-                f"File size exceeds maximum allowed size of {max_size // (1024*1024)}MB"
+                f"File size ({file_size // (1024*1024)}MB) exceeds maximum for {tier_name} tier "
+                f"({max_size_mb}MB). Upgrade to increase limit.",
+                field="file",
+                upgrade_url="/pricing"
             )
 
-        # Check file extension
+        # ========== 2. CHECK FILE EXTENSION ==========
         import os
-
         ext = os.path.splitext(filename)[1].lower()
         if ext not in ALLOWED_VIDEO_EXTENSIONS:
             raise InvalidVideoFormatError(
                 f"File extension {ext} not allowed. Allowed: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
             )
 
-        # Check mime type if provided
+        # ========== 3. CHECK MIME TYPE (warning only) ==========
         if content_type and content_type not in ALLOWED_VIDEO_MIME_TYPES:
-            # This is a warning, not an error - some browsers send incorrect mime types
-            logger.warning(f"Unexpected content type: {content_type}")
+            logger.warning(f"Unexpected content type: {content_type} - file may still work")
 
-        # Check user's remaining quota
+        # ========== 4. CHECK MONTHLY QUOTA ==========
         if user.videos_processed_this_month >= user.monthly_video_limit:
             raise TierLimitExceeded(
                 "monthly_videos",
                 user.videos_processed_this_month,
                 user.monthly_video_limit,
+                upgrade_url="/pricing",
             )
 
-        logger.info(f"File validation passed for {filename}")
+        logger.info(f"✅ File validation passed for {filename} ({file_size//(1024*1024)}MB)")
 
     def validate_advanced_options(user_tier, options):
         """Validate that advanced options are only used by eligible tiers."""

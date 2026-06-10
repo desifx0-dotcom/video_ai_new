@@ -119,6 +119,9 @@ celery_app.conf.update(
     task_default_retry_delay=60,
     task_max_retries=3,
 
+    # Result backend settings
+    result_backend='redis://',
+
     # Result expiration
     result_expires=86400,  # 24 hours
 
@@ -135,6 +138,15 @@ celery_app.conf.update(
             'default_retry_delay': 30,
         }
     },
+
+    # Keep connection alive
+    broker_pool_limit=None,
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    
+    # Heartbeat to prevent connection drops
+    broker_heartbeat=30,
+    broker_heartbeat_checkrate=2,
 
     # Dead letter exchange
     task_queues=(

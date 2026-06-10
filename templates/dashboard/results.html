@@ -835,6 +835,7 @@ const videoId = '{{ video.id }}';
 const csrfToken = '{{ csrf_token() }}';
 const accessToken = localStorage.getItem('access_token');
 
+
 // ============================================
 // THUMBNAIL FUNCTIONS
 // ============================================
@@ -1424,15 +1425,44 @@ async function applyStyleToVideo(styleId, styleName) {
 }
 
 // Polling function (fallback if WebSocket fails)
-async function waitForVideoProcessing(videoId, token, maxAttempts = 30, interval = 2000) {
+async function waitForVideoProcessing(videoId, token, maxAttempts = 360, interval = 5000) {
+    // 360 attempts × 5 seconds = 1800 seconds = 30 minutes timeout
+    // Perfect for 1GB+ videos!
+    
     let attempts = 0;
+    let consecutiveErrors = 0;
     const loadingMessage = document.querySelector('#style-loading-overlay .loading-message');
+    const progressBar = document.querySelector('#processing-progress-bar');
+    const statusText = document.querySelector('#processing-status-text');
+    let startTime = Date.now();
+    let lastProgress = 0;
     
     while (attempts < maxAttempts) {
         attempts++;
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+        const elapsedSecondsRemainder = Math.floor(elapsedSeconds % 60);
         
+        // Update loading message with elapsed time
         if (loadingMessage) {
-            loadingMessage.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Processing... (${attempts}/${maxAttempts})`;
+            let message = `<i class="fas fa-spinner fa-spin me-2"></i>Processing video... ${elapsedMinutes}:${elapsedSecondsRemainder.toString().padStart(2, '0')} elapsed`;
+            
+            // Show estimated time if we have progress
+            if (lastProgress > 0 && lastProgress < 100) {
+                const estimatedTotalSeconds = (elapsedSeconds / lastProgress) * 100;
+                const remainingSeconds = estimatedTotalSeconds - elapsedSeconds;
+                const remainingMinutes = Math.floor(remainingSeconds / 60);
+                if (remainingMinutes > 0 && remainingMinutes < 60) {
+                    message += ` (est. ${remainingMinutes} min remaining)`;
+                }
+            }
+            loadingMessage.innerHTML = message;
+        }
+        
+        // Update progress bar if element exists
+        if (progressBar && statusData && statusData.progress) {
+            progressBar.style.width = `${statusData.progress}%`;
+            progressBar.setAttribute('aria-valuenow', statusData.progress);
         }
         
         try {
@@ -1440,30 +1470,122 @@ async function waitForVideoProcessing(videoId, token, maxAttempts = 30, interval
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             
+            if (!statusResponse.ok) {
+                consecutiveErrors++;
+                if (consecutiveErrors > 3) {
+                    throw new Error(`Status API returned ${statusResponse.status}`);
+                }
+                await new Promise(resolve => setTimeout(resolve, interval));
+                continue;
+            }
+            
+            consecutiveErrors = 0;
             const statusData = await statusResponse.json();
             
+            // Update last progress
+            if (statusData.progress) {
+                lastProgress = statusData.progress;
+            }
+            
+            // Update status text
+            if (statusText && statusData.current_step) {
+                const stepNames = {
+                    'queued': 'Queued',
+                    'analyzing': 'Analyzing video',
+                    'transcribing': 'Transcribing audio',
+                    'generating_metadata': 'Generating title & description',
+                    'generating_thumbnails': 'Creating thumbnails',
+                    'applying_filters': 'Applying video effects',
+                    'compressing': 'Compressing video',
+                    'finalizing': 'Finalizing output'
+                };
+                statusText.textContent = stepNames[statusData.current_step] || statusData.current_step;
+            }
+            
+            // Check for completion
             if (statusData.status === 'completed' || statusData.output_url) {
-                console.log('Video processing completed via polling!');
+                console.log(`✅ Video processing completed after ${elapsedMinutes}:${elapsedSecondsRemainder.toString().padStart(2, '0')}`);
                 if (loadingMessage) {
-                    loadingMessage.innerHTML = '<i class="fas fa-check-circle me-2"></i>Video ready!';
+                    loadingMessage.innerHTML = '<i class="fas fa-check-circle me-2"></i>Video ready! Redirecting...';
                 }
+                // Brief delay to let user see success message
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 return true;
             }
             
+            // Check for failure
             if (statusData.status === 'failed') {
                 throw new Error(statusData.error_message || 'Processing failed');
             }
             
-            await new Promise(resolve => setTimeout(resolve, interval));
-            
         } catch (error) {
             console.error('Status check failed:', error);
-            await new Promise(resolve => setTimeout(resolve, interval));
+            if (consecutiveErrors > 5) {
+                throw new Error('Status check failed multiple times');
+            }
         }
+        
+        // Dynamic interval: start with 5 seconds, increase to 15 seconds for long processes
+        const dynamicInterval = Math.min(interval * (1 + attempts / 100), 15000);
+        await new Promise(resolve => setTimeout(resolve, dynamicInterval));
     }
     
-    console.log('Polling timeout, reloading anyway');
+    const totalMinutes = Math.floor((Date.now() - startTime) / 60000);
+    console.log(`Polling timeout after ${totalMinutes} minutes`);
+    
+    // Don't fail immediately - check one more time
+    try {
+        const finalCheck = await fetch(`/api/v1/videos/${videoId}/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const finalData = await finalCheck.json();
+        if (finalData.status === 'completed') {
+            console.log('Video completed just before timeout!');
+            return true;
+        }
+    } catch (e) {
+        // Ignore
+    }
+    
     return false;
+}
+
+// Start polling with progress tracking
+let pollingInterval = null;
+let pollingActive = false;
+
+function startPolling() {
+    if (pollingActive) return;
+    pollingActive = true;
+    
+    const token = localStorage.getItem('access_token');
+    const overlay = document.getElementById('style-loading-overlay');
+    
+    waitForVideoProcessing(videoId, token, 360, 5000).then(success => {
+        if (success) {
+            console.log('Processing complete, reloading page');
+            if (overlay) overlay.style.display = 'none';
+            window.location.reload();
+        } else {
+            console.error('Processing timed out');
+            if (overlay) overlay.style.display = 'none';
+            showAlert('Processing timed out. Please check your video in the history page.', 'warning');
+        }
+    }).catch(error => {
+        console.error('Polling error:', error);
+        if (overlay) overlay.style.display = 'none';
+        showAlert('Error checking processing status. Please refresh the page.', 'danger');
+    }).finally(() => {
+        pollingActive = false;
+    });
+}
+
+function clearPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+    pollingActive = false;
 }
 
 function showComingSoon(message) {
@@ -1488,7 +1610,6 @@ function updateAppliedStylesBadge(styleId, styleName) {
         }
     }
 }
-
 
 
 async function createShortClip(videoId) {
