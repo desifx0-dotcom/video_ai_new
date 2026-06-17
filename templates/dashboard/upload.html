@@ -341,7 +341,7 @@
                                                 256 kbps {% if current_user.tier not in ['pro', 'plus', 'enterprise'] %}(Pro+){% endif %}
                                             </option>
                                             <option value="320k" {% if current_user.tier not in ['enterprise'] %}disabled{% endif %}>
-                                                320 kbps {% if current_user.tier not in ['enterprise'] %}(Plus+){% endif %}
+                                                320 kbps {% if current_user.tier not in ['enterprise'] %}(enterprise){% endif %}
                                             </option>
                                         </select>
                                         <div class="form-text small text-muted">

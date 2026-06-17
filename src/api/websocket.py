@@ -52,7 +52,6 @@ def get_socketio():
     """Get the global socketio instance."""
     return _socketio
 
-
 def set_socketio_instance(socketio_instance):
     """Set the global socketio instance (called from main.py)."""
     global _socketio, socketio
@@ -95,15 +94,20 @@ def send_video_update(
         return
 
     try:
+        logger.info(f"📤 send_video_update received step={step}, progress={progress}")
         data = {
             "video_id": video_id,
             "user_id": user_id,
             "status": status,
             "progress": progress,
             "current_step": step,
+            "step":step,
             "message": message,
             "timestamp": datetime.utcnow().isoformat(),
         }
+
+        logger.info(f"📤 EMITTING video_processing: current_step={step}, progress={progress}, status={status}")
+        logger.info(f"   Full data: {data}")
 
         _socketio.emit(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"video:{video_id}")
         _socketio.emit(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"user:{user_id}")
@@ -374,11 +378,11 @@ def register_websocket_handlers(socketio_instance: SocketIO):
 
     @socketio_instance.on("subscribe_video")
     def handle_subscribe_video(data: Dict[str, Any]):
-        """Subscribe to video processing updates with proper state recovery."""
+        """Subscribe to video processing updates."""
         try:
             user_info = connected_clients.get(request.sid)
             if not user_info:
-                # Try to get user from token (for reconnection cases)
+                # Try to get user from token on reconnect
                 token = request.args.get("token")
                 if token:
                     try:
@@ -392,6 +396,7 @@ def register_websocket_handlers(socketio_instance: SocketIO):
                             }
                             connected_clients[request.sid] = user_info
                             join_room(f"user:{user_id}")
+                            logger.info(f"Re-authenticated user {user_id} on reconnect")
                     except Exception as e:
                         logger.error(f"Token re-auth failed: {e}")
                 
@@ -402,6 +407,7 @@ def register_websocket_handlers(socketio_instance: SocketIO):
             if not video_id:
                 return {"error": "video_id is required"}
 
+            # Verify video belongs to user
             video = video_service.get_video(video_id, user_info["user_id"])
             if not video:
                 return {"error": "Video not found or access denied"}
@@ -410,48 +416,35 @@ def register_websocket_handlers(socketio_instance: SocketIO):
             join_room(f"video:{video_id}")
             logger.info(f"User {user_info['user_id']} subscribed to video:{video_id}")
             
-            # Get current processing status
+            #  Get current status with proper step
             status = video_service.get_processing_status(video_id, user_info["user_id"])
             
             if status:
                 current_status = status.get("status")
                 current_progress = status.get("progress", 0)
+                #  Get the step from the video object directly
+                current_step = getattr(video, 'current_step', None)
+                # current_step = status.get("current_step", "queued")  # ← Provide default!
+                
+                logger.info(f"Sending current status to {user_info['user_id']}: {current_status} ({current_progress}%) step={current_step}")
                 
                 if current_status == "completed":
-                    # If already completed, send completion event immediately
-                    logger.info(f"Video {video_id} already completed, sending completion event to subscriber")
                     emit(WS_EVENTS["VIDEO_COMPLETED"], {
                         "video_id": video_id,
                         "user_id": user_info["user_id"],
                         "status": "completed",
-                        "result_url": getattr(video, 'output_video_url', None),
+                        "result_url": video.output_video_url if hasattr(video, 'output_video_url') else None,
                         "processing_time": getattr(video, 'processing_time', 0),
-                        "total_cost": getattr(video, 'total_cost', 0),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    }, room=request.sid)
-                    
-                elif current_status == "failed":
-                    # If already failed, send failure event
-                    logger.info(f"Video {video_id} already failed, sending failure event to subscriber")
-                    emit(WS_EVENTS["VIDEO_FAILED"], {
-                        "video_id": video_id,
-                        "user_id": user_info["user_id"],
-                        "status": "failed",
-                        "error_message": getattr(video, 'error_message', 'Processing failed'),
-                        "retry_count": getattr(video, 'retry_count', 0),
-                        "can_retry": True,
-                        "is_final": True,
                         "timestamp": datetime.utcnow().isoformat(),
                     }, room=request.sid)
                 else:
-                    # Still processing - send current progress
+                    # Send the step properly
                     emit(WS_EVENTS["VIDEO_PROCESSING"], {
                         "video_id": video_id,
                         "user_id": user_info["user_id"],
-                        "status": current_status,
+                        "status": current_status or "processing",
                         "progress": current_progress,
-                        "current_step": status.get("current_step"),
-                        "message": status.get("message", f"Processing... {current_progress}%"),
+                        "current_step":current_step,  # ← This should NOT be None
                         "timestamp": datetime.utcnow().isoformat(),
                     }, room=request.sid)
             
@@ -544,7 +537,6 @@ def register_websocket_handlers(socketio_instance: SocketIO):
             logger.error(f"Admin broadcast error: {e}")
             return {"error": str(e)}
 
-
 def get_connected_clients_stats() -> Dict[str, Any]:
     """Get statistics about connected WebSocket clients."""
     try:
@@ -565,7 +557,6 @@ def get_connected_clients_stats() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Get connected clients stats error: {e}")
         return {}
-
 
 def disconnect_user(user_id: str):
     """Disconnect a specific user from WebSocket."""

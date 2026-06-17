@@ -138,23 +138,26 @@ def _get_ws_handlers():
                 'failed': send_video_failed,
                 'progress': send_progress_update,
             }
-            logger.info("WebSocket handlers loaded successfully")
+            logger.info("✅ WebSocket handlers loaded successfully")
         except ImportError as e:
-            logger.warning(f"WebSocket handlers not available: {e}")
+            logger.warning(f"❌ WebSocket handlers not available: {e}")
             _ws_handlers = {}
     
     return _ws_handlers
-
 
 def _send_ws_update(video_id, user_id, status, progress, step=None, message=None):
     """Send WebSocket update safely."""
     try:
         handlers = _get_ws_handlers()
         if 'update' in handlers:
+            logger.info(f"🔔 _send_ws_update: step={step}, progress={progress}, status={status}")
+            logger.info(f"   Calling handlers['update'] with step={step}")
+            
             handlers['update'](video_id, user_id, status, progress, step, message)
+        else:
+            logger.warning(f"⚠️ No 'update' handler found in _get_ws_handlers()")
     except Exception as e:
-        logger.debug(f"WebSocket update failed (non-critical): {e}")
-
+        logger.error(f"❌ WebSocket update failed: {e}", exc_info=True)
 
 def _send_ws_completed(video_id, user_id, result_url, processing_time, total_cost):
     """Send WebSocket completion safely."""
@@ -460,10 +463,16 @@ def process_video_async(
 
         # ========== STEP 4: GENERATE THUMBNAILS ==========
         video_service.update_processing_status(video_id, "processing", 60, "thumbnails")
-        _send_ws_update(video_id, user_id, "processing", 60, "generating_thumbnails", "Creating thumbnails...")
-        _send_ws_progress(video_id, 60, "generating_thumbnails", None)
+        _send_ws_update(video_id, user_id, "processing", 60, "thumbnails", "Creating thumbnails...")
+        _send_ws_progress(video_id, 60, "thumbnails", None)
         self.update_state(state="PROGRESS", meta={"current": "thumbnails", "total": 100, "status": "Generating thumbnails..."})
+
+        # FIRST generate the thumbnails
         _generate_thumbnails(video, options, user_id)
+
+        # THEN send completion for thumbnails
+        _send_ws_update(video_id, user_id, "processing", 70, "thumbnails", "Thumbnails complete")
+        _send_ws_progress(video_id, 70, "thumbnails", None)
 
         # ========== STEP 5: APPLY ALL VIDEO FILTERS (SINGLE PASS) ==========
         video_service.update_processing_status(video_id, "processing", 75, "applying_filters")
@@ -473,13 +482,11 @@ def process_video_async(
 
         try:
             output_path = _apply_all_filters_production(video, options)
-            
             if not output_path:
                 error_msg = f"Video filter application failed at stage: {getattr(video, '_last_failed_stage', 'unknown')}"
                 logger.error(f"[MASTER] {error_msg}")
                 _send_ws_failed(video_id, user_id, error_msg, self.request.retries, self.request.retries < self.max_retries)
                 raise ProcessingError(error_msg)
-                
         except Exception as filter_error:
             logger.error(f"[MASTER] Filter application failed: {filter_error}")
             video.status = "failed"
@@ -487,6 +494,10 @@ def process_video_async(
             video_service.update_video(video)
             _send_ws_failed(video_id, user_id, str(filter_error), self.request.retries, self.request.retries < self.max_retries)
             raise ProcessingError(f"Video processing failed during filter application: {filter_error}")
+        
+        # Filters complete
+        _send_ws_update(video_id, user_id, "processing", 90, "applying_filters", "Video effects applied")
+        _send_ws_progress(video_id, 90, "applying_filters", None)
 
         # ========== STEP 6: COMPLETE ==========
         video.status = "completed"
@@ -498,6 +509,11 @@ def process_video_async(
         video.output_video_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
         
         video_service.update_video(video)
+
+        # Send completion WebSocket
+        _send_ws_completed(video_id, user_id, video.output_video_url, video.processing_time, video.total_cost)
+        _send_ws_update(video_id, user_id, "completed", 100, "completed", "Video processing complete!")
+        _send_ws_progress(video_id, 100, "completed", 0)
 
         # Deduct credits AFTER successful processing
         try:
@@ -1052,10 +1068,11 @@ def _apply_all_filters_production(video, options):
     logger.info(f"   speed: {getattr(video, 'speed', 1.0)}")
     logger.info(f"   styles: {video.applied_styles}")
     logger.info(f"   aspect_ratio: {getattr(video, 'aspect_ratio', 'original')}")
-    
-    # Send initial progress
-    _send_ws_progress(video.id, 85, "applying_filters", 180)
-        
+
+      # Send initial progress - APPLYING FILTERS starts
+    _send_ws_update(video.id, video.user_id, "processing", 75, "applying_filters", "Starting video filters...")
+    _send_ws_progress(video.id, 75, "applying_filters", None)
+
     video._last_failed_stage = None
     input_path = video.original_path
     if not input_path or not os.path.exists(input_path):
@@ -1122,7 +1139,9 @@ def _apply_all_filters_production(video, options):
         )
         
         if success and os.path.exists(final_path):
-            _send_ws_progress(video.id, 100, "finalizing", 0)
+            _send_ws_update(video.id, video.user_id, "processing", 90, "finalizing", "Finalizing output...")
+            _send_ws_progress(video.id, 90, "finalizing", None)
+    
             video.output_path = final_path
             video.output_video_url = final_path
             video.output_video_size = os.path.getsize(final_path)
@@ -1408,6 +1427,9 @@ def _apply_all_filters_production(video, options):
         current_input = temp_aspect
         logger.info(f"[MASTER] ✅ Aspect ratio applied")
 
+    _send_ws_update(video.id, video.user_id, "processing", 90, "finalizing", "Finalizing output...")
+    _send_ws_progress(video.id, 90, "finalizing", None)
+    
     # ========== 3. FINAL OUTPUT ==========
     final_filename = f"final_{video_short_id}.mp4"
     final_path = os.path.join(os.path.dirname(input_path), final_filename)

@@ -824,7 +824,6 @@ class VideoService:
             logger.error(f"Error getting processing status: {e}")
             return None
 
-    # In video_service.py
     def update_processing_status(self, video_id: str, status: str, progress: int, step: str = None):
         """Update video processing status in database."""
         try:
@@ -844,8 +843,9 @@ class VideoService:
             
             self.db.save("videos", video_id, updates)
             
-            # Emit WebSocket update
-            self._emit_status_update(video_id, status, progress, step)
+            # Use the correct WebSocket function
+            # WebSocket is handled by process_video_async - don't emit here
+            # self._emit_status_update(video_id, status, progress, step) commenting it because of duplication due to process_video_async ()
             
             logger.info(f"📊 Status update for {video_id}: {status} - {progress}% - {step}")
             
@@ -855,25 +855,25 @@ class VideoService:
     def _emit_status_update(self, video_id: str, status: str, progress: int, step: str = None):
         """Emit WebSocket status update."""
         try:
-            from api.websocket import socketio
+            # Import the correct WebSocket function
+            from api.websocket import send_video_update
             from services.user_service import UserService
             
             # Get user_id for this video
             video_data = self.db.get("videos", video_id)
             if video_data:
                 user_id = video_data.get("user_id")
-                if socketio:
-                    socketio.emit(
-                        "video_status_update",
-                        {
-                            "video_id": video_id,
-                            "status": status,
-                            "progress": progress,
-                            "step": step,
-                            "timestamp": datetime.utcnow().isoformat()
-                        },
-                        room=user_id
+                if user_id:
+                    # Use send_video_update with correct parameters
+                    send_video_update(
+                        video_id=video_id,
+                        user_id=user_id,
+                        status=status,
+                        progress=progress,
+                        step=step,
+                        message=f"Processing: {step or status}"
                     )
+                    logger.info(f"📤 Emitted status update via WebSocket: {video_id} - {step}")
         except Exception as e:
             logger.warning(f"WebSocket emit failed: {e}")
 
