@@ -2,6 +2,8 @@
 Main application entry point with comprehensive setup.
 """
 
+from gevent import monkey
+monkey.patch_all()
 import os
 import sys
 from pathlib import Path
@@ -200,33 +202,42 @@ def create_app(config_class=Config):
             storage_uri=redis_url if redis_client else "memory://",
         )
 
-    # ========== 9. INITIALIZE SOCKETIO (BEFORE MIDDLEWARE & ROUTES) ==========
-    # Configure message queue
+    # ========== 9. INITIALIZE SOCKETIO ==========
+    # Determine environment
+    env = os.getenv("FLASK_ENV", "development")
+    is_development = env == "development"
+
+    # Configure message queue - ALWAYS use Redis if available
     message_queue = None
-    if os.getenv("FLASK_ENV") != "development" and app.config.get("SOCKETIO_MESSAGE_QUEUE"):
-        queue_url = app.config.get("SOCKETIO_MESSAGE_QUEUE")
-        if queue_url and not queue_url.startswith("mock://"):
-            message_queue = queue_url
-            logger.info(f"🌐 SocketIO using message queue: {message_queue}")
+    queue_url = (
+        app.config.get("SOCKETIO_MESSAGE_QUEUE") or
+        os.getenv("SOCKETIO_MESSAGE_QUEUE") or
+        os.getenv("REDIS_URL")
+    )
+
+    if queue_url and not queue_url.startswith("mock://"):
+        message_queue = queue_url
+        logger.info(f"🌐 SocketIO using Redis message queue: {message_queue}")
     else:
-        logger.info("🌐 SocketIO running without message queue (development mode)")
+        logger.info("🌐 SocketIO running without message queue (no Redis URL found)")
 
     # Create SocketIO instance
     socketio = SocketIO(
         app,
         cors_allowed_origins="*",
-        async_mode="eventlet",  #gevent , threading in production
+        async_mode="gevent",
         message_queue=message_queue,
         logger=True if app.debug else False,
         engineio_logger=True if app.debug else False,
-        ping_timeout=60,  # Keep connections alive longer
-        ping_interval=25,  # Send ping every 25 second
-        # Increase buffer for large messages
+        ping_timeout=60,
+        ping_interval=25,
         max_http_buffer_size=100 * 1024 * 1024,
-        # Allow auth via query string
         cors_credentials=True,
     )
-    
+
+    logger.info(f"✅ SocketIO initialized with message_queue: {message_queue if message_queue else 'None'}")
+    logger.info(f"✅ Environment: {env} (development: {is_development})")
+
     #Set global instance BEFORE registering handlers
     from api.websocket import set_socketio_instance, register_websocket_handlers
     set_socketio_instance(socketio)

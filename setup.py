@@ -53,7 +53,8 @@ setup(
         "dev": dev_requirements,
         "production": [
             "gunicorn>=21.2.0",
-            "eventlet>=0.33.3",
+            # "eventlet>=0.33.3",
+            "gevent==23.9.1,"
             "whitenoise>=6.5.0",
         ],
         "testing": [

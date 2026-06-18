@@ -829,26 +829,30 @@ class VideoService:
         try:
             if not self.db:
                 return
-            
+
+            if step is None:
+                step = status
+
+
             updates = {
                 "status": status,
                 "progress": progress,
                 "current_step": step,
                 "updated_at": datetime.utcnow().isoformat()
             }
-            
+
             # If status is completed, also set processing_completed timestamp
             if status == "completed":
                 updates["processing_completed"] = datetime.utcnow().isoformat()
-            
+
             self.db.save("videos", video_id, updates)
-            
+
             # Use the correct WebSocket function
             # WebSocket is handled by process_video_async - don't emit here
             # self._emit_status_update(video_id, status, progress, step) commenting it because of duplication due to process_video_async ()
-            
+
             logger.info(f"📊 Status update for {video_id}: {status} - {progress}% - {step}")
-            
+
         except Exception as e:
             logger.error(f"Failed to update status: {e}")
 

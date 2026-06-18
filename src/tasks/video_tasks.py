@@ -148,6 +148,8 @@ def _get_ws_handlers():
 def _send_ws_update(video_id, user_id, status, progress, step=None, message=None):
     """Send WebSocket update safely."""
     try:
+        if step is None:
+            step = status
         handlers = _get_ws_handlers()
         if 'update' in handlers:
             logger.info(f"🔔 _send_ws_update: step={step}, progress={progress}, status={status}")
@@ -1252,7 +1254,7 @@ def _apply_all_filters_production(video, options):
                 "-pix_fmt", "yuv420p",
                 "-y", temp_speed
             ]
-        
+        logger.info(f"[FFMPEG] Executing: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
         if result.returncode != 0:

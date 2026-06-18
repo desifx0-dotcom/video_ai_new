@@ -387,7 +387,7 @@
                     handlePermanentFailure(data);
                 } else {
                     console.log(`Video still processing: ${data.status}, progress: ${data.progress}%`);
-                    updateProgress(data.progress || 0, data.current_step);
+                    updateProgress(data.progress || 0, data.current_step, data.message);
                 }
             } catch (e) {
                 console.error('Failed to check status on reconnect:', e);
@@ -826,14 +826,21 @@
                     handlePermanentFailure(data);
                     return;
                 }
-                
+
                 // STILL PROCESSING - Do nothing, just wait for next poll
-                
+                //Update progress and step on every poll
+                if (data.progress !== undefined) {
+                    const step = data.current_step || '';
+                    const message = data.message || `Processing... ${elapsedMinutes}m elapsed`;
+                    console.log(`Polling update: ${data.progress}%, step: ${step}`);
+                    updateProgress(data.progress, step, message);
+                }
+
             } catch (error) {
                 console.error('Polling error:', error);
                 // Just wait for next poll, don't show error
             }
-            
+
         }, POLL_INTERVAL);
     }
 
@@ -854,23 +861,23 @@
                 isProcessing = true;
                 processingCompleted = false;
                 retryCountDisplayed = false;
-                
+
                 loadingSpinner.style.display = 'block';
                 errorIcon.style.display = 'none';
                 retryButtonContainer.style.display = 'none';
                 actionButtons.style.display = 'block';
-                
+
                 progressBar.classList.remove('bg-danger');
                 progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
                 progressBar.style.width = '0%';
-                
+
                 currentStepEl.textContent = 'Retrying...';
                 stepDetailEl.textContent = 'Restarting processing';
                 statusMessage.textContent = 'Retrying...';
-                
+
                 if (socket) socket.disconnect();
                 setTimeout(connectWebSocket, 1000);
-                
+
                 showToast('Retrying processing...', 'info');
             } else {
                 showToast(data.message || 'Failed to retry', 'danger');

@@ -1,25 +1,10 @@
-# test_production.py
-print("Testing Production Gevent Setup...")
+import redis
 
-# 1. Test monkey patching
-from gevent import monkey
-monkey.patch_socket()
-print("✅ Gevent patched (SSL excluded)")
+r = redis.Redis(
+    host='redis-15622.crce206.ap-south-1-1.ec2.cloud.redislabs.com',
+    port=15622,
+    password='Gkn8sthCFB2PrbCTMkNPq8pYFaqhwBUA',
+    decode_responses=True
+)
 
-# 2. Test Firebase import
-import firebase_admin
-print("✅ Firebase imported")
-
-# 3. Test gRPC gevent init
-import grpc
-try:
-    grpc._cython.cygrpc.init_grpc_gevent()
-    print("✅ gRPC gevent mode enabled")
-except:
-    print("⚠️ gRPC gevent init not needed")
-
-# 4. Test SocketIO import
-from flask_socketio import SocketIO
-print("✅ SocketIO ready")
-
-print("\n🎉 Production setup is ready!")
+print(r.ping())  # Should print: True
