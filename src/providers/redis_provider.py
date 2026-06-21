@@ -3,29 +3,30 @@ Redis provider with real Redis and mock fallback for development.
 """
 
 import os
+import json
 import logging
-from typing import Any, Dict, Optional, List, Union
+from typing import Any, Dict, Optional, List, Union, Callable
 
 logger = logging.getLogger(__name__)
 
 # Determine which provider to use
-USE_MOCK = False  #  false to use real Redis if configured and true to use mock
+USE_MOCK = False
 
 # Check if we should use mock (only when explicitly configured)
-if os.getenv("REDIS_PROVIDER") == "mock" or os.getenv("REDIS_URL") == "mock://":
+if os.getenv("REDIS_PROVIDER") in ["mock", "memory"] or os.getenv("REDIS_URL") in ["mock://", "memory://"]:
     USE_MOCK = True
     logger.info("✅ Using Mock Redis Provider (explicitly configured)")
-
-# Also check if we're explicitly using memory transport
-if os.getenv("REDIS_PROVIDER") == "memory" or os.getenv("REDIS_URL") == "memory://":
-    USE_MOCK = True
-    logger.info("✅ Using Memory transport (no Redis required)")
 
 # Check if we have a valid Redis URL
 redis_url = os.getenv("REDIS_URL", "")
 if not redis_url or redis_url in ["mock://", "memory://"]:
     USE_MOCK = True
     logger.info("✅ No valid Redis URL, using mock mode")
+
+# Also check for mock mode via environment
+if os.getenv("REDIS_MOCK_MODE", "").lower() in ["true", "1", "yes"]:
+    USE_MOCK = True
+    logger.info("✅ Redis mock mode enabled via REDIS_MOCK_MODE")
 
 if USE_MOCK:
     # Use mock Redis
@@ -64,6 +65,12 @@ if USE_MOCK:
             def exists(self, key):
                 return key in self._data
 
+            def publish(self, channel, message):
+                return 0
+
+            def pubsub(self):
+                return None
+
         logger.info("✅ Using Simple Mock Redis Provider")
 
 else:
@@ -72,13 +79,13 @@ else:
         import redis
         from redis.exceptions import RedisError
         from core.exceptions import ConfigurationError
-        import json
 
         class RedisProvider:
-            """Production Redis provider with connection pooling."""
+            """Production Redis provider with connection pooling and Pub/Sub."""
 
             _instance = None
             _client = None
+            _pubsub = None
 
             def __new__(cls):
                 if cls._instance is None:
@@ -89,28 +96,58 @@ else:
             def _initialize(self):
                 """Initialize Redis connection with proper error handling."""
                 try:
-                    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-                    # Validate URL
+                    redis_url = os.getenv("REDIS_URL")
+                    
+                    # Check if we should use mock mode
                     if not redis_url or redis_url in ["mock://", "memory://"]:
-                        raise ValueError(f"Invalid Redis URL: {redis_url}")
+                        logger.info("📦 No Redis URL configured, using mock mode")
+                        self._client = None
+                        return
 
-                    self._client = redis.from_url(
-                        redis_url,
+                    if os.getenv("REDIS_MOCK_MODE", "").lower() in ["true", "1", "yes"]:
+                        logger.info("📦 Redis mock mode enabled via env var")
+                        self._client = None
+                        return
+
+                    # Use a DNS resolver that bypasses eventlet
+                    import socket
+                    import redis as redis_lib
+                    
+                    # Parse the URL to extract host
+                    from urllib.parse import urlparse
+                    parsed = urlparse(redis_url)
+                    
+                    # If it's the problematic hostname, replace with IP directly
+                    if 'redis-15622.crce206.ap-south-1-1.ec2.cloud.redislabs.com' in parsed.hostname:
+                        ip = '13.233.229.93'
+                        # Reconstruct URL with IP
+                        clean_url = f"{parsed.scheme}://{parsed.username}:{parsed.password}@{ip}:{parsed.port}"
+                        logger.info(f"✅ Using IP instead of hostname: {ip}")
+                    else:
+                        clean_url = redis_url.replace('rediss://', 'redis://')
+                    
+                    # Create Redis client with IP
+                    self._client = redis_lib.from_url(
+                        clean_url,
                         decode_responses=True,
-                        socket_connect_timeout=5,
+                        socket_connect_timeout=10,
+                        socket_timeout=10,
                         socket_keepalive=True,
                         health_check_interval=30,
                         retry_on_timeout=True,
+                        max_connections=50,
+                        retry_on_error=[redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError],
                     )
-
+                    
                     # Test connection
                     self._client.ping()
-                    logger.info(f"✅ Redis connected successfully")
+                    logger.info(f"✅ Redis connected successfully via IP: {ip}")
 
                 except Exception as e:
                     logger.error(f"❌ Redis connection failed: {e}")
-                    raise ConfigurationError(f"Redis initialization failed: {e}")
+                    self._client = None
+                    
+            # ========== BASIC OPERATIONS ==========
 
             def set(
                 self,
@@ -177,6 +214,8 @@ else:
                     logger.error(f"Redis incr error for {key}: {e}")
                     return 0
 
+            # ========== HASH OPERATIONS ==========
+
             def hset(self, key: str, field: str, value: Any) -> bool:
                 """Set hash field."""
                 try:
@@ -216,8 +255,19 @@ else:
                     logger.error(f"Redis hgetall error for {key}: {e}")
                     return {}
 
+            # ========== PUB/SUB OPERATIONS (NEW) ==========
+
             def publish(self, channel: str, message: Any) -> int:
-                """Publish message to channel."""
+                """
+                Publish message to Redis channel.
+                
+                Args:
+                    channel: Channel name
+                    message: Message to publish (dict/list will be JSON serialized)
+                
+                Returns:
+                    Number of subscribers that received the message
+                """
                 try:
                     if isinstance(message, (dict, list)):
                         message = json.dumps(message)
@@ -225,6 +275,91 @@ else:
                 except Exception as e:
                     logger.error(f"Redis publish error to {channel}: {e}")
                     return 0
+
+            def pubsub(self) -> Optional[redis.client.PubSub]:
+                """
+                Get a Pub/Sub client.
+                Returns None if Redis is not available.
+                """
+                try:
+                    if self._client:
+                        return self._client.pubsub(
+                            ignore_subscribe_messages=True
+                        )
+                    return None
+                except Exception as e:
+                    logger.error(f"Redis pubsub error: {e}")
+                    return None
+
+            def subscribe(self, channel: str, callback: Callable) -> bool:
+                """
+                Subscribe to a Redis channel with a callback.
+                
+                Args:
+                    channel: Channel name to subscribe to
+                    callback: Function to call when message is received
+                
+                Returns:
+                    True if subscribed successfully
+                """
+                try:
+                    pubsub = self.pubsub()
+                    if pubsub:
+                        pubsub.subscribe(**{channel: callback})
+                        logger.info(f"✅ Subscribed to Redis channel: {channel}")
+                        return True
+                    return False
+                except Exception as e:
+                    logger.error(f"Redis subscribe error for {channel}: {e}")
+                    return False
+
+            def unsubscribe(self, channel: str) -> bool:
+                """Unsubscribe from a Redis channel."""
+                try:
+                    pubsub = self.pubsub()
+                    if pubsub:
+                        pubsub.unsubscribe(channel)
+                        logger.info(f"✅ Unsubscribed from Redis channel: {channel}")
+                        return True
+                    return False
+                except Exception as e:
+                    logger.error(f"Redis unsubscribe error for {channel}: {e}")
+                    return False
+
+            def run_pubsub_loop(self, callback: Callable, channels: List[str]):
+                """
+                Run a Pub/Sub listener loop in the current thread.
+                
+                Args:
+                    callback: Function to call for each message (receives message dict)
+                    channels: List of channels to subscribe to
+                """
+                try:
+                    pubsub = self.pubsub()
+                    if not pubsub:
+                        logger.error("❌ Redis Pub/Sub not available")
+                        return
+                    
+                    # Subscribe to channels
+                    for channel in channels:
+                        pubsub.subscribe(channel)
+                        logger.info(f"✅ Subscribed to channel: {channel}")
+                    
+                    logger.info(f"🔄 Running Redis Pub/Sub listener loop (channels: {channels})...")
+                    
+                    for message in pubsub.listen():
+                        if message['type'] == 'message':
+                            try:
+                                callback(message)
+                            except Exception as e:
+                                logger.error(f"Pub/Sub callback error: {e}")
+                                
+                except Exception as e:
+                    logger.error(f"Redis Pub/Sub loop error: {e}")
+                    import time
+                    time.sleep(5)  # Wait before retry if needed
+
+            # ========== UTILITY OPERATIONS ==========
 
             def ping(self) -> bool:
                 """Ping Redis server."""
@@ -250,6 +385,8 @@ else:
                         self._client.close()
                 except Exception as e:
                     logger.error(f"Redis close error: {e}")
+
+        logger.info("✅ Using Production Redis Provider")
 
     except ImportError as e:
         logger.error(f"Redis module not installed: {e}")
@@ -279,4 +416,16 @@ else:
             def exists(self, key):
                 return key in self._data
 
-        logger.warning("⚠️  Falling back to Mock Redis Provider")
+            def publish(self, channel, message):
+                return 0
+
+            def pubsub(self):
+                return None
+
+            def subscribe(self, channel, callback):
+                return False
+
+            def run_pubsub_loop(self, callback, channels):
+                pass
+
+        logger.warning("⚠️ Falling back to Mock Redis Provider")

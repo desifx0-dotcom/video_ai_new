@@ -2,8 +2,7 @@
 Main application entry point with comprehensive setup.
 """
 
-from gevent import monkey
-monkey.patch_all()
+from patch_async import ASYNC_MODE
 import os
 import sys
 from pathlib import Path
@@ -45,6 +44,7 @@ from api.v1.__main__ import register_api_routes
 from api.websocket import register_websocket_handlers
 from core.logging import setup_logging, logger
 from core.exceptions import handle_exception
+from core.websocket_manager import init_websocket, get_ws_manager
 
 if os.path.exists(".env"):
     load_dotenv(".env")
@@ -93,6 +93,80 @@ def timeago_filter(date):
         years = int(seconds / 31536000)
         return f"{years} year{'s' if years > 1 else ''} ago"
 
+def start_redis_listener(socketio):
+    """Start Redis listener to forward messages to WebSocket clients."""
+    
+    redis_url = os.getenv('SOCKETIO_MESSAGE_QUEUE') or os.getenv('REDIS_URL')
+    if not redis_url:
+        logger.warning("⚠️ No REDIS_URL found, Redis listener disabled")
+        return
+    
+    def listener_loop():
+        try:
+            import redis
+            import json
+            import time
+            
+            #Pre-resolve the hostname to IP
+            from urllib.parse import urlparse
+            parsed = urlparse(redis_url)
+            hostname = parsed.hostname
+            
+            # If it's a hostname (not IP), resolve it
+            if hostname and not hostname.replace('.', '').isdigit():
+                import socket
+                try:
+                    ip = socket.gethostbyname(hostname)
+                    # Replace hostname with IP in the URL
+                    redis_url_fixed = redis_url.replace(hostname, ip)
+                    logger.info(f"✅ Resolved {hostname} -> {ip}")
+                    redis_url = redis_url_fixed
+                except Exception as e:
+                    logger.warning(f"⚠️ DNS resolution failed: {e}, using original URL")
+            
+            # Connect with shorter timeout
+            r = redis.from_url(
+                redis_url, 
+                decode_responses=True, 
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=False
+            )
+            
+            # Test connection
+            r.ping()
+            logger.info("✅ Redis connected successfully")
+            
+            pubsub = r.pubsub()
+            pubsub.subscribe('video_updates')
+            logger.info("✅ Redis listener started for 'video_updates' channel")
+            
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    try:
+                        data = json.loads(message['data'])
+                        video_id = data.get('video_id')
+                        
+                        if video_id:
+                            # Forward to all clients in the video room
+                            room = f"video:{video_id}"
+                            socketio.emit('video_processing', data, room=room)
+                            logger.debug(f"📤 Forwarded from Redis: {video_id}")
+                    except Exception as e:
+                        logger.error(f"Error processing Redis message: {e}")
+                        
+        except Exception as e:
+            logger.error(f"❌ Redis listener failed: {e}")
+    
+    # Start listener in background thread
+    try:
+        thread = threading.Thread(target=listener_loop, daemon=True)
+        thread.start()
+        logger.info("✅ Redis listener thread started")
+        return thread
+    except Exception as e:
+        logger.error(f"❌ Failed to start Redis listener: {e}")
+        return None
 
 def create_app(config_class=Config):
     """Application factory function - PRODUCTION OPTIMIZED ORDER."""
@@ -153,6 +227,7 @@ def create_app(config_class=Config):
     # ========== 6. INITIALIZE CSRF PROTECTION ==========
     csrf = CSRFProtect()
     csrf.init_app(app)
+
     logger.info("✅ CSRF protection initialized")
 
     # ========== 7. INITIALIZE CORS ==========
@@ -203,42 +278,14 @@ def create_app(config_class=Config):
         )
 
     # ========== 9. INITIALIZE SOCKETIO ==========
-    # Determine environment
-    env = os.getenv("FLASK_ENV", "development")
-    is_development = env == "development"
+    # Initialize WebSocket Manager
+    socketio = init_websocket(app)  # ← This creates socketio
+    logger.info("✅ WebSocket Manager initialized")
 
-    # Configure message queue - ALWAYS use Redis if available
-    message_queue = None
-    queue_url = (
-        app.config.get("SOCKETIO_MESSAGE_QUEUE") or
-        os.getenv("SOCKETIO_MESSAGE_QUEUE") or
-        os.getenv("REDIS_URL")
-    )
+    # START REDIS LISTENER FOR CELERY COMMUNICATION
+    # start_redis_listener(socketio)
 
-    if queue_url and not queue_url.startswith("mock://"):
-        message_queue = queue_url
-        logger.info(f"🌐 SocketIO using Redis message queue: {message_queue}")
-    else:
-        logger.info("🌐 SocketIO running without message queue (no Redis URL found)")
-
-    # Create SocketIO instance
-    socketio = SocketIO(
-        app,
-        cors_allowed_origins="*",
-        async_mode="gevent",
-        message_queue=message_queue,
-        logger=True if app.debug else False,
-        engineio_logger=True if app.debug else False,
-        ping_timeout=60,
-        ping_interval=25,
-        max_http_buffer_size=100 * 1024 * 1024,
-        cors_credentials=True,
-    )
-
-    logger.info(f"✅ SocketIO initialized with message_queue: {message_queue if message_queue else 'None'}")
-    logger.info(f"✅ Environment: {env} (development: {is_development})")
-
-    #Set global instance BEFORE registering handlers
+    # Set global instance BEFORE registering handlers
     from api.websocket import set_socketio_instance, register_websocket_handlers
     set_socketio_instance(socketio)
     logger.info("✅ SocketIO instance set globally")
@@ -259,7 +306,7 @@ def create_app(config_class=Config):
 
     # ========== 12. REGISTER TEMPLATE FILTERS & CONTEXT PROCESSORS ==========
 
-    # Make csrf_token available to all templates using the public method
+    # Make csrf_token available to all templates
     @app.context_processor
     def inject_csrf_token():
         return dict(csrf_token=lambda: generate_csrf())
@@ -281,7 +328,6 @@ def create_app(config_class=Config):
         if isinstance(value, str):
             try:
                 from datetime import datetime
-
                 value = datetime.fromisoformat(value.replace("Z", "+00:00"))
             except:
                 return value
@@ -289,12 +335,45 @@ def create_app(config_class=Config):
 
     @app.template_filter("currency")
     def currency_format(value):
-        
         """Format currency."""
         if value is None:
             return "$0.00"
         return f"${value:,.2f}"
-    
+
+    # 🔥 NEW: User context processor (adds current_user to all templates)
+    def inject_user():
+        """Make current_user available to all templates."""
+        from flask import session
+        from services.user_service import UserService
+
+        user_id = session.get("user_id")
+        user = None
+
+        if user_id:
+            try:
+                user_service = UserService()
+                user = user_service.get_user_by_id(user_id)
+            except Exception as e:
+                logger.error(f"Failed to load user from session: {e}")
+
+        # Also try JWT token if session doesn't work
+        if not user:
+            try:
+                verify_jwt_in_request(optional=True)
+                user_id = get_jwt_identity()
+                if user_id:
+                    user_service = UserService()
+                    user = user_service.get_user_by_id(user_id)
+            except Exception:
+                pass
+
+        return {"current_user": user}
+
+    # Register user context processor
+    app.context_processor(inject_user)
+    logger.info("✅ User context processor registered")
+
+    # Register template filters
     app.jinja_env.filters["timeago"] = timeago_filter
     app.jinja_env.filters["datetimeformat"] = datetimeformat
     app.jinja_env.filters["currency"] = currency_format
@@ -408,43 +487,6 @@ def create_app(config_class=Config):
         thread = threading.Thread(target=process_redis_notifications, daemon=True)
         thread.start()
         logger.info("Started Redis notification processor thread")
-
-    def inject_user():
-        """Make current_user available to all templates."""
-        from flask import session
-        from services.user_service import UserService
-
-        user_id = session.get("user_id")
-        user = None
-        print(f"🔄 inject_user called - session user_id: {user_id}")
-
-        if user_id:
-            try:
-                user_service = UserService()
-                user = user_service.get_user_by_id(user_id)
-                print(f"✅ User loaded from session: {user.email if user else 'None'}")
-
-            except Exception as e:
-                logger.error(f"Failed to load user: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-        # Also try JWT token if session doesn't work
-        if not user:
-            try:
-                verify_jwt_in_request(optional=True)
-                user_id = get_jwt_identity()
-                print(f"   JWT user_id: {user_id}")
-                if user_id:
-                    user_service = UserService()
-                    user = user_service.get_user_by_id(user_id)
-                    print(f"✅ User loaded from JWT: {user.email if user else 'None'}")
-            except Exception as e:
-                print(f"❌ Failed to load user from JWT: {e}")
-
-        print(f"   Returning user: {user}")
-        return {"current_user": user}
 
     from api.v1 import api_v1_bp
     from api.v1.routers.auth_public import public_auth_bp
@@ -1861,5 +1903,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=5000,
         debug=app.config.get("DEBUG", False),
-        allow_unsafe_werkzeug=True,
+        # allow_unsafe_werkzeug=True,
+        use_reloader=False
     )

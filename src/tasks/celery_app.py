@@ -1,8 +1,13 @@
 """
 Celery configuration.
 """
-
 import os
+import sys
+
+# ============================================
+# Import patch_async
+# ============================================
+from patch_async import ASYNC_MODE
 from pathlib import Path
 from celery import Celery
 from kombu import Queue, Exchange
@@ -12,7 +17,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-#  Get Redis URL from environment (now it should work)
+# Get Redis URL from environment
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Also check alternative env vars
@@ -20,16 +25,9 @@ if not redis_url or redis_url == "memory://":
     redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     print(f"⚠️  Using CELERY_BROKER_URL: {redis_url}")
 
-# Print for debugging
-print(
-    f"🔍 Redis URL: {redis_url[:50]}..."
-    if len(redis_url) > 50
-    else f"🔍 Redis URL: {redis_url}"
-)
-
-# Use the Redis URL directly
+# 🔥 FIX: Use the same URL for both broker and backend
 celery_broker = redis_url
-celery_backend = redis_url
+celery_backend = redis_url  # ← This was the problem (was 'redis://')
 
 print(f"✅ Using Redis transport for Celery")
 
@@ -50,7 +48,6 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     # Task settings
-
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
     # Worker settings
@@ -119,8 +116,8 @@ celery_app.conf.update(
     task_default_retry_delay=60,
     task_max_retries=3,
 
-    # Result backend settings
-    result_backend='redis://',
+    # 🔥 FIX: Result backend should use full URL
+    result_backend=redis_url,  # ← Fixed from 'redis://'
 
     # Result expiration
     result_expires=86400,  # 24 hours
@@ -161,7 +158,7 @@ celery_app.conf.update(
         Queue("low_priority", Exchange("low_priority"), routing_key="low_priority"),
         Queue("default", Exchange("default"), routing_key="default"),
     ),
-# Route configuration
+    # Route configuration
     task_routes={
         'tasks.video_tasks.process_video_async': {
             'queue': 'video_processing',

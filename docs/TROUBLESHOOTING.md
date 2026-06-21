@@ -472,7 +472,7 @@ Solution:
 # In app config
 
 SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
-SOCKETIO_ASYNC_MODE=gevent
+SOCKETIO_ASYNC_MODE=eventlet
 
 Enable CORS for WebSocket:
 python
@@ -480,7 +480,7 @@ python
 socketio = SocketIO(
 app,
 cors_allowed_origins="\*",
-async_mode='gevent',
+async_mode='eventlet',
 message_queue='redis://'
 )
 

@@ -146,20 +146,23 @@ def _get_ws_handlers():
     return _ws_handlers
 
 def _send_ws_update(video_id, user_id, status, progress, step=None, message=None):
-    """Send WebSocket update safely."""
+    """Send WebSocket update using the manager."""
     try:
-        if step is None:
-            step = status
-        handlers = _get_ws_handlers()
-        if 'update' in handlers:
-            logger.info(f"🔔 _send_ws_update: step={step}, progress={progress}, status={status}")
-            logger.info(f"   Calling handlers['update'] with step={step}")
-            
-            handlers['update'](video_id, user_id, status, progress, step, message)
-        else:
-            logger.warning(f"⚠️ No 'update' handler found in _get_ws_handlers()")
+        from api.websocket import send_video_update
+        
+        # WebSocketManager handles both direct emit AND Redis publish
+        send_video_update(
+            video_id=video_id,
+            user_id=user_id,
+            status=status,
+            progress=progress,
+            step=step,
+            message=message,
+            publish_to_redis=True  # Always publish for cross-process
+        )
+        logger.info(f"📤 Sent update: {video_id} - {step} ({progress}%)")
     except Exception as e:
-        logger.error(f"❌ WebSocket update failed: {e}", exc_info=True)
+        logger.error(f"Failed to send WebSocket update: {e}")
 
 def _send_ws_completed(video_id, user_id, result_url, processing_time, total_cost):
     """Send WebSocket completion safely."""

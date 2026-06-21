@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # start.py - Auto-activates venv and starts app
+from patch_async import ASYNC_MODE
 import os
 import sys
 import subprocess

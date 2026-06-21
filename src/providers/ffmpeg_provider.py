@@ -95,35 +95,43 @@ class FFmpegProvider:
 
     @classmethod
     def _find_ffmpeg(cls) -> tuple:
-        """Auto-detect FFmpeg from common installation paths."""
+        """Auto-detect FFmpeg from environment variables or common paths."""
         import shutil
         import platform
         
-        # First try system PATH
+        # 1. Check environment variables first
+        env_ffmpeg = os.getenv("FFMPEG_PATH")
+        env_ffprobe = os.getenv("FFPROBE_PATH")
+        if env_ffmpeg and env_ffprobe and os.path.exists(env_ffmpeg) and os.path.exists(env_ffprobe):
+            logger.info(f"✅ Using FFmpeg from env: {env_ffmpeg}")
+            return env_ffmpeg, env_ffprobe
+        
+        # 2. Try system PATH
         ffmpeg = shutil.which('ffmpeg')
         ffprobe = shutil.which('ffprobe')
         if ffmpeg and ffprobe:
+            logger.info(f"✅ Found FFmpeg in PATH: {ffmpeg}")
             return ffmpeg, ffprobe
         
-        # Platform-specific common paths
+        # 3. Platform-specific common paths
         system = platform.system().lower()
         
         if system == 'windows':
             common_paths = [
-            # Winget installation path (your newer FFmpeg)
-            r'C:\Users\Acer\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe',
-            r'C:\ffmpeg\bin\ffmpeg.exe',
-            r'C:\FFmpeg\bin\ffmpeg.exe',
-            r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
-            r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+                # Winget installation path (your newer FFmpeg)
+                r'C:\Users\Acer\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe',
+                r'C:\ffmpeg\bin\ffmpeg.exe',
+                r'C:\FFmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
             ]
-        elif system == 'darwin':  # macOS
+        elif system == 'darwin':
             common_paths = [
                 '/usr/local/bin/ffmpeg',
                 '/opt/homebrew/bin/ffmpeg',
                 '/usr/bin/ffmpeg',
             ]
-        else:  # Linux
+        else:
             common_paths = [
                 '/usr/bin/ffmpeg',
                 '/usr/local/bin/ffmpeg',
@@ -134,8 +142,10 @@ class FFmpegProvider:
             if os.path.exists(path):
                 ffprobe_path = path.replace('ffmpeg', 'ffprobe')
                 if os.path.exists(ffprobe_path):
+                    logger.info(f"✅ Found FFmpeg at: {path}")
                     return path, ffprobe_path
         
+        logger.warning("⚠️ FFmpeg not found. Please install FFmpeg.")
         return None, None
 
     def _test_ffmpeg(self):

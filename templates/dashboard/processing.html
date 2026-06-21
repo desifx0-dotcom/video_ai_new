@@ -261,6 +261,8 @@
         'completed': 6
     };
 
+    let isSubscribed = false;
+    
     function connectWebSocket() {
         const token = localStorage.getItem('access_token');
 
@@ -284,18 +286,27 @@
         });
 
         socket.on('connect', function() {
-            console.log('WebSocket connected successfully, subscribing to video...');
-            // Always subscribe on every connect/reconnect
-            socket.emit('subscribe_video', { video_id: videoId });
+            console.log('WebSocket connected successfully');
+            
+            // Only subscribe if NOT already subscribed
+            if (!isSubscribed) {
+                console.log('Subscribing to video...');
+                socket.emit('subscribe_video', { video_id: videoId });
+                isSubscribed = true;
+            } else {
+                console.log('Already subscribed, skipping duplicate subscription');
+            }
+        });
 
-            // Also send a ping to confirm connection is alive
-            socket.emit('ping', { timestamp: Date.now() });
+
+        socket.on('subscribed', function(data) {
+            console.log('✅ Successfully subscribed to:', data.video_id);
         });
 
         //  debug listener to see ALL WebSocket events
         socket.onAny((event, ...args) => {
             // Only log, don't do anything else
-            if (event !== 'pong') {  // Skip pong to reduce noise
+            if (event !== 'pong' && event !== 'ping') {  // Skip pong to reduce noise
                 console.log(`📡 Event: ${event}`);
             }
         });
@@ -303,6 +314,12 @@
         socket.on('connect_error', function(error) {
             console.error('WebSocket connection error:', error);
             startPolling();
+        });
+
+        socket.on('error', function(error) {
+            console.error('❌ WebSocket error received:', error);
+            // Don't disconnect or stop listening - just log the error
+            // The connection is still alive
         });
 
         socket.on('video_processing', function(data) {
@@ -361,6 +378,7 @@
         
         socket.on('disconnect', function(reason) {
             console.log(`WebSocket disconnected: ${reason}`);
+            isSubscribed = false;
             if (isProcessing && !processingCompleted && !permanentFailure) {
                 // Only start polling if we're still processing
                 startPolling();
@@ -369,8 +387,11 @@
 
         socket.on('reconnect', async function(attemptNumber) {
             console.log(`WebSocket reconnected after ${attemptNumber} attempts, re-subscribing...`);
+            // Reset flag on reconnect
+            isSubscribed = false;
             // Re-subscribe
             socket.emit('subscribe_video', { video_id: videoId });
+            isSubscribed = true;
 
             //  Immediately check if video is already completed
             try {
@@ -395,7 +416,7 @@
         });
         }
 
-    // Also update the initial connection to check if video is already completed
+// Also update the initial connection to check if video is already completed
     async function checkIfAlreadyCompleted() {
         try {
             const token = localStorage.getItem('access_token');
