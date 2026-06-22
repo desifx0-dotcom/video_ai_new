@@ -340,7 +340,7 @@ def create_app(config_class=Config):
             return "$0.00"
         return f"${value:,.2f}"
 
-    # 🔥 NEW: User context processor (adds current_user to all templates)
+    #  User context processor (adds current_user to all templates)
     def inject_user():
         """Make current_user available to all templates."""
         from flask import session
@@ -397,46 +397,64 @@ def create_app(config_class=Config):
         import json
 
         redis = RedisProvider()
+        logger.info("✅ Redis notification processor started for ws_notify:* keys")
 
         while True:
             try:
-                # Use the underlying redis client if available
-                if hasattr(redis, "_client"):
-                    redis_client = redis._client
-                else:
+                # Check if Redis client is available
+                if not hasattr(redis, "_client") or redis._client is None:
+                    logger.warning("⚠️ Redis client not available, waiting...")
+                    time.sleep(5)
+                    continue
+
+                redis_client = redis._client
+                
+                # Get keys for pending notifications
+                keys = redis_client.keys("ws_notify:*")
+                
+                # If no keys, just sleep and continue (no error)
+                if not keys:
                     time.sleep(1)
                     continue
 
-                # Get keys for pending notifications
-                keys = redis_client.keys("ws_notify:*")
                 for key in keys:
-                    user_id = (
-                        key.decode().split(":")[-1]
-                        if isinstance(key, bytes)
-                        else key.split(":")[-1]
-                    )
+                    # Handle both bytes and string keys
+                    if isinstance(key, bytes):
+                        key_str = key.decode()
+                    else:
+                        key_str = key
+                    
+                    user_id = key_str.split(":")[-1]
                     notifications = redis_client.lrange(key, 0, -1)
 
                     for notif in notifications:
                         if isinstance(notif, bytes):
                             notif = notif.decode()
-                        data = json.loads(notif)
-
-                        # Emit to the user's room
-                        socketio.emit(
-                            "notification",
-                            data,
-                            room=user_id,
-                        )
+                        try:
+                            data = json.loads(notif)
+                            
+                            # Emit to the user's room
+                            if socketio:
+                                socketio.emit(
+                                    "notification",
+                                    data,
+                                    room=user_id,
+                                )
+                                logger.debug(f"📤 Emitted notification to user {user_id}")
+                            else:
+                                logger.debug(f"⚠️ SocketIO not available for notification")
+                        except json.JSONDecodeError as e:
+                            logger.debug(f"Invalid JSON in notification: {e}")
 
                     # Clear the key after processing
                     redis_client.delete(key)
 
-                time.sleep(1)
+                time.sleep(1)  # Don't hammer Redis
 
             except Exception as e:
-                logger.error(f"Redis notification processor error: {e}")
-                time.sleep(5)
+                logger.debug(f"Redis notification processor: {e}")
+                time.sleep(5)  # Wait before retry
+
 
     def _send_websocket_notification(self, user_id, notification_type, data):
         """Send WebSocket notification."""
@@ -482,12 +500,23 @@ def create_app(config_class=Config):
             logger.error(f"WebSocket notification failed: {e}")
             return {"status": "error", "error": str(e)}
 
-    # Start background thread (after socketio is initialized)
+    # Start background thread (only in Flask server, not in Celery worker)
     if not os.environ.get("CELERY_WORKER", "false").lower() == "true":
-        thread = threading.Thread(target=process_redis_notifications, daemon=True)
-        thread.start()
-        logger.info("Started Redis notification processor thread")
-
+        # Check if already running to prevent duplicates
+        import threading
+        for thread in threading.enumerate():
+            if thread.name == "RedisNotificationProcessor":
+                logger.info("ℹ️ Redis notification processor already running")
+                break
+        else:
+            thread = threading.Thread(
+                target=process_redis_notifications, 
+                daemon=True,
+                name="RedisNotificationProcessor"  # Give it a name to track
+            )
+            thread.start()
+            logger.info("✅ Redis notification processor thread started")
+            
     from api.v1 import api_v1_bp
     from api.v1.routers.auth_public import public_auth_bp
 

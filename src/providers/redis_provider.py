@@ -97,7 +97,7 @@ else:
                 """Initialize Redis connection with proper error handling."""
                 try:
                     redis_url = os.getenv("REDIS_URL")
-                    
+
                     # Check if we should use mock mode
                     if not redis_url or redis_url in ["mock://", "memory://"]:
                         logger.info("📦 No Redis URL configured, using mock mode")
@@ -116,7 +116,9 @@ else:
                     # Parse the URL to extract host
                     from urllib.parse import urlparse
                     parsed = urlparse(redis_url)
-                    
+
+                    ip = parsed.hostname
+
                     # If it's the problematic hostname, replace with IP directly
                     if 'redis-15622.crce206.ap-south-1-1.ec2.cloud.redislabs.com' in parsed.hostname:
                         ip = '13.233.229.93'
