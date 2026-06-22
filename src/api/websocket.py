@@ -88,37 +88,50 @@ def get_worker_socketio() -> Optional[SocketIO]:
     return _worker_socketio
 
 
-# def init_websocket(app) -> SocketIO:
-#     """Initialize WebSocket with the Flask app."""
-#     global _socketio, socketio
-#     try:
-#         redis_url = (
-#             app.config.get('SOCKETIO_MESSAGE_QUEUE') or 
-#             os.getenv('SOCKETIO_MESSAGE_QUEUE') or 
-#             os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-#         )
+def init_websocket(app) -> SocketIO:
+    """Initialize WebSocket with the Flask app."""
+    _initialized = False
+    _initializing = False
+    global _socketio, socketio
+    # Prevent multiple initializations
+    if _initialized:
+        logger.info("ℹ️ WebSocketManager already initialized, skipping")
+        return
+    
+    if _initializing:
+        logger.info("ℹ️ WebSocketManager is already being initialized")
+        return
+    
+    _initializing = True
+    logger.info("🔧 Initializing WebSocketManager...")
+    
+    try:
+        redis_url = os.getenv('REDIS_URL')
         
-#         _socketio = SocketIO(
-#             app,
-#             cors_allowed_origins="*",
-#             async_mode="eventlet",  # Efficient async for WebSocket
-#             message_queue=None,
-#             logger=True if app.debug else False,
-#             engineio_logger=True if app.debug else False,
-#             ping_timeout=60,
-#             ping_interval=25,
-#             max_http_buffer_size=100 * 1024 * 1024,
-#         )
-#         socketio = _socketio
+        # ========== SOCKETIO ==========
+        _socketio = SocketIO(
+            app,
+            cors_allowed_origins="*",
+            async_mode=ASYNC_MODE,
+            message_queue=redis_url if redis_url else None,
+            cors_credentials=True,
+            logger=app.debug,
+            engineio_logger=app.debug,
+            ping_timeout=60,
+            ping_interval=25,
+            max_http_buffer_size=100 * 1024 * 1024,
+        )
+            
+        socketio = _socketio
         
-#         # Register handlers
-#         register_websocket_handlers(_socketio)
+        # Register handlers
+        register_websocket_handlers(_socketio)
         
-#         logger.info(f"✅ WebSocket initialized with Redis: {redis_url}")
-#         return _socketio
-#     except Exception as e:
-#         logger.error(f"❌ Failed to initialize WebSocket: {e}")
-#         raise
+        logger.info(f"✅ WebSocket initialized with Redis: {redis_url}")
+        return _socketio
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize WebSocket: {e}")
+        raise
 
 
 # ========== EVENT EMITTERS ==========
@@ -393,69 +406,80 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
     
     @socketio_instance.on("connect")
     def handle_connect():
-        """Handle WebSocket connection with production-grade token extraction."""
+        """Handle WebSocket connection."""
         try:
-            token = None
+            logger.info(f"🔌 STEP 1: Connect called for {request.sid}")
             
-            # Try query parameter (most common for WebSocket)
+            # Get token
             token = request.args.get("token")
+            logger.info(f"🔌 STEP 2: Token from query: {token[:20] if token else 'None'}...")
             
-            # Try Authorization header
             if not token:
                 auth_header = request.headers.get('Authorization', '')
+                logger.info(f"🔌 STEP 3: Auth header: {auth_header[:20] if auth_header else 'None'}...")
                 if auth_header.startswith('Bearer '):
                     token = auth_header[7:]
+                    logger.info(f"🔌 STEP 4: Token from header: {token[:20]}...")
             
             if not token:
                 logger.warning("WebSocket connection attempt without token")
-                disconnect()
                 return False
             
+            # Decode token
+            logger.info("🔌 STEP 5: Decoding token...")
             try:
                 decoded = decode_token(token)
                 user_id = decoded["sub"]
-                
-                user = user_service.get_user_by_id(user_id)
-                if not user or not user.is_active():
-                    logger.warning(f"Invalid user attempting WebSocket: {user_id}")
-                    disconnect()
-                    return False
-                
-                # Store connection info
-                connected_clients[request.sid] = {
-                    "user_id": user_id,
-                    "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
-                    "connected_at": datetime.utcnow().isoformat(),
-                }
-                
-                # Join user rooms
-                join_room(f"user:{user_id}")
-                join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
-                
-                if getattr(user, 'is_admin', False):
-                    join_room("admin")
-                
-                logger.info(f"WebSocket connected: {user_id}")
-                
-                emit(WS_EVENTS["CONNECT"], {
-                    "status": "connected",
-                    "user_id": user_id,
-                    "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-                
-                return True
-                
+                logger.info(f"🔌 STEP 6: Decoded user_id: {user_id}")
             except Exception as e:
-                logger.error(f"Token verification failed: {e}")
-                disconnect()
+                logger.error(f"🔌 STEP 6 FAILED: Token decode error: {e}")
                 return False
-                
+            
+            # Get user
+            logger.info("🔌 STEP 7: Getting user...")
+            try:
+                user = user_service.get_user_by_id(user_id)
+                logger.info(f"🔌 STEP 8: User found: {user is not None}")
+                if user:
+                    logger.info(f"🔌 STEP 9: User active: {user.is_active()}")
+            except Exception as e:
+                logger.error(f"🔌 STEP 8 FAILED: User lookup error: {e}")
+                return False
+            
+            if not user or not user.is_active():
+                logger.warning(f"Invalid user attempting WebSocket: {user_id}")
+                return False
+            
+            # Store connection
+            logger.info("🔌 STEP 10: Storing connection...")
+            connected_clients[request.sid] = {
+                "user_id": user_id,
+                "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                "connected_at": datetime.utcnow().isoformat(),
+            }
+            
+            # Join rooms
+            logger.info("🔌 STEP 11: Joining rooms...")
+            join_room(f"user:{user_id}")
+            join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
+            
+            if getattr(user, 'is_admin', False):
+                join_room("admin")
+            
+            emit(WS_EVENTS["CONNECT"], {
+                "status": "connected",
+                "user_id": user_id,
+                "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
+                "timestamp": datetime.utcnow().isoformat(),
+          })
+      
+            logger.info("🔌 STEP 12: Connect handler completed successfully!")
+            return True
+            
         except Exception as e:
-            logger.error(f"WebSocket connection error: {e}")
-            disconnect()
+            logger.error(f"❌ WebSocket connection error at STEP: {e}", exc_info=True)
             return False
-
+        
     @socketio_instance.on("disconnect")
     def handle_disconnect():
         """Handle WebSocket disconnection."""
@@ -463,7 +487,6 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
             user_info = connected_clients.pop(request.sid)
             logger.info(f"WebSocket disconnected: {user_info.get('user_id')}")
 
-    @socketio_instance.on("subscribe_video")
     @socketio_instance.on("subscribe_video")
     def handle_subscribe_video(data: Dict[str, Any]):
         """Subscribe to video processing updates."""
@@ -494,8 +517,8 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
                 
                 if not user_info:
                     logger.warning("⚠️ No user_info after re-auth attempt")
-                    emit("error", {"message": "Not authenticated"})
-                    return
+                    return("error", {"message": "Not authenticated"})
+                    # return
 
             video_id = data.get("video_id")
             logger.info(f"🔍 video_id: {video_id}")

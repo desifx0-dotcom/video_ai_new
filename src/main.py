@@ -44,7 +44,7 @@ from api.v1.__main__ import register_api_routes
 from api.websocket import register_websocket_handlers
 from core.logging import setup_logging, logger
 from core.exceptions import handle_exception
-from core.websocket_manager import init_websocket, get_ws_manager
+# from core.websocket_manager import init_websocket, get_ws_manager
 
 if os.path.exists(".env"):
     load_dotenv(".env")
@@ -278,21 +278,31 @@ def create_app(config_class=Config):
         )
 
     # ========== 9. INITIALIZE SOCKETIO ==========
-    # Initialize WebSocket Manager
-    socketio = init_websocket(app)  # ← This creates socketio
-    logger.info("✅ WebSocket Manager initialized")
+    from flask_socketio import SocketIO
 
-    # START REDIS LISTENER FOR CELERY COMMUNICATION
-    # start_redis_listener(socketio)
+    redis_url = os.getenv('REDIS_URL')
 
-    # Set global instance BEFORE registering handlers
-    from api.websocket import set_socketio_instance, register_websocket_handlers
-    set_socketio_instance(socketio)
-    logger.info("✅ SocketIO instance set globally")
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins="*",
+        async_mode= ASYNC_MODE,
+        message_queue=redis_url if redis_url else None,
+        cors_credentials=True,
+        logger=True,
+        engineio_logger=True,
+        ping_timeout=60,
+        ping_interval=25,
+        max_http_buffer_size=100 * 1024 * 1024,
+    )
+
+    logger.info("✅ SocketIO initialized")
     
-    # Register WebSocket handlers
+    start_redis_listener(socketio)
+
+    # Register your handlers
+    from api.websocket import register_websocket_handlers, set_socketio_instance
+    set_socketio_instance(socketio)
     register_websocket_handlers(socketio)
-    logger.info("✅ WebSocket handlers registered")
 
     # ========== 10. INITIALIZE MONITORING & EXTENSIONS ==========
     init_monitoring(app)

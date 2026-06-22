@@ -188,6 +188,7 @@
         
         // Step 1 - Analyzing
         'analyzing': { step: 'analyze', name: 'Analyzing Video', detail: 'Checking video content and quality', order: 1 },
+        'processing': { step: 'analyze', name: 'Processing Video', detail: 'Processing your video', order: 1 },
         'silent_analysis': { step: 'analyze', name: 'Analyzing Silent Video', detail: 'Analyzing visual content', order: 1 },
         'configuring': { step: 'analyze', name: 'Configuring Settings', detail: 'Applying your preferences', order: 1 },
         
@@ -230,8 +231,10 @@
         
         // Step 1 - Analyze
         'analyzing': 1,
+        'processing': 1,
         'silent_analysis': 1,
         'detecting': 1,
+        'configuring': 1,
         
         // Step 2 - Transcribe
         'transcribing': 2,
@@ -265,6 +268,7 @@
     
     function connectWebSocket() {
         const token = localStorage.getItem('access_token');
+        console.log('🔑 Token for WebSocket:', token ? 'Present' : 'Missing');
 
         if (!token) {
             console.error('No token found for WebSocket connection');
@@ -305,6 +309,7 @@
 
         //  debug listener to see ALL WebSocket events
         socket.onAny((event, ...args) => {
+            console.log(`📡 [${event}]`, args.length > 0 ? args[0] : '');
             // Only log, don't do anything else
             if (event !== 'pong' && event !== 'ping') {  // Skip pong to reduce noise
                 console.log(`📡 Event: ${event}`);
@@ -312,9 +317,18 @@
         });
 
         socket.on('connect_error', function(error) {
-            console.error('WebSocket connection error:', error);
-            startPolling();
+        console.error('❌ WebSocket connection error:', {
+            message: error.message,
+            description: error.description,
+            stack: error.stack
         });
+        // Don't start polling immediately - wait a bit
+        setTimeout(() => {
+            if (!socket.connected) {
+                startPolling();
+            }
+        }, 5000);
+    });
 
         socket.on('error', function(error) {
             console.error('❌ WebSocket error received:', error);
