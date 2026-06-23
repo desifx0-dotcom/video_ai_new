@@ -83,7 +83,7 @@ def get_worker_socketio() -> Optional[SocketIO]:
             if redis_url:
                 # Use gevent for the worker client
                 _worker_socketio = SocketIO(
-                    message_queue=redis_url,
+                    message_queue=None,
                     async_mode=ASYNC_MODE
                 )
                 logger.info(f"✅ Worker SocketIO connected to Redis: {redis_url[:30]}...")
@@ -97,50 +97,50 @@ def get_worker_socketio() -> Optional[SocketIO]:
     return _worker_socketio
 
 
-def init_websocket(app) -> SocketIO:
-    """Initialize WebSocket with the Flask app."""
-    _initialized = False
-    _initializing = False
-    global _socketio, socketio
-    # Prevent multiple initializations
-    if _initialized:
-        logger.info("ℹ️ WebSocketManager already initialized, skipping")
-        return
+# def init_websocket(app) -> SocketIO:
+#     """Initialize WebSocket with the Flask app."""
+#     _initialized = False
+#     _initializing = False
+#     global _socketio, socketio
+#     # Prevent multiple initializations
+#     if _initialized:
+#         logger.info("ℹ️ WebSocketManager already initialized, skipping")
+#         return
     
-    if _initializing:
-        logger.info("ℹ️ WebSocketManager is already being initialized")
-        return
+#     if _initializing:
+#         logger.info("ℹ️ WebSocketManager is already being initialized")
+#         return
     
-    _initializing = True
-    logger.info("🔧 Initializing WebSocketManager...")
+#     _initializing = True
+#     logger.info("🔧 Initializing WebSocketManager...")
     
-    try:
-        redis_url = os.getenv('REDIS_URL')
+#     try:
+#         redis_url = os.getenv('REDIS_URL')
         
-        # ========== SOCKETIO ==========
-        _socketio = SocketIO(
-            app,
-            cors_allowed_origins="*",
-            async_mode=ASYNC_MODE,
-            message_queue=redis_url if redis_url else None,
-            cors_credentials=True,
-            logger=app.debug,
-            engineio_logger=app.debug,
-            ping_timeout=60,
-            ping_interval=25,
-            max_http_buffer_size=100 * 1024 * 1024,
-        )
+#         # ========== SOCKETIO ==========
+#         _socketio = SocketIO(
+#             app,
+#             cors_allowed_origins="*",
+#             async_mode=ASYNC_MODE,
+#             message_queue=redis_url if redis_url else None,
+#             cors_credentials=True,
+#             logger=app.debug,
+#             engineio_logger=app.debug,
+#             ping_timeout=60,
+#             ping_interval=25,
+#             max_http_buffer_size=100 * 1024 * 1024,
+#         )
             
-        socketio = _socketio
+#         socketio = _socketio
         
-        # Register handlers
-        register_websocket_handlers(_socketio)
+#         # Register handlers
+#         register_websocket_handlers(_socketio)
         
-        logger.info(f"✅ WebSocket initialized with Redis: {redis_url}")
-        return _socketio
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize WebSocket: {e}")
-        raise
+#         logger.info(f"✅ WebSocket initialized with Redis: {redis_url}")
+#         return _socketio
+#     except Exception as e:
+#         logger.error(f"❌ Failed to initialize WebSocket: {e}")
+#         raise
 
 # ========== REDIS PUB/SUB LISTENER ==========
 
@@ -602,7 +602,6 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
                 return
             
             room = f"video:{video_id}"
-            rooms = _socketio.rooms(request.sid)
 
             if room not in rooms:
                 join_room(room)

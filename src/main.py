@@ -211,7 +211,7 @@ def create_app(config_class=Config):
         app,
         cors_allowed_origins="*",
         async_mode=ASYNC_MODE,
-        message_queue=redis_url if redis_url else None,
+        message_queue=None,
         cors_credentials=True,
         logger=True,
         engineio_logger=True,
@@ -236,14 +236,26 @@ def create_app(config_class=Config):
         """Forward video updates to WebSocket clients."""
         try:
             video_id = data.get('video_id')
-            if video_id:
-                room = f"video:{video_id}"
-                socketio.emit('video_processing', data, room=room)
-                logger.debug(f"📤 Forwarded from Redis: {video_id} - {data.get('step')}")
+            if not video_id:
+                return
+            
+            room = f"video:{video_id}"
+            
+            # Also forward to user room if user_id is present
+            user_id = data.get('user_id')
+            if user_id:
+                user_room = f"user:{user_id}"
+                socketio.emit('video_processing', data, room=user_room)
+            
+            # Forward to video room
+            socketio.emit('video_processing', data, room=room)
+            logger.debug(f"📤 Forwarded: {video_id} - {data.get('step', 'unknown')}")
+            
         except Exception as e:
             logger.error(f"Error forwarding video update: {e}")
 
     subscribe('video_updates', handle_video_update)
+    pubsub_manager.start()
     logger.info("✅ Redis Pub/Sub listener started for 'video_updates' channel")
 
     # ========== 10. INITIALIZE MONITORING & EXTENSIONS ==========
