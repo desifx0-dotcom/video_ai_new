@@ -602,12 +602,13 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
                 return
             
             room = f"video:{video_id}"
+            # rooms = _socketio.rooms(request.sid)(to check if already joined)
 
-            if room not in rooms:
-                join_room(room)
-                logger.info(f"📡 Client joined room: {room}")
-            else:
-                logger.info(f"📡 Client already in room: {room}")
+            # if room not in rooms:
+            #     join_room(room)
+            #     logger.info(f"📡 Client joined room: {room}")
+            # else:
+            #     logger.info(f"📡 Client already in room: {room}")
 
             # Send initial status
             try:

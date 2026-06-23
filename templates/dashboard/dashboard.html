@@ -352,7 +352,6 @@
             if (contentEl) contentEl.style.display = 'block';
         }, 500);
     });
-
     // Delete confirmation
     let currentVideoId = null;
     let deleteModal = null;
@@ -415,56 +414,116 @@
         });
     });
 
+        // Check if there's any active video processing
+    function hasActiveProcessing() {
+        // Check for processing badge or any processing videos in the table
+        const processingBadges = document.querySelectorAll('.badge.bg-info');
+        return processingBadges.length > 0;
+    }
+
+    // Setup WebSocket ONLY if needed
+    if (hasActiveProcessing()) {
+        console.log('🔌 Active processing found, setting up WebSocket...');
+        setupWebSocket();
+    } else {
+        console.log('ℹ️ No active processing, WebSocket not needed');
+    }
+
     // Real-time updates via WebSocket with safe error handling
-    let socket;
-    try {
-        console.log('🔌 Setting up WebSocket connection...');
-        
-        // Configure Socket.IO with safe options
-        socket = io({
-            transports: ['websocket', 'polling'], // Fallback to polling if needed
-            upgrade: true,
-            reconnectionAttempts: 3,              // Limit reconnect attempts
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 10000,
-            autoConnect: true
-        });
-        
-        socket.on('connect', function() {
-            console.log('✅ WebSocket connected');
-            {% if current_user %}
-            socket.emit('join', { room: 'user_{{ current_user.id }}' });
-            {% endif %}
-        });
-        
-        socket.on('connect_error', function(error) {
-            console.log('⚠️ WebSocket connection error (non-critical):', error);
-            // Show subtle notification instead of reloading
-            showNotification('Live updates unavailable', 'info', 3000);
-        });
-        
-        socket.on('video_processed', function(data) {
-            console.log('📹 Video processed:', data);
-            showNotification('Video processing complete!', 'success');
+    function setupWebSocket() {
+        let socket;
+        try {
+            socket = io({
+                transports: ['websocket', 'polling'],
+                upgrade: true,
+                reconnectionAttempts: 3,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                timeout: 10000,
+                autoConnect: true
+            });
             
-            // Refresh the videos section via AJAX (no page reload)
-            if (data.video_id) {
-                fetchRecentVideos();
+            socket.on('connect', function() {
+                console.log('✅ WebSocket connected');
+                {% if current_user %}
+                socket.emit('join', { room: 'user_{{ current_user.id }}' });
+                {% endif %}
+                // Hide any live update warning if shown
+                const warningEl = document.querySelector('.live-update-warning');
+                if (warningEl) warningEl.remove();
+            });
+            
+            socket.on('connect_error', function(error) {
+                console.log('⚠️ WebSocket connection error (non-critical):', error);
+                // Show subtle notification only once
+                showLiveUpdateWarning();
+            });
+            
+            socket.on('video_processed', function(data) {
+                console.log('📹 Video processed:', data);
+                showNotification('Video processing complete!', 'success');
+                
+                // Refresh the videos section via AJAX (no page reload)
+                if (data.video_id) {
+                    fetchRecentVideos();
+                }
+            });
+            
+            socket.on('video_status_update', function(data) {
+                console.log('📊 Video status update:', data);
+                // Update the status badge in the table
+                updateVideoStatus(data.video_id, data.status);
+            });
+            
+            socket.on('disconnect', function(reason) {
+                console.log('❌ WebSocket disconnected:', reason);
+            });
+            
+            socket.on('reconnect_failed', function() {
+                console.log('❌ WebSocket reconnect failed');
+                showLiveUpdateWarning();
+            });
+            
+        } catch (error) {
+            console.log('⚠️ WebSocket initialization error (continuing without real-time):', error);
+            // Don't show warning if WebSocket isn't critical
+        }
+    }
+    
+    function showLiveUpdateWarning() {
+        // Check if warning already exists
+        if (document.querySelector('.live-update-warning')) return;
+        
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'alert alert-warning alert-dismissible fade show position-fixed live-update-warning';
+        warningDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        warningDiv.innerHTML = `
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            Live updates unavailable. Refresh to check status.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(warningDiv);
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            if (warningDiv.parentNode) {
+                warningDiv.remove();
+            }
+        }, 5000);
+    }
+
+    function updateVideoStatus(videoId, status) {
+        // Update the status badge in the table
+        const rows = document.querySelectorAll('#recent-videos-list tr');
+        rows.forEach(row => {
+            if (row.innerHTML.includes(videoId)) {
+                const badge = row.querySelector('.badge');
+                if (badge) {
+                    badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                    badge.className = `badge bg-${status === 'completed' ? 'success' : status === 'processing' ? 'info' : status === 'failed' ? 'danger' : 'secondary'}`;
+                }
             }
         });
-        
-        socket.on('disconnect', function(reason) {
-            console.log('❌ WebSocket disconnected:', reason);
-        });
-        
-        socket.on('reconnect_failed', function() {
-            console.log('❌ WebSocket reconnect failed');
-            showNotification('Live updates unavailable', 'info', 5000);
-        });
-        
-    } catch (error) {
-        console.log('⚠️ WebSocket initialization error (continuing without real-time):', error);
     }
     
     function fetchRecentVideos() {
