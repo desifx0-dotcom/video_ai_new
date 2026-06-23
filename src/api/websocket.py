@@ -6,8 +6,9 @@ from patch_async import ASYNC_MODE
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime , time
 from typing import Dict, Any, Optional
+
 from flask import request
 from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 from flask_jwt_extended import decode_token
@@ -16,6 +17,7 @@ from core.exceptions import UnauthorizedError
 from services.video_service import VideoService
 from services.user_service import UserService
 from providers.redis_provider import RedisProvider
+from core.redis_pubsub import get_pubsub_manager, publish, subscribe
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,13 @@ redis = RedisProvider()
 _socketio = None
 socketio = None
 _worker_socketio = None
+
+# Redis Pub/Sub listener thread
+_redis_listener_thread = None
+_redis_running = False
+_redis_pubsub = None
+# Keep track of the pubsub manager instance
+_pubsub_manager = None
 
 # WebSocket event names
 WS_EVENTS = {
@@ -133,6 +142,79 @@ def init_websocket(app) -> SocketIO:
         logger.error(f"❌ Failed to initialize WebSocket: {e}")
         raise
 
+# ========== REDIS PUB/SUB LISTENER ==========
+
+def start_redis_listener():
+    """
+    Start Redis listener for cross-process communication.
+    Uses the production-ready RedisPubSubManager.
+    """
+    global _pubsub_manager
+    
+    def handle_video_update(data):
+        """Forward Redis messages to WebSocket clients."""
+        try:
+            video_id = data.get('video_id')
+            if video_id and _socketio is not None:
+                room = f"video:{video_id}"
+                _socketio.emit('video_processing', data, room=room)
+                logger.debug(f"📤 Forwarded from Redis: {video_id} - {data.get('step')}")
+        except Exception as e:
+            logger.error(f"Error forwarding Redis message: {e}")
+    
+    # Get the manager and subscribe
+    from core.redis_pubsub import get_pubsub_manager, subscribe
+    _pubsub_manager = get_pubsub_manager()
+    
+    # Subscribe to video_updates channel
+    subscribe('video_updates', handle_video_update)
+    logger.info("✅ Redis listener started via RedisPubSubManager")
+    
+    return _pubsub_manager
+
+
+def stop_redis_listener():
+    """Stop the Redis listener gracefully."""
+    global _pubsub_manager
+    
+    if _pubsub_manager:
+        try:
+            _pubsub_manager.stop()
+            _pubsub_manager = None
+            logger.info("🛑 Redis listener stopped successfully")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error stopping Redis listener: {e}")
+            return False
+    else:
+        logger.info("ℹ️ Redis listener not running")
+        return True
+
+
+def restart_redis_listener():
+    """Restart the Redis listener."""
+    stop_redis_listener()
+    time.sleep(1)
+    return start_redis_listener()
+
+
+def get_redis_health() -> Dict[str, Any]:
+    """Get health status of the Redis Pub/Sub system."""
+    try:
+        from core.redis_pubsub import get_health
+        return get_health()
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'running': False
+        }
+
+def stop_redis_listener():
+    """Stop the Redis listener."""
+    from core.redis_pubsub import get_pubsub_manager
+    get_pubsub_manager().stop()
+    logger.info("🛑 Redis listener stopped")
 
 # ========== EVENT EMITTERS ==========
 
@@ -173,20 +255,15 @@ def send_video_update(
     progress: float,
     step: Optional[str] = None,
     message: Optional[str] = None,
-    publish_to_redis: bool = True  #false for direct emit , skip redis
+    publish_to_redis: bool = True
 ) -> bool:
     """
     Send video processing update via WebSocket.
-    Works in both server and worker processes.
-    
-    Returns:
-        bool: True if successfully emitted, False otherwise
+    Also publishes to Redis for cross-process communication (Celery workers).
     """
     try:
         if step is None:
             step = status
-        
-        logger.debug(f"📤 send_video_update: step={step}, progress={progress}, status={status}")
         
         data = {
             "video_id": video_id,
@@ -199,20 +276,27 @@ def send_video_update(
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        logger.info(f"📤 EMITTING DATA: current_step={data['current_step']}, step={data['step']}, progress={data['progress']}")
-    
-        # Emit to video room (for all subscribers)
-        _emit_event(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"video:{video_id}")
+        logger.info(f"📤 EMITTING: current_step={step}, progress={progress}")
 
-        # Also emit to user room for personal updates
+        # 1. Emit directly via SocketIO
+        _emit_event(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"video:{video_id}")
         if user_id:
             _emit_event(WS_EVENTS["VIDEO_PROCESSING"], data, room=f"user:{user_id}")
+        
+        # 2.  Publish to Redis for cross-process communication
+        if publish_to_redis:
+            try:
+                from core.redis_pubsub import publish as redis_publish
+                result = redis_publish('video_updates', data)
+                logger.debug(f"📤 Published to Redis: {video_id}")
+            except Exception as e:
+                logger.debug(f"Redis publish failed (non-critical): {e}")
         
         logger.info(f"✅ Emitted video_processing: {video_id} - {step} ({progress}%)")
         return True
 
     except Exception as e:
-        logger.error(f"❌ send_video_update failed for {video_id}: {e}", exc_info=True)
+        logger.error(f"❌ send_video_update failed: {e}", exc_info=True)
         return False
 
 
@@ -222,6 +306,7 @@ def send_video_completed(
     result_url: str,
     processing_time: float,
     total_cost: float,
+    publish_to_redis: bool = True
 ) -> bool:
     """Send video completed notification via WebSocket."""
     try:
@@ -241,11 +326,18 @@ def send_video_completed(
         if user_id:
             _emit_event(WS_EVENTS["VIDEO_COMPLETED"], data, room=f"user:{user_id}")
         
+        if publish_to_redis:
+            try:
+                from core.redis_pubsub import publish as redis_publish
+                redis_publish('video_updates', data)
+            except Exception as e:
+                logger.debug(f"Redis publish failed (non-critical): {e}")
+        
         logger.info(f"✅ video_completed event SENT for {video_id}")
         return True
 
     except Exception as e:
-        logger.error(f"❌ send_video_completed failed for {video_id}: {e}", exc_info=True)
+        logger.error(f"❌ send_video_completed failed: {e}", exc_info=True)
         return False
 
 
@@ -254,7 +346,8 @@ def send_video_failed(
     user_id: str,
     error_message: str,
     retry_count: int,
-    can_retry: bool
+    can_retry: bool,
+    publish_to_redis: bool = True
 ) -> bool:
     """Send video failed notification via WebSocket."""
     try:
@@ -268,20 +361,26 @@ def send_video_failed(
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        logger.warning(f"🔔 Sending video_failed event for {video_id}: {error_message}")
+        logger.warning(f"🔔 Sending video_failed event for {video_id}")
 
         _emit_event(WS_EVENTS["VIDEO_FAILED"], data, room=f"video:{video_id}")
         if user_id:
             _emit_event(WS_EVENTS["VIDEO_FAILED"], data, room=f"user:{user_id}")
         
+        if publish_to_redis:
+            try:
+                from core.redis_pubsub import publish as redis_publish
+                redis_publish('video_updates', data)
+            except Exception as e:
+                logger.debug(f"Redis publish failed (non-critical): {e}")
+        
         logger.warning(f"✅ video_failed event SENT for {video_id}")
         return True
 
     except Exception as e:
-        logger.error(f"❌ send_video_failed failed for {video_id}: {e}", exc_info=True)
+        logger.error(f"❌ send_video_failed failed: {e}", exc_info=True)
         return False
-
-
+     
 def send_tier_upgraded(
     user_id: str,
     old_tier: str,
@@ -408,58 +507,36 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
     def handle_connect():
         """Handle WebSocket connection."""
         try:
-            logger.info(f"🔌 STEP 1: Connect called for {request.sid}")
+            logger.info(f"🔌 Client connecting: {request.sid}")
             
-            # Get token
             token = request.args.get("token")
-            logger.info(f"🔌 STEP 2: Token from query: {token[:20] if token else 'None'}...")
-            
             if not token:
                 auth_header = request.headers.get('Authorization', '')
-                logger.info(f"🔌 STEP 3: Auth header: {auth_header[:20] if auth_header else 'None'}...")
                 if auth_header.startswith('Bearer '):
                     token = auth_header[7:]
-                    logger.info(f"🔌 STEP 4: Token from header: {token[:20]}...")
             
             if not token:
                 logger.warning("WebSocket connection attempt without token")
                 return False
             
-            # Decode token
-            logger.info("🔌 STEP 5: Decoding token...")
             try:
                 decoded = decode_token(token)
                 user_id = decoded["sub"]
-                logger.info(f"🔌 STEP 6: Decoded user_id: {user_id}")
             except Exception as e:
-                logger.error(f"🔌 STEP 6 FAILED: Token decode error: {e}")
+                logger.error(f"Token decode error: {e}")
                 return False
             
-            # Get user
-            logger.info("🔌 STEP 7: Getting user...")
-            try:
-                user = user_service.get_user_by_id(user_id)
-                logger.info(f"🔌 STEP 8: User found: {user is not None}")
-                if user:
-                    logger.info(f"🔌 STEP 9: User active: {user.is_active()}")
-            except Exception as e:
-                logger.error(f"🔌 STEP 8 FAILED: User lookup error: {e}")
-                return False
-            
+            user = user_service.get_user_by_id(user_id)
             if not user or not user.is_active():
                 logger.warning(f"Invalid user attempting WebSocket: {user_id}")
                 return False
             
-            # Store connection
-            logger.info("🔌 STEP 10: Storing connection...")
             connected_clients[request.sid] = {
                 "user_id": user_id,
                 "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
                 "connected_at": datetime.utcnow().isoformat(),
             }
             
-            # Join rooms
-            logger.info("🔌 STEP 11: Joining rooms...")
             join_room(f"user:{user_id}")
             join_room(f"tier:{user.tier.value if hasattr(user.tier, 'value') else str(user.tier)}")
             
@@ -471,13 +548,13 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
                 "user_id": user_id,
                 "tier": user.tier.value if hasattr(user.tier, 'value') else str(user.tier),
                 "timestamp": datetime.utcnow().isoformat(),
-          })
+            })
       
-            logger.info("🔌 STEP 12: Connect handler completed successfully!")
+            logger.info(f"✅ Client connected: {request.sid}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ WebSocket connection error at STEP: {e}", exc_info=True)
+            logger.error(f"❌ WebSocket connection error: {e}", exc_info=True)
             return False
         
     @socketio_instance.on("disconnect")
@@ -485,19 +562,14 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
         """Handle WebSocket disconnection."""
         if request.sid in connected_clients:
             user_info = connected_clients.pop(request.sid)
-            logger.info(f"WebSocket disconnected: {user_info.get('user_id')}")
+            logger.info(f"🔌 Client disconnected: {user_info.get('user_id')}")
 
     @socketio_instance.on("subscribe_video")
     def handle_subscribe_video(data: Dict[str, Any]):
         """Subscribe to video processing updates."""
         try:
-            logger.info(f"🔍 SUBSCRIBE_VIDEO CALLED with data: {data}")
-            
             user_info = connected_clients.get(request.sid)
-            logger.info(f"🔍 user_info: {user_info}")
-            
             if not user_info:
-                logger.info("🔍 user_info is None, trying token re-auth...")
                 token = request.args.get("token")
                 if token:
                     try:
@@ -511,37 +583,26 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
                             }
                             connected_clients[request.sid] = user_info
                             join_room(f"user:{user_id}")
-                            logger.info(f"✅ Re-authenticated user {user_id} on reconnect")
+                            logger.info(f"✅ Re-authenticated user {user_id}")
                     except Exception as e:
                         logger.error(f"Token re-auth failed: {e}")
                 
                 if not user_info:
                     logger.warning("⚠️ No user_info after re-auth attempt")
-                    return("error", {"message": "Not authenticated"})
-                    # return
+                    return
 
             video_id = data.get("video_id")
-            logger.info(f"🔍 video_id: {video_id}")
-            
             if not video_id:
                 logger.warning("⚠️ No video_id in subscription")
-                emit("error", {"message": "video_id is required"})
                 return
 
-            # Verify video belongs to user
-            logger.info(f"🔍 Getting video: {video_id} for user: {user_info['user_id']}")
             video = video_service.get_video(video_id, user_info["user_id"])
-            logger.info(f"🔍 video found: {video is not None}")
-            
             if not video:
                 logger.warning(f"⚠️ Video {video_id} not found or access denied")
-                emit("error", {"message": "Video not found or access denied"})
                 return
             
-            # Check if client is already in the room
             room = f"video:{video_id}"
             rooms = _socketio.rooms(request.sid)
-            logger.info(f"🔍 Current rooms for client: {rooms}")
 
             if room not in rooms:
                 join_room(room)
@@ -549,92 +610,30 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
             else:
                 logger.info(f"📡 Client already in room: {room}")
 
-            # Only send initial status once
-            logger.info("🔍 Checking Redis for status_sent_key...")
+            # Send initial status
             try:
-                status_sent_key = f"status_sent:{request.sid}:{video_id}"
-                redis_status = redis.get(status_sent_key)
-                logger.info(f"🔍 Redis status_sent_key: {redis_status}")
-                
-                if not redis_status:
-                    logger.info("🔍 No status sent yet, sending initial status...")
-                    status = video_service.get_processing_status(video_id, user_info["user_id"])
-                    logger.info(f"🔍 Processing status: {status}")
+                status = video_service.get_processing_status(video_id, user_info["user_id"])
+                if status:
+                    current_status = status.get("status")
+                    current_progress = status.get("progress", 0)
+                    current_step = status.get("current_step", "queued")
                     
-                    if status:
-                        current_status = status.get("status")
-                        current_progress = status.get("progress", 0)
-                        current_step = status.get("current_step")
-                        
-                        logger.info(f"🔍 Current status: {current_status}, progress: {current_progress}, step: {current_step}")
-                        
-                        # Infer step from progress if missing
-                        if not current_step:
-                            if current_progress < 10:
-                                current_step = "queued"
-                            elif current_progress < 25:
-                                current_step = "analyzing"
-                            elif current_progress < 40:
-                                current_step = "transcribing"
-                            elif current_progress < 55:
-                                current_step = "generating_metadata"
-                            elif current_progress < 70:
-                                current_step = "generating_thumbnails"
-                            elif current_progress < 90:
-                                current_step = "applying_filters"
-                            else:
-                                current_step = "finalizing"
-                        
-                        logger.info(f"📤 Sending initial status: {current_status} ({current_progress}%) step={current_step}")
-                        
-                        emit(WS_EVENTS["VIDEO_PROCESSING"], {
-                            "video_id": video_id,
-                            "user_id": user_info["user_id"],
-                            "status": current_status or "processing",
-                            "progress": current_progress,
-                            "current_step": current_step,
-                            "timestamp": datetime.utcnow().isoformat(),
-                        }, room=request.sid)
-                        
-                        # Mark as sent (expire after 5 minutes)
-                        redis.setex(status_sent_key, 300, "1")
-                        logger.info("✅ Status sent and marked in Redis")
-                    else:
-                        logger.warning("⚠️ No status returned from video_service.get_processing_status")
-                else:
-                    logger.info("✅ Status already sent, skipping")
+                    emit(WS_EVENTS["VIDEO_PROCESSING"], {
+                        "video_id": video_id,
+                        "user_id": user_info["user_id"],
+                        "status": current_status or "processing",
+                        "progress": current_progress,
+                        "current_step": current_step,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }, room=request.sid)
             except Exception as e:
-                logger.error(f"❌ Error in status handling: {e}", exc_info=True)
-                # Fallback: try to send status without Redis
-                try:
-                    status = video_service.get_processing_status(video_id, user_info["user_id"])
-                    if status:
-                        current_status = status.get("status")
-                        current_progress = status.get("progress", 0)
-                        current_step = status.get("current_step", "queued")
-                        
-                        emit(WS_EVENTS["VIDEO_PROCESSING"], {
-                            "video_id": video_id,
-                            "user_id": user_info["user_id"],
-                            "status": current_status or "processing",
-                            "progress": current_progress,
-                            "current_step": current_step,
-                            "timestamp": datetime.utcnow().isoformat(),
-                        }, room=request.sid)
-                        logger.info("✅ Status sent as fallback")
-                except Exception as fallback_error:
-                    logger.error(f"❌ Fallback status send also failed: {fallback_error}")
+                logger.error(f"Error sending initial status: {e}")
             
-            emit('subscribed', {'video_id': video_id, 'room': f"video:{video_id}"}, room=request.sid)
+            emit('subscribed', {'video_id': video_id, 'room': room}, room=request.sid)
             logger.info(f"✅ Subscription complete for {video_id}")
-            
-            return {"status": "subscribed", "video_id": video_id}
 
         except Exception as e:
             logger.error(f"❌ Subscribe video error: {e}", exc_info=True)
-            # DON'T emit error - just log it and return
-            # The frontend doesn't need to know about internal errors
-            return {"error": str(e)}
 
     @socketio_instance.on("unsubscribe_video")
     def handle_unsubscribe_video(data: Dict[str, Any]):
@@ -685,41 +684,6 @@ def register_websocket_handlers(socketio_instance: SocketIO) -> None:
             "data": data or {}
         })
 
-    @socketio_instance.on("admin_broadcast")
-    def handle_admin_broadcast(data: Dict[str, Any]):
-        """Admin broadcast message to all users."""
-        try:
-            user_info = connected_clients.get(request.sid)
-            if not user_info:
-                emit("error", {"message": "Not authenticated"})
-                return
-
-            user = user_service.get_user_by_id(user_info["user_id"])
-            if not user or not getattr(user, 'is_admin', False):
-                emit("error", {"message": "Admin access required"})
-                return
-
-            message = data.get("message", "")
-            target = data.get("target", "all")
-
-            if not message:
-                emit("error", {"message": "Message is required"})
-                return
-
-            emit(WS_EVENTS["SYSTEM_ALERT"], {
-                "message": message,
-                "type": "admin_broadcast",
-                "timestamp": datetime.utcnow().isoformat(),
-                "from_admin": user.id,
-            }, room=None if target == "all" else target)
-
-            logger.info(f"Admin broadcast from {user.id}: {message}")
-            emit("broadcast_sent", {"status": "sent", "target": target})
-
-        except Exception as e:
-            logger.error(f"Admin broadcast error: {e}")
-            emit("error", {"message": str(e)})
-
 
 # ========== STATISTICS AND MANAGEMENT ==========
 
@@ -745,12 +709,7 @@ def get_connected_clients_stats() -> Dict[str, Any]:
 
 
 def disconnect_user(user_id: str) -> int:
-    """
-    Disconnect a specific user from WebSocket.
-    
-    Returns:
-        int: Number of connections disconnected
-    """
+    """Disconnect a specific user from WebSocket."""
     try:
         sids_to_disconnect = []
         for sid, info in connected_clients.items():
@@ -766,4 +725,3 @@ def disconnect_user(user_id: str) -> int:
     except Exception as e:
         logger.error(f"Disconnect user error: {e}")
         return 0
-    

@@ -287,7 +287,7 @@ def process_video_async(
     # Validate FFmpeg is available (PERMANENT ERROR for production)
     try:
         import subprocess
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             raise ConfigurationError("FFmpeg not available")
     except Exception as e:

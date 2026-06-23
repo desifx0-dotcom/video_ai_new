@@ -362,7 +362,7 @@ class VideoService:
         """Validate FFmpeg installation and capabilities."""
         try:
             # Test basic FFmpeg
-            result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
                 logger.error("❌ FFmpeg not found or not working!")
                 if os.getenv("FLASK_ENV") == "development":

@@ -44,7 +44,7 @@ from api.v1.__main__ import register_api_routes
 from api.websocket import register_websocket_handlers
 from core.logging import setup_logging, logger
 from core.exceptions import handle_exception
-# from core.websocket_manager import init_websocket, get_ws_manager
+from core.redis_pubsub import get_pubsub_manager, subscribe
 
 if os.path.exists(".env"):
     load_dotenv(".env")
@@ -93,80 +93,6 @@ def timeago_filter(date):
         years = int(seconds / 31536000)
         return f"{years} year{'s' if years > 1 else ''} ago"
 
-def start_redis_listener(socketio):
-    """Start Redis listener to forward messages to WebSocket clients."""
-    
-    redis_url = os.getenv('SOCKETIO_MESSAGE_QUEUE') or os.getenv('REDIS_URL')
-    if not redis_url:
-        logger.warning("⚠️ No REDIS_URL found, Redis listener disabled")
-        return
-    
-    def listener_loop():
-        try:
-            import redis
-            import json
-            import time
-            
-            #Pre-resolve the hostname to IP
-            from urllib.parse import urlparse
-            parsed = urlparse(redis_url)
-            hostname = parsed.hostname
-            
-            # If it's a hostname (not IP), resolve it
-            if hostname and not hostname.replace('.', '').isdigit():
-                import socket
-                try:
-                    ip = socket.gethostbyname(hostname)
-                    # Replace hostname with IP in the URL
-                    redis_url_fixed = redis_url.replace(hostname, ip)
-                    logger.info(f"✅ Resolved {hostname} -> {ip}")
-                    redis_url = redis_url_fixed
-                except Exception as e:
-                    logger.warning(f"⚠️ DNS resolution failed: {e}, using original URL")
-            
-            # Connect with shorter timeout
-            r = redis.from_url(
-                redis_url, 
-                decode_responses=True, 
-                socket_connect_timeout=5,
-                socket_timeout=5,
-                retry_on_timeout=False
-            )
-            
-            # Test connection
-            r.ping()
-            logger.info("✅ Redis connected successfully")
-            
-            pubsub = r.pubsub()
-            pubsub.subscribe('video_updates')
-            logger.info("✅ Redis listener started for 'video_updates' channel")
-            
-            for message in pubsub.listen():
-                if message['type'] == 'message':
-                    try:
-                        data = json.loads(message['data'])
-                        video_id = data.get('video_id')
-                        
-                        if video_id:
-                            # Forward to all clients in the video room
-                            room = f"video:{video_id}"
-                            socketio.emit('video_processing', data, room=room)
-                            logger.debug(f"📤 Forwarded from Redis: {video_id}")
-                    except Exception as e:
-                        logger.error(f"Error processing Redis message: {e}")
-                        
-        except Exception as e:
-            logger.error(f"❌ Redis listener failed: {e}")
-    
-    # Start listener in background thread
-    try:
-        thread = threading.Thread(target=listener_loop, daemon=True)
-        thread.start()
-        logger.info("✅ Redis listener thread started")
-        return thread
-    except Exception as e:
-        logger.error(f"❌ Failed to start Redis listener: {e}")
-        return None
 
 def create_app(config_class=Config):
     """Application factory function - PRODUCTION OPTIMIZED ORDER."""
@@ -188,7 +114,7 @@ def create_app(config_class=Config):
         SECRET_KEY=os.getenv("SECRET_KEY", "dev-secret-key-change-in-production"),
         SESSION_COOKIE_NAME="video_ai_session",
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SECURE=False,  #set True in production with HTTps
+        SESSION_COOKIE_SECURE=False,  # Set True in production with HTTPS
         SESSION_COOKIE_SAMESITE="Lax",
         PERMANENT_SESSION_LIFETIME=timedelta(days=30),
         SESSION_REFRESH_EACH_REQUEST=True,
@@ -227,7 +153,6 @@ def create_app(config_class=Config):
     # ========== 6. INITIALIZE CSRF PROTECTION ==========
     csrf = CSRFProtect()
     csrf.init_app(app)
-
     logger.info("✅ CSRF protection initialized")
 
     # ========== 7. INITIALIZE CORS ==========
@@ -285,7 +210,7 @@ def create_app(config_class=Config):
     socketio = SocketIO(
         app,
         cors_allowed_origins="*",
-        async_mode= ASYNC_MODE,
+        async_mode=ASYNC_MODE,
         message_queue=redis_url if redis_url else None,
         cors_credentials=True,
         logger=True,
@@ -296,13 +221,30 @@ def create_app(config_class=Config):
     )
 
     logger.info("✅ SocketIO initialized")
-    
-    start_redis_listener(socketio)
 
     # Register your handlers
     from api.websocket import register_websocket_handlers, set_socketio_instance
     set_socketio_instance(socketio)
     register_websocket_handlers(socketio)
+
+    # ==========  PRODUCTION REDIS PUB/SUB ==========
+    # Use the production-grade RedisPubSubManager
+    pubsub_manager = get_pubsub_manager()
+
+    # Subscribe to video updates
+    def handle_video_update(data):
+        """Forward video updates to WebSocket clients."""
+        try:
+            video_id = data.get('video_id')
+            if video_id:
+                room = f"video:{video_id}"
+                socketio.emit('video_processing', data, room=room)
+                logger.debug(f"📤 Forwarded from Redis: {video_id} - {data.get('step')}")
+        except Exception as e:
+            logger.error(f"Error forwarding video update: {e}")
+
+    subscribe('video_updates', handle_video_update)
+    logger.info("✅ Redis Pub/Sub listener started for 'video_updates' channel")
 
     # ========== 10. INITIALIZE MONITORING & EXTENSIONS ==========
     init_monitoring(app)
@@ -350,7 +292,7 @@ def create_app(config_class=Config):
             return "$0.00"
         return f"${value:,.2f}"
 
-    #  User context processor (adds current_user to all templates)
+    # User context processor (adds current_user to all templates)
     def inject_user():
         """Make current_user available to all templates."""
         from flask import session
@@ -389,17 +331,11 @@ def create_app(config_class=Config):
     app.jinja_env.filters["currency"] = currency_format
     app.jinja_env.filters["format_duration"] = format_duration
 
-    # ========== 13. REGISTER PAGE ROUTES (HTML pages) ==========
-
     # Register CLI commands
     from app.cli import register_cli_commands
-
     register_cli_commands(app)
 
-    # In main.py, after socketio initialization
-    import threading
-    from providers.redis_provider import RedisProvider
-
+    # ==========  REDIS NOTIFICATION PROCESSOR (Background Thread) ==========
     def process_redis_notifications():
         """Background thread to process notifications from Redis."""
         from providers.redis_provider import RedisProvider
@@ -418,22 +354,18 @@ def create_app(config_class=Config):
                     continue
 
                 redis_client = redis._client
-                
-                # Get keys for pending notifications
                 keys = redis_client.keys("ws_notify:*")
-                
-                # If no keys, just sleep and continue (no error)
+
                 if not keys:
                     time.sleep(1)
                     continue
 
                 for key in keys:
-                    # Handle both bytes and string keys
                     if isinstance(key, bytes):
                         key_str = key.decode()
                     else:
                         key_str = key
-                    
+
                     user_id = key_str.split(":")[-1]
                     notifications = redis_client.lrange(key, 0, -1)
 
@@ -442,73 +374,19 @@ def create_app(config_class=Config):
                             notif = notif.decode()
                         try:
                             data = json.loads(notif)
-                            
-                            # Emit to the user's room
                             if socketio:
-                                socketio.emit(
-                                    "notification",
-                                    data,
-                                    room=user_id,
-                                )
+                                socketio.emit("notification", data, room=user_id)
                                 logger.debug(f"📤 Emitted notification to user {user_id}")
-                            else:
-                                logger.debug(f"⚠️ SocketIO not available for notification")
                         except json.JSONDecodeError as e:
                             logger.debug(f"Invalid JSON in notification: {e}")
 
-                    # Clear the key after processing
                     redis_client.delete(key)
 
-                time.sleep(1)  # Don't hammer Redis
+                time.sleep(1)
 
             except Exception as e:
                 logger.debug(f"Redis notification processor: {e}")
-                time.sleep(5)  # Wait before retry
-
-
-    def _send_websocket_notification(self, user_id, notification_type, data):
-        """Send WebSocket notification."""
-        try:
-            socketio = self.get_socketio()
-
-            # Check if we're in a Celery worker
-            if os.environ.get("CELERY_WORKER", "false").lower() == "true":
-                # Store in Redis instead of sending directly
-                from providers.redis_provider import RedisProvider
-
-                redis = RedisProvider()
-
-                if hasattr(redis, "_client"):
-                    redis._client.lpush(
-                        f"ws_notify:{user_id}",
-                        json.dumps(
-                            {
-                                "type": notification_type.value,
-                                "data": data,
-                                "timestamp": datetime.utcnow().isoformat(),
-                            }
-                        ),
-                    )
-                    redis._client.expire(f"ws_notify:{user_id}", 60)
-
-                return {"status": "stored", "channel": "redis"}
-
-            # Emit to user's room
-            socketio.emit(
-                "notification",
-                {
-                    "type": notification_type.value,
-                    "data": data,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-                room=user_id,
-            )
-
-            return {"status": "sent", "channel": "websocket"}
-
-        except Exception as e:
-            logger.error(f"WebSocket notification failed: {e}")
-            return {"status": "error", "error": str(e)}
+                time.sleep(5)
 
     # Start background thread (only in Flask server, not in Celery worker)
     if not os.environ.get("CELERY_WORKER", "false").lower() == "true":
@@ -520,13 +398,14 @@ def create_app(config_class=Config):
                 break
         else:
             thread = threading.Thread(
-                target=process_redis_notifications, 
+                target=process_redis_notifications,
                 daemon=True,
-                name="RedisNotificationProcessor"  # Give it a name to track
+                name="RedisNotificationProcessor"
             )
             thread.start()
             logger.info("✅ Redis notification processor thread started")
-            
+
+    # ========== 13. REGISTER BLUEPRINTS ==========
     from api.v1 import api_v1_bp
     from api.v1.routers.auth_public import public_auth_bp
 
@@ -536,14 +415,12 @@ def create_app(config_class=Config):
     logger.info("✅ Registered refresh blueprint")
 
     # ===== IMPORTANT: Exempt ALL API routes from CSRF protection =====
-    # Since we're using JWT tokens for API authentication, CSRF is not needed
-    # This will fix upload issue while maintaining security
     csrf.exempt(api_v1_bp)
     logger.info("✅ Exempted all API routes from CSRF protection")
 
     logger.info("✅ Registered API v1 blueprint at /api/v1")
-    
-    # Health check endpoint
+
+    # ========== 14. HEALTH CHECK ENDPOINT ==========
     @app.route("/health")
     def health_check():
         """Comprehensive health check."""
@@ -571,7 +448,6 @@ def create_app(config_class=Config):
         try:
             db = FirebaseProvider()
             db.ping()
-            # Simple query to test connection
             db.get("health_check", "test", raise_not_found=False)
             health_status["checks"]["database"] = {"status": "healthy"}
         except Exception as e:
@@ -584,7 +460,6 @@ def create_app(config_class=Config):
         # Check Celery worker status
         try:
             from tasks.celery_app import celery
-
             i = celery.control.inspect()
             active_workers = i.active() or {}
             health_status["checks"]["celery"] = {
@@ -619,7 +494,6 @@ def create_app(config_class=Config):
 
         # Add system metrics
         import psutil
-
         health_status["system"] = {
             "cpu_percent": psutil.cpu_percent(),
             "memory_percent": psutil.virtual_memory().percent,
@@ -627,7 +501,8 @@ def create_app(config_class=Config):
         }
 
         return jsonify(health_status)
-
+    
+    # ========== 15. REGISTER PAGE ROUTES (HTML pages) ==========
     @app.route("/auth/login", methods=["GET", "POST"])
     def login_page():
         """Login page."""
@@ -707,7 +582,7 @@ def create_app(config_class=Config):
 
                     session.modified = True
 
-                    # 🔥 Create JWT tokens for API authentication
+                    #  Create JWT tokens for API authentication
                     tier_value = (
                         user.tier.value if hasattr(user.tier, "value") else user.tier
                     )
@@ -959,7 +834,7 @@ def create_app(config_class=Config):
                     session.permanent = False
                     session.modified = True
 
-                    # 🔥 Create JWT tokens for API authentication
+                    #  Create JWT tokens for API authentication
                     tier_value = (
                         user.tier.value if hasattr(user.tier, "value") else user.tier
                     )
@@ -1283,7 +1158,7 @@ def create_app(config_class=Config):
         # Get ALL thumbnail styles with availability info (not filtered)
         all_thumbnail_styles = thumbnail_service.get_all_thumbnail_styles(user.tier)
 
-        # 🔥 SEPARATE AVAILABLE AND UNAVAILABLE THUMBNAIL STYLES
+        #  SEPARATE AVAILABLE AND UNAVAILABLE THUMBNAIL STYLES
         available_styles = [
             s for s in all_thumbnail_styles if s.get("available", False)
         ]
@@ -1291,11 +1166,11 @@ def create_app(config_class=Config):
             s for s in all_thumbnail_styles if not s.get("available", False)
         ]
 
-        # 🔥 SORT EACH GROUP ALPHABETICALLY BY NAME
+        #  SORT EACH GROUP ALPHABETICALLY BY NAME
         available_styles.sort(key=lambda x: x["name"].lower())
         unavailable_styles.sort(key=lambda x: x["name"].lower())
 
-        # 🔥 COMBINE: AVAILABLE FIRST, THEN UNAVAILABLE
+        #  COMBINE: AVAILABLE FIRST, THEN UNAVAILABLE
         sorted_thumbnail_styles = available_styles + unavailable_styles
 
         credit_balance = user.credits_remaining
@@ -1384,7 +1259,7 @@ def create_app(config_class=Config):
             current_user=user,
             available_qualities=available_qualities,
             available_styles=all_video_styles,
-            thumbnail_styles=sorted_thumbnail_styles,  # 🔥 USE THE SORTED VERSION
+            thumbnail_styles=sorted_thumbnail_styles,  #  USE THE SORTED VERSION
             languages=languages,
             default_quality="original",
             unprocessed_videos_count=unprocessed_videos_count,
@@ -1605,6 +1480,22 @@ def create_app(config_class=Config):
             conditional=True,
             download_name=f"processed_video_{video_id}.mp4",
         )
+    @app.route("/admin/redis-health")
+    def redis_health():
+        """Check Redis Pub/Sub health status."""
+        from api.websocket import get_redis_health
+        return jsonify(get_redis_health())
+
+    @app.route("/admin/redis-stats")
+    def redis_stats():
+        """Get Redis connection statistics."""
+        from providers.redis_provider import RedisProvider
+        redis = RedisProvider()
+        return jsonify({
+            'connected': redis.ping(),
+            'clients': len(redis._client.client_list()) if redis._client else 0,
+            'info': redis._client.info() if redis._client else None
+        })
 
     @app.route("/results")
     def results_page():
