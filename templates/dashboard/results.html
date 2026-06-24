@@ -1336,10 +1336,10 @@ window.applySelectedStyle = function() {
 async function applyStyleToVideo(styleId, styleName) {
     const overlay = document.getElementById('style-loading-overlay');
     if (overlay) overlay.style.display = 'block';
-    
+
     try {
         let token = localStorage.getItem('access_token');
-        
+
         if (!token) {
             const refreshToken = localStorage.getItem('refresh_token');
             if (refreshToken) {

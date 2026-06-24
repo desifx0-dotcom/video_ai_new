@@ -1614,40 +1614,39 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         logger.error(f"Video {video_id} not found - PERMANENT FAILURE")
         _send_ws_failed(video_id, user_id, "Video not found", self.request.retries, False)
         return {"success": False, "video_id": video_id, "error": "Video not found", "permanent_failure": True}
-    
+
     # Validate input file exists (PERMANENT ERROR)
     input_path = video.original_path
     if not input_path or not os.path.exists(input_path):
         logger.error(f"Original video file missing: {input_path} - PERMANENT FAILURE")
         _send_ws_failed(video_id, user_id, "Original video file missing", self.request.retries, False)
         return {"success": False, "video_id": video_id, "error": "Original video file missing", "permanent_failure": True}
-    
+
     # Validate styles list
     if not styles or len(styles) == 0:
         logger.error(f"No styles provided for video {video_id} - PERMANENT FAILURE")
         _send_ws_failed(video_id, user_id, "No styles provided", self.request.retries, False)
         return {"success": False, "video_id": video_id, "error": "No styles provided", "permanent_failure": True}
-    
+
     # Send initial WebSocket update
     _send_ws_update(video_id, user_id, "processing", 0, "style_apply", f"Applying style '{styles[0]}' to video...")
     _send_ws_progress(video_id, 0, "style_apply", None)
-    
+
     try:
         logger.info(f"🎨 Starting style application for video {video_id}")
         logger.info(f"   Styles to apply: {styles}")
         logger.info(f"   Output quality: {output_quality}")
-        
+
         # Send progress - PREPARING
         _send_ws_update(video_id, user_id, "processing", 10, "style_apply", "Preparing video for style application...")
         _send_ws_progress(video_id, 10, "style_apply", None)
-        
+
         # ========== GET PROCESSED VIDEO DIMENSIONS ==========
         target_width = None
         target_height = None
         processed_path = video.output_video_url
-        
+
         _send_ws_update(video_id, user_id, "processing", 20, "style_apply", "Analyzing video dimensions...")
-        
         if processed_path and os.path.exists(processed_path):
             try:
                 probe_cmd = [
@@ -1677,6 +1676,8 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
             "fps": getattr(video, 'fps', 'original'),
             "audio_quality": getattr(video, 'audio_quality', 'original'),
             "aspect_ratio": getattr(video, 'aspect_ratio', 'original'),
+            "speed": getattr(video, 'speed', 1.0),
+            "quality": getattr(video, 'output_quality', '720p'),
         }
         
         # ========== CREATE OUTPUT DIRECTORY ==========
