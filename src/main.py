@@ -1421,8 +1421,8 @@ def create_app(config_class=Config):
 
     @app.route("/processed/<video_id>/output.mp4")
     def serve_processed_video(video_id):
-        """Serve processed video file."""
-        from flask import send_file, abort
+        """Serve processed video file with cache-busting support."""
+        from flask import send_file, abort, request
         from services.video_service import VideoService
         import os
         import tempfile
@@ -1439,6 +1439,7 @@ def create_app(config_class=Config):
             abort(404)
 
         file_path = None
+        base_dir = None
 
         # Check output_path first
         if hasattr(video, "output_path") and video.output_path:
@@ -1458,25 +1459,27 @@ def create_app(config_class=Config):
 
         # Search in the upload directory
         if not file_path:
-            base_dir = os.path.join(
-                tempfile.gettempdir(), "video_ai", "uploads", video_id
-            )
-            logger.info(f"Searching for video in: {base_dir}")
+            # Check user's video directory first (persistent storage)
+            user_video_dir = video_service.get_user_video_base_dir(video.user_id)
+            video_dir = user_video_dir / video_id
+            if video_dir.exists():
+                base_dir = str(video_dir)
+                logger.info(f"Searching for video in: {base_dir}")
 
-            if os.path.exists(base_dir):
-                # Look for mp4 files (excluding original.mp4)
-                mp4_files = glob.glob(os.path.join(base_dir, "*.mp4"))
-                # Filter out original.mp4 if present
-                processed_files = [f for f in mp4_files if "original" not in f.lower()]
+                if os.path.exists(base_dir):
+                    # Look for mp4 files (excluding original.mp4)
+                    mp4_files = glob.glob(os.path.join(base_dir, "*.mp4"))
+                    # Filter out original.mp4 if present
+                    processed_files = [f for f in mp4_files if "original" not in f.lower()]
 
-                if processed_files:
-                    # Get the most recently modified file
-                    file_path = max(processed_files, key=os.path.getmtime)
-                    logger.info(f"Found processed video: {file_path}")
-                elif mp4_files:
-                    # Fallback to any mp4 file
-                    file_path = max(mp4_files, key=os.path.getmtime)
-                    logger.info(f"Found video (fallback): {file_path}")
+                    if processed_files:
+                        # Get the most recently modified file
+                        file_path = max(processed_files, key=os.path.getmtime)
+                        logger.info(f"Found processed video: {file_path}")
+                    elif mp4_files:
+                        # Fallback to any mp4 file
+                        file_path = max(mp4_files, key=os.path.getmtime)
+                        logger.info(f"Found video (fallback): {file_path}")
 
         if not file_path or not os.path.exists(file_path):
             logger.error(f"Video file not found for {video_id}. Base dir: {base_dir}")
@@ -1485,13 +1488,33 @@ def create_app(config_class=Config):
         logger.info(f"Serving video: {file_path}")
         logger.info(f"File size: {os.path.getsize(file_path)} bytes")
 
-        return send_file(
+        #   Create response with no-cache headers
+        response = send_file(
             file_path,
             mimetype="video/mp4",
             as_attachment=False,
             conditional=True,
             download_name=f"processed_video_{video_id}.mp4",
         )
+        
+        #  Disable caching completely
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        #  Add ETag based on file modification time for conditional requests
+        if os.path.exists(file_path):
+            mtime = os.path.getmtime(file_path)
+            response.headers['ETag'] = f'"{mtime}-{os.path.getsize(file_path)}"'
+        
+        #  Handle If-None-Match header (browser's conditional request)
+        if request.headers.get('If-None-Match'):
+            etag = request.headers.get('If-None-Match')
+            if etag == response.headers.get('ETag'):
+                return '', 304  # Not Modified - browser uses cache
+        
+        return response
+
     @app.route("/admin/redis-health")
     def redis_health():
         """Check Redis Pub/Sub health status."""

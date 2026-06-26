@@ -2288,7 +2288,7 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         logger.error(f"❌ Style application failed: {error_msg}")
         logger.error(traceback.format_exc())
         
-        # 🔥 Status: FAILED
+        # Status: FAILED
         status_tracker.set_status(task_id, "failed", 0, "error", error_msg)
         _send_ws_failed(video_id, user_id, error_msg, self.request.retries, False)
         

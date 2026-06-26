@@ -1418,7 +1418,7 @@ async function applyStyleToVideo(styleId, styleName) {
     if (loadingMessage) {
         loadingMessage.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting style application...';
     }
-    
+
     try {
         let token = localStorage.getItem('access_token');
         if (!token) {
@@ -1435,7 +1435,7 @@ async function applyStyleToVideo(styleId, styleName) {
                 }
             }
         }
-        
+
         if (!token) {
             showAlert('Please login again', 'danger');
             if (overlay) overlay.style.display = 'none';
@@ -1467,40 +1467,41 @@ async function applyStyleToVideo(styleId, styleName) {
             if (overlay) overlay.style.display = 'none';
             return;
         }
-        
+
         // Store task ID for potential retry
         lastTaskId = taskId;
-        
+
         if (loadingMessage) {
             loadingMessage.innerHTML = '<i class="fas fa-hourglass-half me-2"></i>Processing video...';
         }
-        
+
         // Poll for completion
         const result = await pollTaskStatus(taskId, token, styleName);
-        
+
         if (result.success) {
             // ✅ Success - Update UI and reload
             const styleBadge = document.querySelector('.border-top.pt-2.mt-1 .badge');
             if (styleBadge) {
                 styleBadge.textContent = styleName.charAt(0).toUpperCase() + styleName.slice(1);
             }
-            
+
             if (loadingMessage) {
                 loadingMessage.innerHTML = '<i class="fas fa-check-circle text-success me-2"></i>Style applied successfully!';
             }
-            
+
             // Hide overlay and reload after showing success
             setTimeout(() => {
                 if (overlay) overlay.style.display = 'none';
-                window.location.reload();
+                //  Force hard reload with cache-busting
+                window.location.href = `/results?video_id=${videoId}&_t=${Date.now()}`;
             }, 1500);
-            
+
         } else {
             // ❌ Failed - handled in pollTaskStatus
             console.log('Task failed, modal should be shown');
             if (overlay) overlay.style.display = 'none';
         }
-        
+
     } catch (error) {
         console.error('❌ Error applying style:', error);
         showAlert(error.message || 'Network error. Please try again.', 'danger');
@@ -1748,6 +1749,55 @@ function showNotification(message, type = "info") {
     
     setTimeout(() => notification.remove(), 5000);
 }
+
+// ============================================
+// VIDEO RELOAD WITH CACHE BUSTING
+// ============================================
+
+function getVideoUrlWithCacheBust(videoUrl) {
+    if (!videoUrl) return '';
+    // Check if URL already has a query string
+    const separator = videoUrl.includes('?') ? '&' : '?';
+    // Remove existing _t parameter if present
+    const cleanUrl = videoUrl.replace(/[?&]_t=\d+/, '');
+    return `${cleanUrl}${separator}_t=${Date.now()}`;
+}
+
+// Update video source to avoid caching
+function refreshVideoPlayer() {
+    const videoElement = document.getElementById('main-video-player');
+    if (videoElement) {
+        const sourceElement = videoElement.querySelector('source');
+        if (sourceElement) {
+            const originalUrl = sourceElement.getAttribute('src');
+            if (originalUrl) {
+                const newUrl = getVideoUrlWithCacheBust(originalUrl);
+                console.log('🔄 Updating video URL with cache-bust:', newUrl);
+                sourceElement.setAttribute('src', newUrl);
+                videoElement.load();
+                // Optional: try to play after load
+                videoElement.oncanplay = function() {
+                    // videoElement.play().catch(() => {});
+                };
+            }
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Results page loaded');
+    console.log('Video URL:', '{{ video.output_video_url }}');
+    console.log('Video ID:', videoId);
+    console.log('Video Status:', '{{ video.status }}');
+
+    // 🔥 Refresh video player with cache-busting
+    refreshVideoPlayer();
+
+    // Fetch remaining regenerations for paid tiers
+    {% if current_user.tier != 'free' %}
+    fetchRemainingRegenerations();
+    {% endif %}
+});
 // ============================================
 // INITIALIZATION
 // ============================================
