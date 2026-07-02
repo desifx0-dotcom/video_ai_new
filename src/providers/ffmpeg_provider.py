@@ -1301,80 +1301,117 @@ class FFmpegProvider:
 
         # ========== BUILD FILTERS ==========
         style_filters = {
-            # ===== PROFESSIONAL GRADE STYLES (Visible, Memory-Efficient) =====
-            # Cinematic - Deep contrast, warm, film-like
-            "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2",
-            # Cinematic Pro - Enhanced with better color grading
-            "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
-            # Hollywood - High contrast, vibrant, punchy
-            "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03",
-            # Dramatic - High contrast, dark, intense
-            "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5",
-            # Artistic - Creative color grading with punch
-            "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07",
-            # Dreamy - Soft, ethereal look with warm tones
-            "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08",
-            # Neon - High saturation, cool tones, vibrant
-            "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0",
+            # ===== PROFESSIONAL GRADE STYLES =====
+            
+            # Cinematic - Film-like with subtle grain
+            "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2,noise=alls=8:allf=t",
+            
+            # Cinematic Pro - Enhanced with film grain
+            "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02,noise=alls=12:allf=t",
+            
+            # Hollywood - Punchy with fine grain
+            "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03,noise=alls=10:allf=t",
+            
+            # Dramatic - Heavy grain for intense mood
+            "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5,noise=alls=15:allf=t",
+            
+            # Artistic - Creative with subtle texture
+            "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07,noise=alls=8:allf=t",
+            
+            # Dreamy - Soft grain, ethereal
+            "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08,noise=alls=5:allf=t",
+            
+            # Neon - Clean, minimal grain (cyberpunk aesthetic)
+            "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0,noise=alls=4:allf=t",
+            
             # ===== SOCIAL MEDIA STYLES =====
-            # Vlog - Natural, slightly warm, balanced
+            
+            # Vlog - Clean, natural look
             "vlog": "eq=brightness=0.1:contrast=1.05:saturation=1.15,colorbalance=rs=0.03:gs=0.02:bs=-0.03",
-            # Travel - Vibrant, warm, inviting
+            
+            # Travel - Clean, vibrant (no grain for travel)
             "travel": "eq=saturation=1.25:contrast=1.08:brightness=0.08,colorbalance=rs=0.04:gs=0.03:bs=0.05",
-            # Wedding - Soft, warm, romantic
-            "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8",
-            # Glamour - Fashion/beauty look
-            "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04",
+            
+            # Wedding - Soft, romantic with subtle glow
+            "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8,noise=alls=5:allf=t",
+            
+            # Glamour - Fashion/beauty with soft grain
+            "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04,noise=alls=6:allf=t",
+            
             # ===== PROFESSIONAL/BUSINESS STYLES =====
-            # Professional - Studio quality, balanced
+            
+            # Professional - Clean, studio quality
             "professional": "eq=contrast=1.1:saturation=1.0,unsharp=3:3:0.6",
-            # Corporate - Clean, professional, neutral
+            
+            # Corporate - Clean, neutral (no grain)
             "corporate": "eq=brightness=0.04:contrast=1.1:saturation=0.98,unsharp=2:2:0.5",
-            # Documentary - Natural, accurate colors
-            "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
-            # Real Estate - Bright, clear, inviting
+            
+            # Documentary - Natural with subtle grain
+            "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01,noise=alls=4:allf=t",
+            
+            # Real Estate - Clean, bright (no grain)
             "real_estate": "eq=saturation=1.15:contrast=1.08:brightness=0.08,unsharp=4:4:0.8",
-            # Tech - Modern, clean, crisp
+            
+            # Tech - Clean, crisp (no grain)
             "tech": "eq=saturation=1.2:contrast=1.15:brightness=0.04,unsharp=5:5:1.2,colorbalance=rs=0.07:gs=0.05:bs=0.1",
+            
             # ===== GAMING/ACTION STYLES =====
-            # Gaming - Saturated, high contrast, vibrant
-            "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03",
-            # Action - High contrast, punchy, intense
-            "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15",
+            
+            # Gaming - Vibrant with slight grain
+            "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03,noise=alls=6:allf=t",
+            
+            # Action - Punchy, minimal grain
+            "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15,noise=alls=6:allf=t",
+            
             # ===== CREATIVE/ARTISTIC STYLES =====
-            # Vintage - Faded, warm, nostalgic
-            "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1'",
-            # Retro - 70s/80s film look
-            "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1'",
-            # Sepia - Warm brown vintage photo look
-            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08",
-            # Black & White - Classic monochrome with contrast
-            "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8",
-            # Futuristic - Sci-fi blue/cyan tint
-            "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12",
-            # Cartoon - Comic book style
+            
+            # Vintage - Heavy grain for nostalgic look
+            "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1',noise=alls=20:allf=t",
+            
+            # Retro - Heavy grain, VHS feel
+            "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1',noise=alls=25:allf=t",
+            
+            # Sepia - Warm brown with grain
+            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08,noise=alls=12:allf=t",
+            
+            # Black & White - Classic monochrome with film grain
+            "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8,noise=alls=15:allf=t",
+            
+            # Futuristic - Clean, minimal grain
+            "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12,noise=alls=4:allf=t",
+            
+            # Cartoon - Clean, bold (no grain)
             "cartoon": "eq=saturation=1.25:contrast=1.15,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.8",
+            
             # ===== SPECIALTY STYLES =====
-            # Minimalist - Desaturated, clean, modern
+            
+            # Minimalist - Clean, no grain
             "minimalist": "eq=saturation=0.9:contrast=1.08,unsharp=2:2:0.4",
-            # Bright - High key, clean, modern
+            
+            # Bright - Clean, modern
             "bright": "eq=brightness=0.15:contrast=1.1:saturation=1.25",
-            # Dark - Moody, dramatic low-key
-            "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05",
-            # Warm - Golden hour warmth
-            "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04",
-            # Cool - Blue/cold tones
+            
+            # Dark - Moody with subtle grain
+            "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05,noise=alls=10:allf=t",
+            
+            # Warm - Golden warmth with soft grain
+            "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04,noise=alls=6:allf=t",
+            
+            # Cool - Clean, crisp (no grain)
             "cool": "eq=brightness=0.03:contrast=1.05:saturation=1.05,colorbalance=rs=-0.03:gs=0:bs=0.06",
-            # Mystery - Dark, desaturated, moody
-            "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8",
-            # Pastel - Soft, light, gentle colors
+            
+            # Mystery - Dark, desaturated with grain
+            "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8,noise=alls=12:allf=t",
+            
+            # Pastel - Soft, clean (no grain)
             "pastel": "eq=saturation=0.82:contrast=1.05:brightness=0.08,colorbalance=rs=0.03:gs=0.03:bs=0.03",
-            # Text Heavy - High contrast for readability
+            
+            # Text Heavy - Clean, high contrast
             "text_heavy": "eq=brightness=0.03:contrast=1.25:saturation=1.08,unsharp=3:3:1.0",
-            # HDR - High dynamic range look
+            
+            # HDR - Clean, high dynamic range
             "hdr": "eq=contrast=1.2:saturation=1.15,brightness=0.03,unsharp=5:5:1.5",
         }
-
         style_lower = style.lower()
         filter_str = style_filters.get(style_lower)
         if not filter_str:
@@ -2067,80 +2104,117 @@ class FFmpegProvider:
             current_input = input_path
 
             style_filters = {
-                # ===== PROFESSIONAL GRADE STYLES (Visible, Memory-Efficient) =====
-                # Cinematic - Deep contrast, warm, film-like
-                "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2",
-                # Cinematic Pro - Enhanced with better color grading
-                "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
-                # Hollywood - High contrast, vibrant, punchy
-                "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03",
-                # Dramatic - High contrast, dark, intense
-                "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5",
-                # Artistic - Creative color grading with punch
-                "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07",
-                # Dreamy - Soft, ethereal look with warm tones
-                "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08",
-                # Neon - High saturation, cool tones, vibrant
-                "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0",
+                # ===== PROFESSIONAL GRADE STYLES =====
+                
+                # Cinematic - Film-like with subtle grain
+                "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2,noise=alls=8:allf=t",
+                
+                # Cinematic Pro - Enhanced with film grain
+                "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02,noise=alls=12:allf=t",
+                
+                # Hollywood - Punchy with fine grain
+                "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03,noise=alls=10:allf=t",
+                
+                # Dramatic - Heavy grain for intense mood
+                "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5,noise=alls=15:allf=t",
+                
+                # Artistic - Creative with subtle texture
+                "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07,noise=alls=8:allf=t",
+                
+                # Dreamy - Soft grain, ethereal
+                "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08,noise=alls=5:allf=t",
+                
+                # Neon - Clean, minimal grain (cyberpunk aesthetic)
+                "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0,noise=alls=4:allf=t",
+                
                 # ===== SOCIAL MEDIA STYLES =====
-                # Vlog - Natural, slightly warm, balanced
+                
+                # Vlog - Clean, natural look
                 "vlog": "eq=brightness=0.1:contrast=1.05:saturation=1.15,colorbalance=rs=0.03:gs=0.02:bs=-0.03",
-                # Travel - Vibrant, warm, inviting
+                
+                # Travel - Clean, vibrant (no grain for travel)
                 "travel": "eq=saturation=1.25:contrast=1.08:brightness=0.08,colorbalance=rs=0.04:gs=0.03:bs=0.05",
-                # Wedding - Soft, warm, romantic
-                "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8",
-                # Glamour - Fashion/beauty look
-                "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04",
+                
+                # Wedding - Soft, romantic with subtle glow
+                "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8,noise=alls=5:allf=t",
+                
+                # Glamour - Fashion/beauty with soft grain
+                "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04,noise=alls=6:allf=t",
+                
                 # ===== PROFESSIONAL/BUSINESS STYLES =====
-                # Professional - Studio quality, balanced
+                
+                # Professional - Clean, studio quality
                 "professional": "eq=contrast=1.1:saturation=1.0,unsharp=3:3:0.6",
-                # Corporate - Clean, professional, neutral
+                
+                # Corporate - Clean, neutral (no grain)
                 "corporate": "eq=brightness=0.04:contrast=1.1:saturation=0.98,unsharp=2:2:0.5",
-                # Documentary - Natural, accurate colors
-                "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
-                # Real Estate - Bright, clear, inviting
+                
+                # Documentary - Natural with subtle grain
+                "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01,noise=alls=4:allf=t",
+                
+                # Real Estate - Clean, bright (no grain)
                 "real_estate": "eq=saturation=1.15:contrast=1.08:brightness=0.08,unsharp=4:4:0.8",
-                # Tech - Modern, clean, crisp
+                
+                # Tech - Clean, crisp (no grain)
                 "tech": "eq=saturation=1.2:contrast=1.15:brightness=0.04,unsharp=5:5:1.2,colorbalance=rs=0.07:gs=0.05:bs=0.1",
+                
                 # ===== GAMING/ACTION STYLES =====
-                # Gaming - Saturated, high contrast, vibrant
-                "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03",
-                # Action - High contrast, punchy, intense
-                "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15",
+                
+                # Gaming - Vibrant with slight grain
+                "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03,noise=alls=6:allf=t",
+                
+                # Action - Punchy, minimal grain
+                "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15,noise=alls=6:allf=t",
+                
                 # ===== CREATIVE/ARTISTIC STYLES =====
-                # Vintage - Faded, warm, nostalgic
-                "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1'",
-                # Retro - 70s/80s film look
-                "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1'",
-                # Sepia - Warm brown vintage photo look
-                "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08",
-                # Black & White - Classic monochrome with contrast
-                "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8",
-                # Futuristic - Sci-fi blue/cyan tint
-                "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12",
-                # Cartoon - Comic book style
+                
+                # Vintage - Heavy grain for nostalgic look
+                "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1',noise=alls=20:allf=t",
+                
+                # Retro - Heavy grain, VHS feel
+                "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1',noise=alls=25:allf=t",
+                
+                # Sepia - Warm brown with grain
+                "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08,noise=alls=12:allf=t",
+                
+                # Black & White - Classic monochrome with film grain
+                "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8,noise=alls=15:allf=t",
+                
+                # Futuristic - Clean, minimal grain
+                "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12,noise=alls=4:allf=t",
+                
+                # Cartoon - Clean, bold (no grain)
                 "cartoon": "eq=saturation=1.25:contrast=1.15,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.8",
+                
                 # ===== SPECIALTY STYLES =====
-                # Minimalist - Desaturated, clean, modern
+                
+                # Minimalist - Clean, no grain
                 "minimalist": "eq=saturation=0.9:contrast=1.08,unsharp=2:2:0.4",
-                # Bright - High key, clean, modern
+                
+                # Bright - Clean, modern
                 "bright": "eq=brightness=0.15:contrast=1.1:saturation=1.25",
-                # Dark - Moody, dramatic low-key
-                "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05",
-                # Warm - Golden hour warmth
-                "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04",
-                # Cool - Blue/cold tones
+                
+                # Dark - Moody with subtle grain
+                "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05,noise=alls=10:allf=t",
+                
+                # Warm - Golden warmth with soft grain
+                "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04,noise=alls=6:allf=t",
+                
+                # Cool - Clean, crisp (no grain)
                 "cool": "eq=brightness=0.03:contrast=1.05:saturation=1.05,colorbalance=rs=-0.03:gs=0:bs=0.06",
-                # Mystery - Dark, desaturated, moody
-                "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8",
-                # Pastel - Soft, light, gentle colors
+                
+                # Mystery - Dark, desaturated with grain
+                "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8,noise=alls=12:allf=t",
+                
+                # Pastel - Soft, clean (no grain)
                 "pastel": "eq=saturation=0.82:contrast=1.05:brightness=0.08,colorbalance=rs=0.03:gs=0.03:bs=0.03",
-                # Text Heavy - High contrast for readability
+                
+                # Text Heavy - Clean, high contrast
                 "text_heavy": "eq=brightness=0.03:contrast=1.25:saturation=1.08,unsharp=3:3:1.0",
-                # HDR - High dynamic range look
+                
+                # HDR - Clean, high dynamic range
                 "hdr": "eq=contrast=1.2:saturation=1.15,brightness=0.03,unsharp=5:5:1.5",
             }
-
             # Get filter for the requested style
 
             aspect_dimensions = {
