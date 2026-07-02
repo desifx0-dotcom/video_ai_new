@@ -371,7 +371,6 @@ class FFmpegProvider:
         """
         return self.get_video_duration(audio_path)  # FFprobe works for audio too
 
-    # Add this method to providers/ffmpeg_provider.py
     def extract_frame_at_time(
         self,
         video_path: str,
@@ -998,192 +997,278 @@ class FFmpegProvider:
             logger.warning(f"Failed to check chunked processing need: {e}")
             return False
 
-    def _apply_style_chunked(self, input_path: str, output_path: str, style: str,
-                                  target_width: int = None, target_height: int = None,
-                                  chunk_duration: int = 5, preserve_settings: dict = None,  force_no_chunking: bool = False) -> bool:
-            """
-            Chunk-based style application for large files.
-            Splits video into chunks, processes each, then concatenates.
-            """
-            import tempfile
-            import shutil
-            import math
-            
-            logger.info(f"🔄 Using CHUNKED processing for large video")
-            
-            # Get video duration
-            try:
-                duration = self.get_video_duration(input_path)
-                logger.info(f"   Video duration: {duration:.1f}s")
-            except Exception as e:
-                logger.error(f"   Failed to get video duration: {e}")
-                return False
-            
-            if duration <= chunk_duration:
-                logger.info(f"   Video duration ({duration:.1f}s) <= chunk duration ({chunk_duration}s), processing directly")
-                return self.apply_video_style(
-                    input_path, output_path, style, target_width, target_height , preserve_settings=preserve_settings 
+    def _apply_style_chunked(
+        self,
+        input_path: str,
+        output_path: str,
+        style: str,
+        target_width: int = None,
+        target_height: int = None,
+        chunk_duration: int = 5,
+        preserve_settings: dict = None,
+        force_no_chunking: bool = False,
+    ) -> bool:
+        """
+        Chunk-based style application for large files.
+        Splits video into chunks, processes each, then concatenates.
+        """
+        import tempfile
+        import shutil
+        import math
+
+        logger.info(f"🔄 Using CHUNKED processing for large video")
+
+        # Get video duration
+        try:
+            duration = self.get_video_duration(input_path)
+            logger.info(f"   Video duration: {duration:.1f}s")
+        except Exception as e:
+            logger.error(f"   Failed to get video duration: {e}")
+            return False
+
+        if duration <= chunk_duration:
+            logger.info(
+                f"   Video duration ({duration:.1f}s) <= chunk duration ({chunk_duration}s), processing directly"
+            )
+            return self.apply_video_style(
+                input_path,
+                output_path,
+                style,
+                target_width,
+                target_height,
+                preserve_settings=preserve_settings,
+            )
+
+        #  just use ceil
+        num_chunks = max(1, math.ceil(duration / chunk_duration))
+        logger.info(f"   Splitting {duration:.1f}s video into {num_chunks} chunks")
+
+        chunk_dir = tempfile.mkdtemp(prefix="chunked_")
+        chunk_outputs = []
+
+        try:
+            for i in range(num_chunks):
+                start_time = i * chunk_duration
+                # Last chunk gets remaining duration
+                actual_duration = min(chunk_duration, duration - start_time)
+
+                if actual_duration <= 0:
+                    break
+
+                chunk_input = os.path.join(chunk_dir, f"chunk_{i:03d}_input.mp4")
+                chunk_output = os.path.join(chunk_dir, f"chunk_{i:03d}_styled.mp4")
+                chunk_outputs.append(chunk_output)
+
+                # Extract chunk with actual duration
+                extract_cmd = [
+                    "ffmpeg",
+                    "-ss",
+                    str(start_time),
+                    "-i",
+                    input_path,
+                    "-t",
+                    str(actual_duration),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a:0?",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "2",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-y",
+                    chunk_input,
+                ]
+
+                logger.info(
+                    f"   Extracting chunk {i+1}/{num_chunks} (start: {start_time:.1f}s, duration: {actual_duration:.1f}s)"
                 )
-            
-            #  just use ceil
-            num_chunks = max(1, math.ceil(duration / chunk_duration))
-            logger.info(f"   Splitting {duration:.1f}s video into {num_chunks} chunks")
-            
-            chunk_dir = tempfile.mkdtemp(prefix="chunked_")
-            chunk_outputs = []
-            
-            try:
-                for i in range(num_chunks):
-                    start_time = i * chunk_duration
-                    # Last chunk gets remaining duration
-                    actual_duration = min(chunk_duration, duration - start_time)
-                    
-                    if actual_duration <= 0:
-                        break
-                        
-                    chunk_input = os.path.join(chunk_dir, f"chunk_{i:03d}_input.mp4")
-                    chunk_output = os.path.join(chunk_dir, f"chunk_{i:03d}_styled.mp4")
-                    chunk_outputs.append(chunk_output)
-                    
-                    # Extract chunk with actual duration
-                    extract_cmd = [
-                        "ffmpeg",
-                        "-ss", str(start_time),
-                        "-i", input_path,
-                        "-t", str(actual_duration),
-                        "-map", "0:v:0",
-                        "-map", "0:a:0?",
-                        "-c:v", "libx264",
-                        "-preset", "ultrafast",
-                        "-crf", "23",
-                        "-c:a", "aac",
-                        "-b:a", "128k",
-                        "-ar", "48000",
-                        "-ac", "2",
-                        "-pix_fmt", "yuv420p",
-                        "-y", chunk_input
-                    ]
-                    
-                    logger.info(f"   Extracting chunk {i+1}/{num_chunks} (start: {start_time:.1f}s, duration: {actual_duration:.1f}s)")
-                    
-                    result = subprocess.run(extract_cmd, capture_output=True, text=True, timeout=120)
-                    
-                    if result.returncode != 0:
-                        logger.error(f"   ❌ Chunk {i+1} extraction FAILED")
-                        logger.error(f"      stderr: {result.stderr[:300]}")
-                        return False
-                    
-                    if not os.path.exists(chunk_input) or os.path.getsize(chunk_input) == 0:
-                        logger.error(f"   ❌ Chunk {i+1} input file missing or empty")
-                        return False
-                    
-                    logger.info(f"   ✅ Chunk {i+1} extracted: {os.path.getsize(chunk_input)/1024/1024:.1f}MB")
-                    
-                    # Apply style to chunk
-                    success = self.apply_video_style(
-                        input_path=chunk_input,
-                        output_path=chunk_output,
-                        style=style,
-                        target_width=target_width,
-                        target_height=target_height,
-                        preserve_settings=preserve_settings,
-                        _skip_chunk_check=True
-                    )
-                    
-                    if not success:
-                        logger.error(f"   ❌ Failed to style chunk {i+1}")
-                        return False
-                    
-                    logger.info(f"   ✅ Chunk {i+1} styled successfully")
-                
-                # Concatenate chunks
-                concat_file = os.path.join(chunk_dir, "concat.txt")
-                valid_chunks = 0
-                with open(concat_file, "w") as f:
-                    for chunk_output in chunk_outputs:
-                        if os.path.exists(chunk_output) and os.path.getsize(chunk_output) > 0:
-                            f.write(f"file '{chunk_output}'\n")
-                            valid_chunks += 1
-                        else:
-                            logger.warning(f"   ⚠️ Skipping missing chunk: {chunk_output}")
-                
-                if valid_chunks == 0:
+
+                result = subprocess.run(
+                    extract_cmd, capture_output=True, text=True, timeout=120
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"   ❌ Chunk {i+1} extraction FAILED")
+                    logger.error(f"      stderr: {result.stderr[:300]}")
+                    return False
+
+                if not os.path.exists(chunk_input) or os.path.getsize(chunk_input) == 0:
+                    logger.error(f"   ❌ Chunk {i+1} input file missing or empty")
+                    return False
+
+                logger.info(
+                    f"   ✅ Chunk {i+1} extracted: {os.path.getsize(chunk_input)/1024/1024:.1f}MB"
+                )
+
+                # Apply style to chunk
+                success = self.apply_video_style(
+                    input_path=chunk_input,
+                    output_path=chunk_output,
+                    style=style,
+                    target_width=target_width,
+                    target_height=target_height,
+                    preserve_settings=preserve_settings,
+                    _skip_chunk_check=True,
+                )
+
+                if not success:
+                    logger.error(f"   ❌ Failed to style chunk {i+1}")
+                    return False
+
+                logger.info(f"   ✅ Chunk {i+1} styled successfully")
+
+            # Concatenate chunks
+            concat_file = os.path.join(chunk_dir, "concat.txt")
+            valid_chunks = 0
+            with open(concat_file, "w") as f:
+                for chunk_output in chunk_outputs:
+                    if (
+                        os.path.exists(chunk_output)
+                        and os.path.getsize(chunk_output) > 0
+                    ):
+                        f.write(f"file '{chunk_output}'\n")
+                        valid_chunks += 1
+                    else:
+                        logger.warning(f"   ⚠️ Skipping missing chunk: {chunk_output}")
+
+            if valid_chunks == 0:
+                logger.error(f"   ❌ No valid chunks to concatenate")
+                return False
+
+            logger.info(f"   Concatenating {valid_chunks} chunks")
+
+            # Method 1: Concat demuxer
+            concat_cmd = [
+                "ffmpeg",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                concat_file,
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-movflags",
+                "+faststart",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+                output_path,
+            ]
+
+            result = subprocess.run(
+                concat_cmd, capture_output=True, text=True, timeout=300
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"   ⚠️ Concat demuxer failed, trying filter complex...")
+
+                filter_inputs = []
+                for chunk_output in chunk_outputs:
+                    if (
+                        os.path.exists(chunk_output)
+                        and os.path.getsize(chunk_output) > 0
+                    ):
+                        filter_inputs.extend(["-i", chunk_output])
+
+                if not filter_inputs:
                     logger.error(f"   ❌ No valid chunks to concatenate")
                     return False
-                
-                logger.info(f"   Concatenating {valid_chunks} chunks")
-                
-                # Method 1: Concat demuxer
-                concat_cmd = [
-                    "ffmpeg", "-f", "concat", "-safe", "0",
-                    "-i", concat_file,
-                    "-map", "0:v:0", "-map", "0:a:0",
-                    "-c:v", "libx264",
-                    "-preset", "fast",
-                    "-crf", "23",
-                    "-c:a", "aac", "-b:a", "192k",
-                    "-ar", "48000", "-ac", "2",
-                    "-movflags", "+faststart",
-                    "-pix_fmt", "yuv420p",
-                    "-y", output_path
-                ]
-                
-                result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=300)
-                
-                if result.returncode != 0:
-                    logger.warning(f"   ⚠️ Concat demuxer failed, trying filter complex...")
-                    
-                    filter_inputs = []
-                    for chunk_output in chunk_outputs:
-                        if os.path.exists(chunk_output) and os.path.getsize(chunk_output) > 0:
-                            filter_inputs.extend(["-i", chunk_output])
-                    
-                    if not filter_inputs:
-                        logger.error(f"   ❌ No valid chunks to concatenate")
-                        return False
-                    
-                    filter_complex = f"concat=n={len(filter_inputs)//2}:v=1:a=1"
-                    filter_cmd = filter_inputs + [
-                        "-filter_complex", filter_complex,
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "23",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-ar", "48000",
-                        "-ac", "2",
-                        "-movflags", "+faststart",
-                        "-pix_fmt", "yuv420p",
-                        "-y", output_path
-                    ]
-                    
-                    result = subprocess.run(filter_cmd, capture_output=True, text=True, timeout=300)
-                    
-                    if result.returncode != 0:
-                        logger.error(f"   ❌ Both concat methods failed")
-                        logger.error(f"      stderr: {result.stderr[:300]}")
-                        return False
-                
-                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    logger.info(f"   ✅ Concatenation successful: {os.path.getsize(output_path)/1024/1024:.1f}MB")
-                    return True
-                else:
-                    logger.error(f"   ❌ Output file missing or empty")
-                    return False
-                    
-            except Exception as e:
-                logger.error(f"❌ Chunked processing failed: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                return False
-                
-            finally:
-                if os.path.exists(chunk_dir):
-                    shutil.rmtree(chunk_dir, ignore_errors=True)
 
-    def apply_video_style(self, input_path: str, output_path: str, style: str,
-                          target_width: int = None, target_height: int = None,
-                          preserve_settings: dict = None, _skip_chunk_check: bool = False) -> bool:
+                filter_complex = f"concat=n={len(filter_inputs)//2}:v=1:a=1"
+                filter_cmd = filter_inputs + [
+                    "-filter_complex",
+                    filter_complex,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "fast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "2",
+                    "-movflags",
+                    "+faststart",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-y",
+                    output_path,
+                ]
+
+                result = subprocess.run(
+                    filter_cmd, capture_output=True, text=True, timeout=300
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"   ❌ Both concat methods failed")
+                    logger.error(f"      stderr: {result.stderr[:300]}")
+                    return False
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                logger.info(
+                    f"   ✅ Concatenation successful: {os.path.getsize(output_path)/1024/1024:.1f}MB"
+                )
+                return True
+            else:
+                logger.error(f"   ❌ Output file missing or empty")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ Chunked processing failed: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
+            return False
+
+        finally:
+            if os.path.exists(chunk_dir):
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+
+    def apply_video_style(
+        self,
+        input_path: str,
+        output_path: str,
+        style: str,
+        target_width: int = None,
+        target_height: int = None,
+        preserve_settings: dict = None,
+        _skip_chunk_check: bool = False,
+    ) -> bool:
         """
         Apply style with automatic fallback: chunked → normal processing.
         """
@@ -1197,9 +1282,17 @@ class FFmpegProvider:
             raise ProcessingError(f"Input file not found: {input_path}")
 
         # ========== EXTRACT PRESERVE SETTINGS ==========
-        fps = preserve_settings.get("fps", "original") if preserve_settings else "original"
+        fps = (
+            preserve_settings.get("fps", "original")
+            if preserve_settings
+            else "original"
+        )
         speed = preserve_settings.get("speed", 1.0) if preserve_settings else 1.0
-        audio_quality = preserve_settings.get("audio_quality", "original") if preserve_settings else "original"
+        audio_quality = (
+            preserve_settings.get("audio_quality", "original")
+            if preserve_settings
+            else "original"
+        )
 
         logger.info(f"🎬 Preserve settings:")
         logger.info(f"   FPS: {fps}")
@@ -1208,40 +1301,78 @@ class FFmpegProvider:
 
         # ========== BUILD FILTERS ==========
         style_filters = {
-            "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
-            "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-            "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
-            "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
-            "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
-            "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
-            "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
-            "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
-            "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
-            "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
-            "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
-            "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
-            "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
-            "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
-            "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
-            "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
-            "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
-            "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
-            "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
-            "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
-            "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
-            "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
-            "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
-            "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
-            "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
-            "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
-            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
-            "black_and_white": "hue=s=0,eq=contrast=1.1",
-            "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
-            "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
-            "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
-            "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
-            "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
-            "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
+            # ===== PROFESSIONAL GRADE STYLES (Visible, Memory-Efficient) =====
+            # Cinematic - Deep contrast, warm, film-like
+            "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2",
+            # Cinematic Pro - Enhanced with better color grading
+            "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+            # Hollywood - High contrast, vibrant, punchy
+            "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03",
+            # Dramatic - High contrast, dark, intense
+            "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5",
+            # Artistic - Creative color grading with punch
+            "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07",
+            # Dreamy - Soft, ethereal look with warm tones
+            "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08",
+            # Neon - High saturation, cool tones, vibrant
+            "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0",
+            # ===== SOCIAL MEDIA STYLES =====
+            # Vlog - Natural, slightly warm, balanced
+            "vlog": "eq=brightness=0.1:contrast=1.05:saturation=1.15,colorbalance=rs=0.03:gs=0.02:bs=-0.03",
+            # Travel - Vibrant, warm, inviting
+            "travel": "eq=saturation=1.25:contrast=1.08:brightness=0.08,colorbalance=rs=0.04:gs=0.03:bs=0.05",
+            # Wedding - Soft, warm, romantic
+            "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8",
+            # Glamour - Fashion/beauty look
+            "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04",
+            # ===== PROFESSIONAL/BUSINESS STYLES =====
+            # Professional - Studio quality, balanced
+            "professional": "eq=contrast=1.1:saturation=1.0,unsharp=3:3:0.6",
+            # Corporate - Clean, professional, neutral
+            "corporate": "eq=brightness=0.04:contrast=1.1:saturation=0.98,unsharp=2:2:0.5",
+            # Documentary - Natural, accurate colors
+            "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+            # Real Estate - Bright, clear, inviting
+            "real_estate": "eq=saturation=1.15:contrast=1.08:brightness=0.08,unsharp=4:4:0.8",
+            # Tech - Modern, clean, crisp
+            "tech": "eq=saturation=1.2:contrast=1.15:brightness=0.04,unsharp=5:5:1.2,colorbalance=rs=0.07:gs=0.05:bs=0.1",
+            # ===== GAMING/ACTION STYLES =====
+            # Gaming - Saturated, high contrast, vibrant
+            "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03",
+            # Action - High contrast, punchy, intense
+            "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15",
+            # ===== CREATIVE/ARTISTIC STYLES =====
+            # Vintage - Faded, warm, nostalgic
+            "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1'",
+            # Retro - 70s/80s film look
+            "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1'",
+            # Sepia - Warm brown vintage photo look
+            "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08",
+            # Black & White - Classic monochrome with contrast
+            "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8",
+            # Futuristic - Sci-fi blue/cyan tint
+            "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12",
+            # Cartoon - Comic book style
+            "cartoon": "eq=saturation=1.25:contrast=1.15,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.8",
+            # ===== SPECIALTY STYLES =====
+            # Minimalist - Desaturated, clean, modern
+            "minimalist": "eq=saturation=0.9:contrast=1.08,unsharp=2:2:0.4",
+            # Bright - High key, clean, modern
+            "bright": "eq=brightness=0.15:contrast=1.1:saturation=1.25",
+            # Dark - Moody, dramatic low-key
+            "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05",
+            # Warm - Golden hour warmth
+            "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04",
+            # Cool - Blue/cold tones
+            "cool": "eq=brightness=0.03:contrast=1.05:saturation=1.05,colorbalance=rs=-0.03:gs=0:bs=0.06",
+            # Mystery - Dark, desaturated, moody
+            "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8",
+            # Pastel - Soft, light, gentle colors
+            "pastel": "eq=saturation=0.82:contrast=1.05:brightness=0.08,colorbalance=rs=0.03:gs=0.03:bs=0.03",
+            # Text Heavy - High contrast for readability
+            "text_heavy": "eq=brightness=0.03:contrast=1.25:saturation=1.08,unsharp=3:3:1.0",
+            # HDR - High dynamic range look
+            "hdr": "eq=contrast=1.2:saturation=1.15,brightness=0.03,unsharp=5:5:1.5",
         }
 
         style_lower = style.lower()
@@ -1266,24 +1397,33 @@ class FFmpegProvider:
                 audio_filters.append(f"atempo={speed}")
             else:
                 steps = int(speed / 2.0) + 1
-                audio_filters.append(",".join(["atempo=2.0"] * (steps - 1)) + f",atempo={speed/(2.0**(steps-1))}")
+                audio_filters.append(
+                    ",".join(["atempo=2.0"] * (steps - 1))
+                    + f",atempo={speed/(2.0**(steps-1))}"
+                )
 
         # 3. Style filter
         if filter_str:
             video_filters.append(filter_str)
 
         logger.info(f"🎬 Applying filters:")
-        logger.info(f"   Video: {', '.join(video_filters) if video_filters else 'none'}")
-        logger.info(f"   Audio: {', '.join(audio_filters) if audio_filters else 'none'}")
+        logger.info(
+            f"   Video: {', '.join(video_filters) if video_filters else 'none'}"
+        )
+        logger.info(
+            f"   Audio: {', '.join(audio_filters) if audio_filters else 'none'}"
+        )
 
         # ========== IF SKIPPING CHUNK CHECK, APPLY STYLE DIRECTLY ==========
         if _skip_chunk_check:
             # ✅ Just apply the filters directly (this is being called from a chunk)
             logger.info(f"⏭️ Skipping chunk check (already processing a chunk)")
-            
+
             # Apply filters
             if video_filters or audio_filters:
-                temp_fd, temp_filtered = tempfile.mkstemp(suffix=".mp4", prefix="filtered_")
+                temp_fd, temp_filtered = tempfile.mkstemp(
+                    suffix=".mp4", prefix="filtered_"
+                )
                 os.close(temp_fd)
 
                 cmd = ["ffmpeg", "-i", input_path]
@@ -1293,19 +1433,32 @@ class FFmpegProvider:
                 if audio_filters:
                     cmd.extend(["-af", ",".join(audio_filters)])
 
-                cmd.extend([
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "23",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-ar", "48000",
-                    "-ac", "2",
-                    "-pix_fmt", "yuv420p",
-                    "-y", temp_filtered
-                ])
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "medium",
+                        "-crf",
+                        "23",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "192k",
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "2",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-y",
+                        temp_filtered,
+                    ]
+                )
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=300
+                )
 
                 if result.returncode != 0:
                     logger.error(f"Filter application failed: {result.stderr[:500]}")
@@ -1313,7 +1466,10 @@ class FFmpegProvider:
                         os.unlink(temp_filtered)
                     return False
 
-                if not os.path.exists(temp_filtered) or os.path.getsize(temp_filtered) == 0:
+                if (
+                    not os.path.exists(temp_filtered)
+                    or os.path.getsize(temp_filtered) == 0
+                ):
                     logger.error(f"Filtered temp file is empty or missing")
                     if os.path.exists(temp_filtered):
                         os.unlink(temp_filtered)
@@ -1328,7 +1484,15 @@ class FFmpegProvider:
             if target_width and target_height:
                 logger.info(f"📐 Scaling video to {target_width}x{target_height}")
 
-                probe_cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", current_input]
+                probe_cmd = [
+                    "ffprobe",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
+                    "-show_streams",
+                    current_input,
+                ]
                 probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
 
                 needs_scaling = True
@@ -1340,28 +1504,45 @@ class FFmpegProvider:
                             src_h = stream.get("height", 0)
                             if src_w == target_width and src_h == target_height:
                                 needs_scaling = False
-                                logger.info(f"📐 Video already at target dimensions, skipping scale")
+                                logger.info(
+                                    f"📐 Video already at target dimensions, skipping scale"
+                                )
                             break
 
                 if needs_scaling:
                     scale_cmd = [
-                        "ffmpeg", "-i", current_input,
-                        "-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "23",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-movflags", "+faststart",
-                        "-pix_fmt", "yuv420p",
-                        "-y", output_path
+                        "ffmpeg",
+                        "-i",
+                        current_input,
+                        "-vf",
+                        f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "fast",
+                        "-crf",
+                        "23",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "192k",
+                        "-movflags",
+                        "+faststart",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-y",
+                        output_path,
                     ]
 
-                    result = subprocess.run(scale_cmd, capture_output=True, text=True, timeout=300)
+                    result = subprocess.run(
+                        scale_cmd, capture_output=True, text=True, timeout=300
+                    )
 
                     if result.returncode != 0:
                         logger.error(f"Scaling failed: {result.stderr[:500]}")
-                        if current_input != input_path and os.path.exists(current_input):
+                        if current_input != input_path and os.path.exists(
+                            current_input
+                        ):
                             os.unlink(current_input)
                         return False
 
@@ -1395,21 +1576,27 @@ class FFmpegProvider:
                     # First attempt: Chunked processing
                     logger.info(f"🔄 Attempt 1: Chunked processing...")
                     success = self._apply_style_chunked(
-                        input_path, output_path, style, target_width, target_height,
-                        preserve_settings=preserve_settings
+                        input_path,
+                        output_path,
+                        style,
+                        target_width,
+                        target_height,
+                        preserve_settings=preserve_settings,
                     )
                     if success:
                         logger.info(f"✅ Chunked processing succeeded")
                         return True
                     else:
-                        logger.warning(f"⚠️ Chunked processing failed, falling back to normal processing")
+                        logger.warning(
+                            f"⚠️ Chunked processing failed, falling back to normal processing"
+                        )
                         continue
                 else:
                     # Second attempt: Normal processing (applies all filters)
                     logger.info(f"🔄 Attempt {attempt + 1}: Normal processing...")
-                    
+
                     # ... your existing normal processing code ...
-                    
+
             except Exception as e:
                 logger.error(f"Attempt {attempt + 1} failed: {e}")
                 if attempt == 0 and use_chunked:
@@ -1573,6 +1760,10 @@ class FFmpegProvider:
                     input_path,
                     "-t",
                     str(actual_duration),
+                    "-map",
+                    "0:v:0",  # Map video stream
+                    "-map",
+                    "0:a:0?",
                     "-vf",
                     chunk_scale,
                     "-c:v",
@@ -1876,40 +2067,78 @@ class FFmpegProvider:
             current_input = input_path
 
             style_filters = {
-                "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
-                "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-                "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
-                "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
-                "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
-                "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
-                "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
-                "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
-                "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
-                "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
-                "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
-                "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
-                "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
-                "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
-                "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
-                "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
-                "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
-                "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
-                "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
-                "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
-                "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
-                "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
-                "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
-                "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
-                "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
-                "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
-                "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
-                "black_and_white": "hue=s=0,eq=contrast=1.1",
-                "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
-                "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
-                "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
-                "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
-                "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
-                "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
+                # ===== PROFESSIONAL GRADE STYLES (Visible, Memory-Efficient) =====
+                # Cinematic - Deep contrast, warm, film-like
+                "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2",
+                # Cinematic Pro - Enhanced with better color grading
+                "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+                # Hollywood - High contrast, vibrant, punchy
+                "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03",
+                # Dramatic - High contrast, dark, intense
+                "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5",
+                # Artistic - Creative color grading with punch
+                "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07",
+                # Dreamy - Soft, ethereal look with warm tones
+                "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08",
+                # Neon - High saturation, cool tones, vibrant
+                "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0",
+                # ===== SOCIAL MEDIA STYLES =====
+                # Vlog - Natural, slightly warm, balanced
+                "vlog": "eq=brightness=0.1:contrast=1.05:saturation=1.15,colorbalance=rs=0.03:gs=0.02:bs=-0.03",
+                # Travel - Vibrant, warm, inviting
+                "travel": "eq=saturation=1.25:contrast=1.08:brightness=0.08,colorbalance=rs=0.04:gs=0.03:bs=0.05",
+                # Wedding - Soft, warm, romantic
+                "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8",
+                # Glamour - Fashion/beauty look
+                "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04",
+                # ===== PROFESSIONAL/BUSINESS STYLES =====
+                # Professional - Studio quality, balanced
+                "professional": "eq=contrast=1.1:saturation=1.0,unsharp=3:3:0.6",
+                # Corporate - Clean, professional, neutral
+                "corporate": "eq=brightness=0.04:contrast=1.1:saturation=0.98,unsharp=2:2:0.5",
+                # Documentary - Natural, accurate colors
+                "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+                # Real Estate - Bright, clear, inviting
+                "real_estate": "eq=saturation=1.15:contrast=1.08:brightness=0.08,unsharp=4:4:0.8",
+                # Tech - Modern, clean, crisp
+                "tech": "eq=saturation=1.2:contrast=1.15:brightness=0.04,unsharp=5:5:1.2,colorbalance=rs=0.07:gs=0.05:bs=0.1",
+                # ===== GAMING/ACTION STYLES =====
+                # Gaming - Saturated, high contrast, vibrant
+                "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03",
+                # Action - High contrast, punchy, intense
+                "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15",
+                # ===== CREATIVE/ARTISTIC STYLES =====
+                # Vintage - Faded, warm, nostalgic
+                "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1'",
+                # Retro - 70s/80s film look
+                "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1'",
+                # Sepia - Warm brown vintage photo look
+                "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08",
+                # Black & White - Classic monochrome with contrast
+                "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8",
+                # Futuristic - Sci-fi blue/cyan tint
+                "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12",
+                # Cartoon - Comic book style
+                "cartoon": "eq=saturation=1.25:contrast=1.15,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.8",
+                # ===== SPECIALTY STYLES =====
+                # Minimalist - Desaturated, clean, modern
+                "minimalist": "eq=saturation=0.9:contrast=1.08,unsharp=2:2:0.4",
+                # Bright - High key, clean, modern
+                "bright": "eq=brightness=0.15:contrast=1.1:saturation=1.25",
+                # Dark - Moody, dramatic low-key
+                "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05",
+                # Warm - Golden hour warmth
+                "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04",
+                # Cool - Blue/cold tones
+                "cool": "eq=brightness=0.03:contrast=1.05:saturation=1.05,colorbalance=rs=-0.03:gs=0:bs=0.06",
+                # Mystery - Dark, desaturated, moody
+                "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8",
+                # Pastel - Soft, light, gentle colors
+                "pastel": "eq=saturation=0.82:contrast=1.05:brightness=0.08,colorbalance=rs=0.03:gs=0.03:bs=0.03",
+                # Text Heavy - High contrast for readability
+                "text_heavy": "eq=brightness=0.03:contrast=1.25:saturation=1.08,unsharp=3:3:1.0",
+                # HDR - High dynamic range look
+                "hdr": "eq=contrast=1.2:saturation=1.15,brightness=0.03,unsharp=5:5:1.5",
             }
 
             # Get filter for the requested style
@@ -2018,6 +2247,10 @@ class FFmpegProvider:
                     cmd, capture_output=True, text=True, timeout=300
                 )
                 if result.returncode != 0:
+                    #  Log full error for debugging
+                    logger.error(f"FFmpeg command failed: {' '.join(cmd)}")
+                    logger.error(f"STDERR: {result.stderr}")
+                    logger.error(f"STDOUT: {result.stdout}")
                     logger.error(f"Speed stage failed: {result.stderr[:300]}")
                     return False
 

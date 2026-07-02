@@ -719,40 +719,6 @@
                 </div>
             </div>
 
-            <!-- Error Modal for Style Application Failure -->
-            <div class="modal fade" id="styleErrorModal" tabindex="-1">
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header border-0">
-                            <h5 class="modal-title text-danger">
-                                <i class="fas fa-exclamation-circle me-2"></i>Style Application Failed
-                            </h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="text-center mb-3">
-                                <i class="fas fa-video-slash text-danger" style="font-size: 3rem;"></i>
-                            </div>
-                            <p id="style-error-message" class="text-center mb-3">
-                                The video style could not be applied due to a processing error.
-                            </p>
-                            <div class="alert alert-info mb-0">
-                                <i class="fas fa-info-circle me-2"></i>
-                                <small>This could be due to a temporary issue with the video processing system.</small>
-                            </div>
-                        </div>
-                        <div class="modal-footer border-0 justify-content-center gap-3">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                <i class="fas fa-times me-2"></i>Cancel
-                            </button>
-                            <button type="button" class="btn btn-primary" onclick="retryStyleApplication()">
-                                <i class="fas fa-redo me-2"></i>Retry
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Video Management -->
             <div class="card">
                 <div class="card-header">
@@ -789,6 +755,40 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error Modal for Style Application Failure -->
+<div class="modal fade" id="styleErrorModal" tabindex="-1" aria-hidden="true" style="display: none;">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title text-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>Style Application Failed
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <i class="fas fa-video-slash text-danger" style="font-size: 3rem;"></i>
+                </div>
+                <p id="style-error-message" class="text-center mb-3">
+                    The video style could not be applied due to a processing error.
+                </p>
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <small>This could be due to a temporary issue with the video processing system.</small>
+                </div>
+            </div>
+            <div class="modal-footer border-0 justify-content-center gap-3">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </button>
+                <button type="button" class="btn btn-primary" onclick="retryStyleApplication()">
+                    <i class="fas fa-redo me-2"></i>Retry
+                </button>
             </div>
         </div>
     </div>
@@ -867,7 +867,7 @@ let currentThumbnailId = '';
 const videoId = '{{ video.id }}';
 const csrfToken = '{{ csrf_token() }}';
 const accessToken = localStorage.getItem('access_token');
-
+let isPageLoading = true;  // Set to false after DOMContentLoaded
 
 // ============================================
 // THUMBNAIL FUNCTIONS
@@ -1362,23 +1362,62 @@ window.applySelectedStyle = function() {
 // STYLE ERROR MODAL FUNCTIONS
 // ============================================
 
+// ============================================
+// STYLE ERROR MODAL FUNCTIONS
+// ============================================
+
+
 function showStyleErrorModal(errorMessage, styleName) {
+    if (isPageLoading) {
+        console.warn('⚠️ Modal suppressed during page load (isPageLoading=true)');
+        return;
+    }
+    
+    if (!errorMessage || errorMessage.trim() === '') {
+        console.warn('⚠️ showStyleErrorModal called with empty error message, ignoring');
+        return;
+    }
+    
     console.log('⚠️ Showing error modal:', errorMessage);
     
     const modalElement = document.getElementById('styleErrorModal');
-    const messageElement = document.getElementById('style-error-message');
+    if (!modalElement) {
+        console.error('Error modal element not found');
+        showAlert(errorMessage || 'Style application failed', 'danger');
+        return;
+    }
     
+    const messageElement = document.getElementById('style-error-message');
     if (messageElement) {
         messageElement.textContent = errorMessage || `Failed to apply "${styleName}" style. Please try again.`;
     }
     
-    // Use Bootstrap modal
-    const modal = new bootstrap.Modal(modalElement, {
-        backdrop: 'static',
-        keyboard: true
-    });
-    modal.show();
+    //  any existing modal instances and backdrops first
+    // Remove any existing backdrop
+    const existingBackdrop = document.querySelector('.modal-backdrop');
+    if (existingBackdrop) {
+        existingBackdrop.remove();
+    }
+    
+    // Remove modal-open class from body
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    
+    // Reset modal state
+    modalElement.classList.remove('show');
+    modalElement.style.display = 'none';
+    
+    // Wait a tiny bit for the reset to take effect
+    setTimeout(function() {
+        // Create new modal instance
+        const modal = new bootstrap.Modal(modalElement, {
+            backdrop: 'static',
+            keyboard: true
+        });
+        modal.show();
+    }, 100);
 }
+
 
 function retryStyleApplication() {
     // Close the modal
@@ -1402,11 +1441,13 @@ function retryStyleApplication() {
     }
 }
 
+
 // ============================================
 // APPLY STYLE WITH PROPER POLLING
 // ============================================
 
 async function applyStyleToVideo(styleId, styleName) {
+    console.log('🎨 applyStyleToVideo called with:', styleId, styleName, 'isPageLoading:', isPageLoading);
     const overlay = document.getElementById('style-loading-overlay');
     const loadingMessage = document.querySelector('#style-loading-overlay .loading-message');
     
@@ -1514,26 +1555,47 @@ async function applyStyleToVideo(styleId, styleName) {
 // ============================================
 
 async function pollTaskStatus(taskId, token, styleName, maxAttempts = 180, interval = 3000) {
+    if (!taskId) {
+        console.warn('⚠️ pollTaskStatus called with no taskId');
+        return { success: false, error: 'No task ID' };
+    }
+    
+    console.log(`🔍 Starting poll for task: ${taskId}`, 'styleName:', styleName);
+    
     return new Promise((resolve, reject) => {
         let attempts = 0;
         const loadingMessage = document.querySelector('#style-loading-overlay .loading-message');
         const overlay = document.getElementById('style-loading-overlay');
         let lastStatus = '';
+        let isResolved = false;
         
         const checkStatus = async () => {
+            if (isResolved) return;
             attempts++;
             
             try {
-                //  Get task status from Redis
                 const response = await fetch(`/api/v1/task/${taskId}/status`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 
-                if (!response.ok) {
+                if (response.status === 404) {
+                    console.warn(`⏳ Task ${taskId} not found (404), waiting...`);
                     if (attempts < maxAttempts) {
                         setTimeout(checkStatus, interval);
                         return;
                     }
+                    isResolved = true;
+                    reject({ success: false, error: 'Task not found' });
+                    return;
+                }
+                
+                if (!response.ok) {
+                    console.warn(`⚠️ Status check failed: ${response.status}`);
+                    if (attempts < maxAttempts) {
+                        setTimeout(checkStatus, interval);
+                        return;
+                    }
+                    isResolved = true;
                     reject(new Error('Status check failed'));
                     return;
                 }
@@ -1541,28 +1603,27 @@ async function pollTaskStatus(taskId, token, styleName, maxAttempts = 180, inter
                 const statusData = await response.json();
                 console.log(`📊 Attempt ${attempts}/${maxAttempts}:`, statusData);
                 
-                //  Check for FAILED status
                 if (statusData.status === 'failed') {
                     console.error('❌ Task failed:', statusData.error);
                     if (overlay) overlay.style.display = 'none';
+                    isResolved = true;
                     
-                    // Show error modal
-                    showStyleErrorModal(
-                        statusData.error || `Failed to apply "${styleName}" style. Please try again.`,
-                        styleName
-                    );
+                    if (typeof isPageLoading !== 'undefined' && isPageLoading === false) {
+                        showStyleErrorModal(
+                            statusData.error || `Failed to apply "${styleName}" style. Please try again.`,
+                            styleName
+                        );
+                    } else {
+                        console.warn('⚠️ Modal suppressed during page load (failed status)');
+                    }
                     
                     reject({ success: false, error: statusData.error || 'Task failed' });
                     return;
                 }
                 
-                // Update loading message with progress
+                //  FIXED: Removed the time display
                 if (loadingMessage && statusData.status !== 'completed') {
-                    const elapsedSeconds = attempts * interval / 1000;
-                    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-                    const elapsedSecondsRemainder = Math.floor(elapsedSeconds % 60);
-                    
-                    let message = `<i class="fas fa-spinner fa-spin me-2"></i>Processing... ${elapsedMinutes}:${elapsedSecondsRemainder.toString().padStart(2, '0')}`;
+                    let message = `<i class="fas fa-spinner fa-spin me-2"></i>Processing`;
                     
                     if (statusData.progress && statusData.progress > 0) {
                         message += ` (${Math.round(statusData.progress)}%)`;
@@ -1574,11 +1635,9 @@ async function pollTaskStatus(taskId, token, styleName, maxAttempts = 180, inter
                     loadingMessage.innerHTML = message;
                 }
                 
-                //  Check for COMPLETED status
                 if (statusData.status === 'completed') {
                     console.log('✅ Task marked as completed!');
                     
-                    //  Verify styles were actually applied
                     try {
                         const resultResponse = await fetch(`/api/v1/task/${taskId}/result`, {
                             headers: { 'Authorization': `Bearer ${token}` }
@@ -1588,44 +1647,56 @@ async function pollTaskStatus(taskId, token, styleName, maxAttempts = 180, inter
                             const resultData = await resultResponse.json();
                             console.log('Task result:', resultData);
                             
-                            //  Check if any styles were actually applied
                             if (resultData.styles_applied === 0 || resultData.success === false) {
                                 console.error('❌ No styles were applied successfully');
                                 if (overlay) overlay.style.display = 'none';
-                                showStyleErrorModal(
-                                    resultData.error || 'No styles were applied successfully. Please try again.',
-                                    styleName
-                                );
+                                isResolved = true;
+                                
+                                if (typeof isPageLoading !== 'undefined' && isPageLoading === false) {
+                                    showStyleErrorModal(
+                                        resultData.error || 'No styles were applied successfully. Please try again.',
+                                        styleName
+                                    );
+                                } else {
+                                    console.warn('⚠️ Modal suppressed during page load (styles_applied=0)');
+                                }
+                                
                                 reject({ success: false, error: 'No styles applied' });
                                 return;
                             }
                             
-                            // ✅ Success - styles were applied
+                            isResolved = true;
                             resolve({ success: true, data: resultData });
                             return;
                         }
                     } catch (e) {
                         console.warn('Could not fetch task result:', e);
-                        // Still resolve as success since status is completed
+                        isResolved = true;
                         resolve({ success: true, data: statusData });
                         return;
                     }
                     
+                    isResolved = true;
                     resolve({ success: true, data: statusData });
                     return;
                 }
                 
-                // Still processing - continue polling
                 if (attempts < maxAttempts) {
                     setTimeout(checkStatus, interval);
                 } else {
-                    // ⏰ Timeout
                     console.error('⏰ Processing timeout');
                     if (overlay) overlay.style.display = 'none';
-                    showStyleErrorModal(
-                        'Processing timeout after 9 minutes. Please try again.',
-                        styleName
-                    );
+                    isResolved = true;
+                    
+                    if (typeof isPageLoading !== 'undefined' && isPageLoading === false) {
+                        showStyleErrorModal(
+                            'Processing timeout after 9 minutes. Please try again.',
+                            styleName
+                        );
+                    } else {
+                        console.warn('⚠️ Modal suppressed during page load (timeout)');
+                    }
+                    
                     reject({ success: false, error: 'Processing timeout' });
                 }
                 
@@ -1635,16 +1706,22 @@ async function pollTaskStatus(taskId, token, styleName, maxAttempts = 180, inter
                     setTimeout(checkStatus, interval);
                 } else {
                     if (overlay) overlay.style.display = 'none';
-                    showStyleErrorModal(
-                        'Network error during processing. Please try again.',
-                        styleName
-                    );
+                    isResolved = true;
+                    
+                    if (typeof isPageLoading !== 'undefined' && isPageLoading === false) {
+                        showStyleErrorModal(
+                            'Network error during processing. Please try again.',
+                            styleName
+                        );
+                    } else {
+                        console.warn('⚠️ Modal suppressed during page load (network error)');
+                    }
+                    
                     reject({ success: false, error: error.message || 'Polling failed' });
                 }
             }
         };
         
-        // Start polling
         checkStatus();
     });
 }
@@ -1663,6 +1740,7 @@ function clearPolling() {
 function showComingSoon(message) {
     showAlert(message, 'info');
 }
+
 
 // Update applied styles badge
 function updateAppliedStylesBadge(styleId, styleName) {
@@ -1763,6 +1841,7 @@ function getVideoUrlWithCacheBust(videoUrl) {
     return `${cleanUrl}${separator}_t=${Date.now()}`;
 }
 
+
 // Update video source to avoid caching
 function refreshVideoPlayer() {
     const videoElement = document.getElementById('main-video-player');
@@ -1784,34 +1863,47 @@ function refreshVideoPlayer() {
     }
 }
 
+
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Results page loaded');
+    console.log('✅ Results page loaded');
     console.log('Video URL:', '{{ video.output_video_url }}');
     console.log('Video ID:', videoId);
     console.log('Video Status:', '{{ video.status }}');
 
-    // 🔥 Refresh video player with cache-busting
+    //  Explicitly hide the error modal on page load
+    const modalElement = document.getElementById('styleErrorModal');
+    if (modalElement) {
+        modalElement.style.display = 'none';
+        modalElement.classList.remove('show');
+        modalElement.removeAttribute('aria-hidden');
+        modalElement.setAttribute('aria-hidden', 'true');
+    }
+
+    isPageLoading = false;
+    console.log('✅ Page loading complete, isPageLoading = false');
+
     refreshVideoPlayer();
 
-    // Fetch remaining regenerations for paid tiers
     {% if current_user.tier != 'free' %}
     fetchRemainingRegenerations();
     {% endif %}
 });
+
+
 // ============================================
 // INITIALIZATION
 // ============================================
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('Results page loaded');
-    console.log('Video URL:', '{{ video.output_video_url }}');
-    console.log('Video ID:', videoId);
-    console.log('Video Status:', '{{ video.status }}');
+// document.addEventListener('DOMContentLoaded', function() {
+//     console.log('Results page loaded');
+//     console.log('Video URL:', '{{ video.output_video_url }}');
+//     console.log('Video ID:', videoId);
+//     console.log('Video Status:', '{{ video.status }}');
 
-    // Fetch remaining regenerations for paid tiers
-    {% if current_user.tier != 'free' %}
-    fetchRemainingRegenerations();
-    {% endif %}
-});
+//     // Fetch remaining regenerations for paid tiers
+//     {% if current_user.tier != 'free' %}
+//     fetchRemainingRegenerations();
+//     {% endif %}
+// });
 
 </script>
 {% endblock %}

@@ -283,6 +283,37 @@ def _check_silent_video_tier(video, user_id):
     return True, ""
 
 
+def check_ffmpeg_filters():
+    """Check if required FFmpeg filters are available."""
+    required_filters = [
+        "eq",
+        "unsharp",
+        "colorbalance",
+        "curves",
+        "boxblur",
+        "edgedetect",
+        "hue",
+    ]
+    available = []
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-filters"], capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout
+
+        for filter_name in required_filters:
+            if filter_name in output:
+                available.append(filter_name)
+            else:
+                logger.warning(f"FFmpeg filter '{filter_name}' not available")
+    except Exception as e:
+        logger.error(f"Failed to check FFmpeg filters: {e}")
+
+    return available
+
+
 @celery_app.task(bind=True, max_retries=3)
 def process_video_async(
     self, video_id: str, user_id: str, options: Dict[str, Any] = None
@@ -1732,40 +1763,78 @@ def _apply_all_filters_production(video, options):
 
     # Stage 3: Apply VIDEO STYLES
     style_filters = {
-        "cinematic": "eq=brightness=0.05:contrast=1.15:saturation=1.1,unsharp=5:5:0.8",
-        "bright": "eq=brightness=0.12:contrast=1.08:saturation=1.2",
-        "educational": "eq=brightness=0.03:contrast=1.1:saturation=1.05,unsharp=3:3:0.5",
-        "vlog": "eq=brightness=0.08:contrast=1.02:saturation=1.08,colorbalance=rs=0.02:gs=0.01:bs=-0.02",
-        "gaming": "eq=saturation=1.25:contrast=1.15:brightness=0.03,unsharp=5:5:1.0,colorbalance=rs=0.05:gs=0.03:bs=-0.02",
-        "travel": "eq=saturation=1.18:contrast=1.05:brightness=0.05,colorbalance=rs=0.03:gs=0.02:bs=0.04",
-        "dark": "eq=brightness=-0.1:contrast=1.18:saturation=0.88,colorbalance=gs=-0.04",
-        "professional": "eq=contrast=1.08:saturation=0.98,unsharp=3:3:0.4",
-        "documentary": "eq=brightness=0:contrast=1.02:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
-        "wedding": "eq=brightness=0.07:contrast=1.02:saturation=1.05,colorbalance=rs=0.04:gs=0.02:bs=0.03",
-        "corporate": "eq=brightness=0.03:contrast=1.08:saturation=0.98,unsharp=2:2:0.3",
-        "real_estate": "eq=saturation=1.1:contrast=1.05:brightness=0.06,unsharp=4:4:0.6",
-        "action": "eq=contrast=1.2:brightness=0.03,unsharp=5:5:1.2,eq=saturation=1.1",
-        "minimalist": "eq=saturation=0.92:contrast=1.05,unsharp=2:2:0.2",
-        "vintage": "eq=brightness=0.02:contrast=0.92:saturation=0.88,colorbalance=rs=-0.03:gs=-0.02:bs=0.05",
-        "cinematic_pro": "eq=brightness=0.06:contrast=1.2:saturation=1.12,unsharp=5:5:1.0,colorbalance=rs=0.02:gs=0.01:bs=-0.01",
-        "artistic": "eq=saturation=1.2:contrast=1.08:brightness=0.03,unsharp=4:4:0.8,colorbalance=rs=0.04:gs=0.02:bs=0.06",
-        "retro": "eq=brightness=0.02:contrast=0.92:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.08",
-        "futuristic": "eq=saturation=1.25:contrast=1.15:brightness=0.04,unsharp=5:5:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.1",
-        "cartoon": "eq=saturation=1.2:contrast=1.1,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.5",
-        "glamour": "eq=brightness=0.05:contrast=1.02:saturation=1.1,unsharp=4:4:0.7,colorbalance=rs=0.05:gs=0.03:bs=0.03",
-        "mystery": "eq=brightness=-0.05:contrast=1.15:saturation=0.92,colorbalance=gs=-0.04,unsharp=3:3:0.5",
-        "tech": "eq=saturation=1.18:contrast=1.12:brightness=0.03,unsharp=5:5:0.9,colorbalance=rs=0.06:gs=0.04:bs=0.09",
-        "dramatic": "eq=brightness=-0.03:contrast=1.25:saturation=1.1,unsharp=5:5:1.2",
-        "warm": "eq=brightness=0.04:contrast=1.02:saturation=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.03",
-        "cool": "eq=brightness=0.02:contrast=1.03:saturation=1.02,colorbalance=rs=-0.02:gs=0:bs=0.05",
-        "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
-        "black_and_white": "hue=s=0,eq=contrast=1.1",
-        "text_heavy": "eq=brightness=0.02:contrast=1.2:saturation=1.05,unsharp=3:3:0.8",
-        "hollywood": "eq=brightness=0.04:contrast=1.18:saturation=1.15,unsharp=5:5:1.1,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
-        "dreamy": "eq=brightness=0.06:contrast=1.02:saturation=1.08,unsharp=3:3:0.4,colorbalance=rs=0.04:gs=0.03:bs=0.07",
-        "neon": "eq=saturation=1.3:contrast=1.2:brightness=0.05,colorbalance=rs=0.08:gs=0.05:bs=0.12,unsharp=4:4:0.8",
-        "pastel": "eq=saturation=0.85:contrast=1.02:brightness=0.07,colorbalance=rs=0.02:gs=0.02:bs=0.02",
-        "hdr": "eq=contrast=1.15:saturation=1.12,brightness=0.02,unsharp=5:5:1.0",
+        # ===== PROFESSIONAL GRADE STYLES (Visible, Memory-Efficient) =====
+        # Cinematic - Deep contrast, warm, film-like
+        "cinematic": "eq=brightness=0.05:contrast=1.2:saturation=1.15,unsharp=5:5:1.2",
+        # Cinematic Pro - Enhanced with better color grading
+        "cinematic_pro": "eq=brightness=0.08:contrast=1.25:saturation=1.2,unsharp=5:5:1.5,colorbalance=rs=0.03:gs=0.02:bs=-0.02",
+        # Hollywood - High contrast, vibrant, punchy
+        "hollywood": "eq=brightness=0.06:contrast=1.3:saturation=1.25,unsharp=5:5:1.5,colorbalance=rs=0.04:gs=0.03:bs=-0.03",
+        # Dramatic - High contrast, dark, intense
+        "dramatic": "eq=brightness=-0.05:contrast=1.3:saturation=1.15,unsharp=5:5:1.5",
+        # Artistic - Creative color grading with punch
+        "artistic": "eq=saturation=1.25:contrast=1.15:brightness=0.05,unsharp=4:4:1.2,colorbalance=rs=0.05:gs=0.03:bs=0.07",
+        # Dreamy - Soft, ethereal look with warm tones
+        "dreamy": "eq=brightness=0.08:contrast=1.05:saturation=1.1,unsharp=3:3:0.8,colorbalance=rs=0.05:gs=0.04:bs=0.08",
+        # Neon - High saturation, cool tones, vibrant
+        "neon": "eq=saturation=1.4:contrast=1.25:brightness=0.06,colorbalance=rs=0.1:gs=0.06:bs=0.15,unsharp=4:4:1.0",
+        # ===== SOCIAL MEDIA STYLES =====
+        # Vlog - Natural, slightly warm, balanced
+        "vlog": "eq=brightness=0.1:contrast=1.05:saturation=1.15,colorbalance=rs=0.03:gs=0.02:bs=-0.03",
+        # Travel - Vibrant, warm, inviting
+        "travel": "eq=saturation=1.25:contrast=1.08:brightness=0.08,colorbalance=rs=0.04:gs=0.03:bs=0.05",
+        # Wedding - Soft, warm, romantic
+        "wedding": "eq=brightness=0.08:contrast=1.05:saturation=1.1,colorbalance=rs=0.05:gs=0.03:bs=0.04,unsharp=3:3:0.8",
+        # Glamour - Fashion/beauty look
+        "glamour": "eq=brightness=0.06:contrast=1.05:saturation=1.15,unsharp=4:4:1.0,colorbalance=rs=0.06:gs=0.04:bs=0.04",
+        # ===== PROFESSIONAL/BUSINESS STYLES =====
+        # Professional - Studio quality, balanced
+        "professional": "eq=contrast=1.1:saturation=1.0,unsharp=3:3:0.6",
+        # Corporate - Clean, professional, neutral
+        "corporate": "eq=brightness=0.04:contrast=1.1:saturation=0.98,unsharp=2:2:0.5",
+        # Documentary - Natural, accurate colors
+        "documentary": "eq=brightness=0:contrast=1.05:saturation=0.95,colorbalance=rs=-0.02:gs=-0.01:bs=-0.01",
+        # Real Estate - Bright, clear, inviting
+        "real_estate": "eq=saturation=1.15:contrast=1.08:brightness=0.08,unsharp=4:4:0.8",
+        # Tech - Modern, clean, crisp
+        "tech": "eq=saturation=1.2:contrast=1.15:brightness=0.04,unsharp=5:5:1.2,colorbalance=rs=0.07:gs=0.05:bs=0.1",
+        # ===== GAMING/ACTION STYLES =====
+        # Gaming - Saturated, high contrast, vibrant
+        "gaming": "eq=saturation=1.3:contrast=1.2:brightness=0.04,unsharp=5:5:1.5,colorbalance=rs=0.06:gs=0.04:bs=-0.03",
+        # Action - High contrast, punchy, intense
+        "action": "eq=contrast=1.25:brightness=0.04,unsharp=5:5:1.5,eq=saturation=1.15",
+        # ===== CREATIVE/ARTISTIC STYLES =====
+        # Vintage - Faded, warm, nostalgic
+        "vintage": "eq=brightness=0.03:contrast=0.9:saturation=0.85,colorbalance=rs=-0.04:gs=-0.03:bs=0.06,curves=all='0/0 0.4/0.3 1/1'",
+        # Retro - 70s/80s film look
+        "retro": "eq=brightness=0.03:contrast=0.9:saturation=0.82,colorbalance=rs=-0.05:gs=-0.04:bs=0.09,curves=all='0/0 0.2/0.4 0.5/0.6 1/1'",
+        # Sepia - Warm brown vintage photo look
+        "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=brightness=0.03:contrast=1.08",
+        # Black & White - Classic monochrome with contrast
+        "black_and_white": "hue=s=0,eq=contrast=1.15,unsharp=3:3:0.8",
+        # Futuristic - Sci-fi blue/cyan tint
+        "futuristic": "eq=saturation=1.3:contrast=1.2:brightness=0.05,unsharp=5:5:1.5,colorbalance=rs=0.08:gs=0.05:bs=0.12",
+        # Cartoon - Comic book style
+        "cartoon": "eq=saturation=1.25:contrast=1.15,edgedetect=low=0.1:high=0.3,unsharp=3:3:0.8",
+        # ===== SPECIALTY STYLES =====
+        # Minimalist - Desaturated, clean, modern
+        "minimalist": "eq=saturation=0.9:contrast=1.08,unsharp=2:2:0.4",
+        # Bright - High key, clean, modern
+        "bright": "eq=brightness=0.15:contrast=1.1:saturation=1.25",
+        # Dark - Moody, dramatic low-key
+        "dark": "eq=brightness=-0.12:contrast=1.2:saturation=0.85,colorbalance=gs=-0.05",
+        # Warm - Golden hour warmth
+        "warm": "eq=brightness=0.05:contrast=1.05:saturation=1.08,colorbalance=rs=0.07:gs=0.03:bs=-0.04",
+        # Cool - Blue/cold tones
+        "cool": "eq=brightness=0.03:contrast=1.05:saturation=1.05,colorbalance=rs=-0.03:gs=0:bs=0.06",
+        # Mystery - Dark, desaturated, moody
+        "mystery": "eq=brightness=-0.06:contrast=1.2:saturation=0.9,colorbalance=gs=-0.05,unsharp=3:3:0.8",
+        # Pastel - Soft, light, gentle colors
+        "pastel": "eq=saturation=0.82:contrast=1.05:brightness=0.08,colorbalance=rs=0.03:gs=0.03:bs=0.03",
+        # Text Heavy - High contrast for readability
+        "text_heavy": "eq=brightness=0.03:contrast=1.25:saturation=1.08,unsharp=3:3:1.0",
+        # HDR - High dynamic range look
+        "hdr": "eq=contrast=1.2:saturation=1.15,brightness=0.03,unsharp=5:5:1.5",
     }
 
     if styles:
@@ -2088,7 +2157,9 @@ def _get_audio_bitrate(self, audio_quality: str) -> str:
 
 
 @celery_app.task(bind=True, max_retries=3)
-def apply_different_styles_async(self, video_id: str, user_id: str, styles: List[str], output_quality: str = "720p"):
+def apply_different_styles_async(
+    self, video_id: str, user_id: str, styles: List[str], output_quality: str = "720p"
+):
     """
     Apply different video styles to the video while preserving ALL user settings.
     """
@@ -2100,12 +2171,12 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
     import os
     from datetime import datetime
     import traceback
-    
+
     task_id = f"{video_id}_{datetime.utcnow().timestamp()}"
-    
+
     video_service = VideoService()
     ffmpeg = FFmpegProvider()
-    
+
     # ========== GET VIDEO ==========
     video = video_service.get_video_by_id(video_id)
     if not video:
@@ -2114,8 +2185,14 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
 
     input_path = video.original_path
     if not input_path or not os.path.exists(input_path):
-        status_tracker.set_status(task_id, "failed", 0, "error", "Original video file missing")
-        return {"success": False, "error": "Original video file missing", "styles_applied": 0}
+        status_tracker.set_status(
+            task_id, "failed", 0, "error", "Original video file missing"
+        )
+        return {
+            "success": False,
+            "error": "Original video file missing",
+            "styles_applied": 0,
+        }
 
     if not styles or len(styles) == 0:
         status_tracker.set_status(task_id, "failed", 0, "error", "No styles provided")
@@ -2123,14 +2200,23 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
 
     #  Set initial status
     status_tracker.set_status(task_id, "processing", 0, "starting")
-    _send_ws_update(video_id, user_id, "processing", 0, "style_apply", "Starting style application...")
+    _send_ws_update(
+        video_id,
+        user_id,
+        "processing",
+        0,
+        "style_apply",
+        "Starting style application...",
+    )
 
     try:
         logger.info(f"🎨 Starting style application for video {video_id}")
         logger.info(f"   Styles to apply: {styles}")
 
         status_tracker.set_status(task_id, "processing", 10, "preparing")
-        _send_ws_update(video_id, user_id, "processing", 10, "style_apply", "Preparing video...")
+        _send_ws_update(
+            video_id, user_id, "processing", 10, "style_apply", "Preparing video..."
+        )
 
         # ========== GET PROCESSED VIDEO DIMENSIONS ==========
         target_width = None
@@ -2138,15 +2224,29 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         processed_path = video.output_video_url
 
         status_tracker.set_status(task_id, "processing", 20, "analyzing")
-        _send_ws_update(video_id, user_id, "processing", 20, "style_apply", "Analyzing video dimensions...")
-        
+        _send_ws_update(
+            video_id,
+            user_id,
+            "processing",
+            20,
+            "style_apply",
+            "Analyzing video dimensions...",
+        )
+
         if processed_path and os.path.exists(processed_path):
             try:
                 probe_cmd = [
-                    "ffprobe", "-v", "quiet", "-print_format", "json",
-                    "-show_streams", processed_path
+                    "ffprobe",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
+                    "-show_streams",
+                    processed_path,
                 ]
-                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+                probe_result = subprocess.run(
+                    probe_cmd, capture_output=True, text=True, timeout=30
+                )
                 if probe_result.returncode == 0:
                     info = json.loads(probe_result.stdout)
                     for stream in info.get("streams", []):
@@ -2156,39 +2256,54 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
                             break
             except Exception as e:
                 logger.warning(f"Failed to probe processed video: {e}")
-        
+
         if not target_width or not target_height:
-            quality_map = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}
-            target_width, target_height = quality_map.get(video.output_quality, (1280, 720))
-        
+            quality_map = {
+                "480p": (854, 480),
+                "720p": (1280, 720),
+                "1080p": (1920, 1080),
+                "4k": (3840, 2160),
+            }
+            target_width, target_height = quality_map.get(
+                video.output_quality, (1280, 720)
+            )
+
         logger.info(f"Target dimensions: {target_width}x{target_height}")
-        
+
         preserve_settings = {
-            "fps": getattr(video, 'fps', 'original'),
-            "audio_quality": getattr(video, 'audio_quality', 'original'),
-            "aspect_ratio": getattr(video, 'aspect_ratio', 'original'),
-            "speed": getattr(video, 'speed', 1.0),
-            "quality": getattr(video, 'output_quality', '720p'),
+            "fps": getattr(video, "fps", "original"),
+            "audio_quality": getattr(video, "audio_quality", "original"),
+            "aspect_ratio": getattr(video, "aspect_ratio", "original"),
+            "speed": getattr(video, "speed", 1.0),
+            "quality": getattr(video, "output_quality", "720p"),
         }
-        
+
         output_dir = os.path.dirname(input_path)
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         results = []
         total_styles = len(styles)
         failed_styles = []
-        
+
         for idx, style in enumerate(styles):
             current_progress = 30 + int((idx / total_styles) * 60)
-            
-            status_tracker.set_status(task_id, "processing", current_progress, f"applying_{style}")
-            _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", 
-                           f"Applying '{style}' style ({idx + 1}/{total_styles})...")
-            
+
+            status_tracker.set_status(
+                task_id, "processing", current_progress, f"applying_{style}"
+            )
+            _send_ws_update(
+                video_id,
+                user_id,
+                "processing",
+                current_progress,
+                "style_apply",
+                f"Applying '{style}' style ({idx + 1}/{total_styles})...",
+            )
+
             output_filename = f"{video_id}_{style}_{timestamp}.mp4"
             output_path = os.path.join(output_dir, output_filename)
-            
+
             logger.info(f"🎨 Applying style '{style}' to video {video_id}")
-            
+
             try:
                 success = ffmpeg.apply_video_style(
                     input_path=input_path,
@@ -2196,68 +2311,102 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
                     style=style,
                     target_width=target_width,
                     target_height=target_height,
-                    preserve_settings=preserve_settings
+                    preserve_settings=preserve_settings,
                 )
-                
-                if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    results.append({
-                        "style": style,
-                        "output_path": output_path,
-                        "output_url": output_path,
-                        "file_size": os.path.getsize(output_path)
-                    })
+
+                if (
+                    success
+                    and os.path.exists(output_path)
+                    and os.path.getsize(output_path) > 0
+                ):
+                    results.append(
+                        {
+                            "style": style,
+                            "output_path": output_path,
+                            "output_url": output_path,
+                            "file_size": os.path.getsize(output_path),
+                        }
+                    )
                     logger.info(f"✅ Applied style '{style}' to video {video_id}")
-                    _send_ws_update(video_id, user_id, "processing", current_progress + 5, "style_apply", 
-                                   f"✅ '{style}' style applied")
+                    _send_ws_update(
+                        video_id,
+                        user_id,
+                        "processing",
+                        current_progress + 5,
+                        "style_apply",
+                        f"✅ '{style}' style applied",
+                    )
                 else:
                     failed_styles.append(style)
-                    logger.error(f"❌ Failed to apply style '{style}' to video {video_id}")
-                    _send_ws_update(video_id, user_id, "processing", current_progress, "style_apply", 
-                                   f"⚠️ Failed to apply '{style}' style")
+                    logger.error(
+                        f"❌ Failed to apply style '{style}' to video {video_id}"
+                    )
+                    _send_ws_update(
+                        video_id,
+                        user_id,
+                        "processing",
+                        current_progress,
+                        "style_apply",
+                        f"⚠️ Failed to apply '{style}' style",
+                    )
             except Exception as e:
                 failed_styles.append(style)
                 logger.error(f"❌ Exception applying style '{style}': {e}")
-        
+
         # ========== CHECK RESULTS ==========
         if len(results) == 0:
             #  CRITICAL: No styles were applied successfully
-            error_msg = f"Failed to apply any styles. Failed styles: {', '.join(failed_styles)}"
+            error_msg = (
+                f"Failed to apply any styles. Failed styles: {', '.join(failed_styles)}"
+            )
             logger.error(f"❌ {error_msg}")
-            
+
             status_tracker.set_status(task_id, "failed", 0, "error", error_msg)
             _send_ws_failed(video_id, user_id, error_msg, self.request.retries, False)
-            
+
             return {
                 "success": False,
                 "video_id": video_id,
                 "error": error_msg,
                 "styles_applied": 0,
-                "failed_styles": failed_styles
+                "failed_styles": failed_styles,
             }
-        
+
         # ========== UPDATE VIDEO - FINALIZING ==========
         status_tracker.set_status(task_id, "processing", 95, "finalizing")
-        _send_ws_update(video_id, user_id, "processing", 95, "style_apply", "Finalizing styled video...")
-        
+        _send_ws_update(
+            video_id,
+            user_id,
+            "processing",
+            95,
+            "style_apply",
+            "Finalizing styled video...",
+        )
+
         # Use the first successful result
         first_result = results[0]
-        
+
         # Update video in database with new output
         from providers.firebase_provider import FirebaseProvider
+
         db = FirebaseProvider()
-        
-        db.save("videos", video_id, {
-            "output_video_url": first_result["output_url"],
-            "output_path": first_result["output_path"],
-            "output_video_size": first_result["file_size"],
-            "applied_styles": styles,
-            "updated_at": datetime.utcnow().isoformat(),
-            "status": "completed",
-            "progress": 100,
-            "current_step": "completed",
-            "processing_completed": datetime.utcnow().isoformat()
-        })
-        
+
+        db.save(
+            "videos",
+            video_id,
+            {
+                "output_video_url": first_result["output_url"],
+                "output_path": first_result["output_path"],
+                "output_video_size": first_result["file_size"],
+                "applied_styles": styles,
+                "updated_at": datetime.utcnow().isoformat(),
+                "status": "completed",
+                "progress": 100,
+                "current_step": "completed",
+                "processing_completed": datetime.utcnow().isoformat(),
+            },
+        )
+
         video.output_video_url = first_result["output_url"]
         video.output_path = first_result["output_path"]
         video.output_video_size = first_result["file_size"]
@@ -2265,39 +2414,46 @@ def apply_different_styles_async(self, video_id: str, user_id: str, styles: List
         video.status = "completed"
         video.progress = 100
         video.current_step = "completed"
-        
+
         logger.info(f"✅ Video {video_id} updated with new style: {styles[0]}")
-        
+
         # Status: COMPLETED - only if we actually applied styles
         status_tracker.set_status(task_id, "completed", 100, "complete")
         _send_ws_completed(video_id, user_id, first_result["output_url"], 0, 0)
-        _send_ws_update(video_id, user_id, "completed", 100, "style_apply", 
-                       f"✅ Style '{styles[0]}' applied successfully!")
+        _send_ws_update(
+            video_id,
+            user_id,
+            "completed",
+            100,
+            "style_apply",
+            f"✅ Style '{styles[0]}' applied successfully!",
+        )
         _send_ws_progress(video_id, 100, "style_apply", 0)
-        
+
         return {
             "success": True,
             "video_id": video_id,
             "styles_applied": len(results),
             "results": results,
-            "failed_styles": failed_styles if failed_styles else None
+            "failed_styles": failed_styles if failed_styles else None,
         }
-        
+
     except Exception as e:
         error_msg = str(e)
         logger.error(f"❌ Style application failed: {error_msg}")
         logger.error(traceback.format_exc())
-        
+
         # Status: FAILED
         status_tracker.set_status(task_id, "failed", 0, "error", error_msg)
         _send_ws_failed(video_id, user_id, error_msg, self.request.retries, False)
-        
+
         return {
             "success": False,
             "video_id": video_id,
             "error": error_msg,
-            "styles_applied": 0
+            "styles_applied": 0,
         }
+
 
 def _get_quality_resolution(quality):
     """Get resolution string for quality."""
