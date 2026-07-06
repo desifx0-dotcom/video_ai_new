@@ -2,6 +2,20 @@
 
 {% block title %}Results - {{ video.original_filename }} - Video AI Studio{% endblock %}
 
+{% block extra_css %}
+<style>
+    /* Thumbnail modal button spacing */
+    .modal-body .btn + .btn {
+        margin-left: 20px;
+    }
+    
+    .modal-body .btn {
+        min-width: 100px;
+        padding: 0.5rem 1.5rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <div class="row">
@@ -52,12 +66,11 @@
                         <div class="col-md-4">
                             <div class="download-options">
                                 <h5 class="mb-3">Download Options</h5>
-                                
+
                                 <div class="mb-3">
-                                    <a href="{{ video.output_video_url }}" 
-                                       class="btn btn-success w-100 mb-2" download>
+                                    <button class="btn btn-success w-100 mb-2" onclick="downloadVideo()">
                                         <i class="fas fa-download me-2"></i>Download Video
-                                    </a>
+                                    </button>
                                     <small class="text-muted d-block">
                                         {{ video.output_quality|upper }} • 
                                         {% if video.output_video_size %}
@@ -67,15 +80,14 @@
                                         {% endif %}
                                     </small>
                                 </div>
-                                
+
                                 <div class="mb-3">
-                                    <button class="btn btn-outline-primary w-100 mb-2" 
-                                            onclick="downloadAssets()">
+                                    <button class="btn btn-outline-primary w-100 mb-2" onclick="downloadAssets()">
                                         <i class="fas fa-file-archive me-2"></i>All Assets (ZIP)
                                     </button>
                                     <small class="text-muted">Includes video, thumbnails, and transcripts</small>
                                 </div>
-                                
+
                                 {% if video.transcription %}
                                 <div class="mb-3">
                                     <button class="btn btn-outline-secondary w-100 mb-2" 
@@ -88,7 +100,7 @@
                                     </button>
                                 </div>
                                 {% endif %}
-                                
+
                                 <div class="mt-4">
                                     <h6 class="small text-uppercase text-muted mb-2">Share</h6>
                                     <div class="d-flex gap-2">
@@ -151,11 +163,6 @@
                                             <button class="btn btn-sm btn-light" onclick="downloadThumbnail('{{ thumbnail.url }}')" title="Download">
                                                 <i class="fas fa-download"></i>
                                             </button>
-                                            {% if not thumbnail.selected %}
-                                            <button class="btn btn-sm btn-primary" onclick="setAsThumbnail('{{ thumbnail.id }}')" title="Set as main">
-                                                <i class="fas fa-check"></i>
-                                            </button>
-                                            {% endif %}
                                         </div>
                                     </div>
                                     <div class="thumbnail-info mt-2 text-center">
@@ -198,11 +205,10 @@
                                             onclick="previewThumbnail('{{ thumbnail.url }}', '{{ thumbnail.id }}')">
                                         <div class="thumbnail-actions position-absolute bottom-0 start-0 end-0 p-2 d-flex justify-content-center gap-2" 
                                             style="background: rgba(0,0,0,0.7); opacity: 0; transition: opacity 0.2s;">
-                                            <button class="btn btn-sm btn-light" onclick="downloadThumbnail('{{ thumbnail.url }}')" title="Download">
+                                            <button class="btn btn-sm btn-light" 
+                                                    onclick="downloadThumbnail('{{ thumbnail.url }}')" 
+                                                    title="Download">
                                                 <i class="fas fa-download"></i>
-                                            </button>
-                                            <button class="btn btn-sm btn-primary" onclick="setAsThumbnail('{{ thumbnail.id }}')" title="Set as main">
-                                                <i class="fas fa-check"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -795,21 +801,23 @@
 </div>
 
 <!-- Thumbnail Preview Modal -->
-<div class="modal fade" id="thumbnail-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade" id="thumbnail-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Thumbnail Preview</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h5 class="modal-title">
+                    <i class="fas fa-image me-2"></i>Thumbnail Preview
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center">
-                <img id="thumbnail-preview" src="" class="img-fluid rounded" alt="Thumbnail Preview">
-                <div class="mt-3">
-                    <button class="btn btn-primary" onclick="downloadCurrentThumbnail()">
-                        <i class="fas fa-download me-2"></i>Download
+                <img id="thumbnail-preview" src="" class="img-fluid rounded" alt="Thumbnail Preview" style="max-height: 70vh;">
+                <div class="mt-4 d-flex justify-content-center gap-4">
+                    <button class="btn btn-outline-secondary px-4 py-2" onclick="closeThumbnailModal()">
+                        <i class="fas fa-times me-2"></i>Close
                     </button>
-                    <button class="btn btn-success" onclick="useAsMainThumbnail()">
-                        <i class="fas fa-check me-2"></i>Use as Main Thumbnail
+                    <button class="btn btn-primary px-4 py-2" onclick="downloadCurrentThumbnail()">
+                        <i class="fas fa-download me-2"></i>Download
                     </button>
                 </div>
             </div>
@@ -864,6 +872,7 @@ console.log("SCRIPT STARTED EXECUTING");
 // ============================================
 let currentThumbnailUrl = '';
 let currentThumbnailId = '';
+let thumbnailModalInstance = null;
 const videoId = '{{ video.id }}';
 const csrfToken = '{{ csrf_token() }}';
 const accessToken = localStorage.getItem('access_token');
@@ -872,68 +881,193 @@ let isPageLoading = true;  // Set to false after DOMContentLoaded
 // ============================================
 // THUMBNAIL FUNCTIONS
 // ============================================
+
+//  Preview thumbnail when clicked
 window.previewThumbnail = function(url, id) {
+    console.log('🖼️ Opening thumbnail preview:', id);
+    
+    if (!url) {
+        console.warn('No thumbnail URL provided');
+        return;
+    }
+    
     currentThumbnailUrl = url;
     currentThumbnailId = id;
+    
     const previewImg = document.getElementById('thumbnail-preview');
     if (previewImg) {
         previewImg.src = url;
+        previewImg.alt = 'Thumbnail Preview';
     }
-    const modal = new bootstrap.Modal(document.getElementById('thumbnail-modal'));
-    modal.show();
+    
+    const modalElement = document.getElementById('thumbnail-modal');
+    if (!modalElement) {
+        console.error('Modal element not found');
+        return;
+    }
+    
+    // Clean up existing modal
+    if (thumbnailModalInstance) {
+        try {
+            thumbnailModalInstance.dispose();
+        } catch(e) {}
+        thumbnailModalInstance = null;
+    }
+    
+    // Remove any stray backdrops
+    const oldBackdrop = document.querySelector('.modal-backdrop');
+    if (oldBackdrop) {
+        oldBackdrop.remove();
+    }
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    
+    // Reset modal state
+    modalElement.style.display = 'none';
+    modalElement.classList.remove('show');
+    
+    // Create modal with backdrop: true (standard behavior)
+    thumbnailModalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: true,
+        keyboard: true
+    });
+    
+    // Show modal
+    thumbnailModalInstance.show();
 };
 
+//  Close modal
+window.closeThumbnailModal = function() {
+    console.log('❌ Closing thumbnail preview');
+    if (thumbnailModalInstance) {
+        try {
+            thumbnailModalInstance.hide();
+        } catch(e) {
+            console.warn('Error hiding modal:', e);
+        }
+        thumbnailModalInstance = null;
+    }
+    
+    // Clean up backdrop
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop) {
+        backdrop.remove();
+    }
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+};
+
+//  Download current thumbnail
 window.downloadCurrentThumbnail = function() {
-    if (currentThumbnailUrl) {
+    if (!currentThumbnailUrl) {
+        showAlert('No thumbnail to download', 'warning');
+        return;
+    }
+    
+    console.log('📥 Downloading thumbnail:', currentThumbnailId);
+    
+    try {
         const link = document.createElement('a');
         link.href = currentThumbnailUrl;
-        link.download = `thumbnail-${Date.now()}.jpg`;
+        const filename = currentThumbnailId ? `${currentThumbnailId}.jpg` : `thumbnail_${Date.now()}.jpg`;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        showAlert(`✅ Downloading ${filename}...`, 'success');
+    } catch(e) {
+        console.error('Download error:', e);
+        showAlert('Failed to download thumbnail', 'danger');
     }
 };
 
-window.useAsMainThumbnail = function() {
-    if (currentThumbnailId) {
-        setAsThumbnail(currentThumbnailId);
-    }
-    const modal = bootstrap.Modal.getInstance(document.getElementById('thumbnail-modal'));
-    if (modal) modal.hide();
-};
-
+//  Download thumbnail from gallery
 window.downloadThumbnail = function(url) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `thumbnail-${Date.now()}.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (!url) {
+        showAlert('No thumbnail to download', 'warning');
+        return;
+    }
+    
+    try {
+        const link = document.createElement('a');
+        link.href = url;
+        const filename = url.split('/').pop() || `thumbnail_${Date.now()}.jpg`;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch(e) {
+        console.error('Download error:', e);
+        showAlert('Failed to download thumbnail', 'danger');
+    }
 };
 
-window.setAsThumbnail = function(thumbnailId) {
-    fetch(`/api/v1/videos/${videoId}/thumbnails/${thumbnailId}/select`, {
-        method: 'POST',
+//  Ensure modal is hidden on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const modalElement = document.getElementById('thumbnail-modal');
+    if (modalElement) {
+        modalElement.style.display = 'none';
+        modalElement.classList.remove('show');
+    }
+    
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop) {
+        backdrop.remove();
+    }
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+});
+
+
+// ============================================
+// DOWNLOAD VIDEO
+// ============================================
+
+function downloadVideo() {
+    const videoId = '{{ video.id }}';
+    const token = localStorage.getItem('access_token');
+    
+    if (!token) {
+        showAlert('Please login first', 'danger');
+        return;
+    }
+    
+    // Show loading state
+    showAlert('⏳ Preparing video download...', 'info');
+    
+    fetch(`/api/v1/videos/${videoId}/download`, {
+        method: 'GET',
         headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-            'Authorization': `Bearer ${accessToken}`
+            'Authorization': `Bearer ${token}`
         }
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showAlert('Thumbnail set as main successfully.', 'success');
-            setTimeout(() => window.location.reload(), 1000);
-        } else {
-            showAlert(`Failed to set thumbnail: ${data.message}`, 'danger');
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'Download failed');
+            });
         }
+        return response.blob();
+    })
+    .then(blob => {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `video_${videoId}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        showAlert('✅ Video downloaded successfully!', 'success');
     })
     .catch(error => {
-        console.error('Error:', error);
-        showAlert('Error setting thumbnail.', 'danger');
+        console.error('Download error:', error);
+        showAlert('❌ Failed to download video: ' + error.message, 'danger');
     });
-};
+}
 
 // ============================================
 // REGENERATION FUNCTIONS
@@ -1889,21 +2023,6 @@ document.addEventListener('DOMContentLoaded', function() {
     {% endif %}
 });
 
-
-// ============================================
-// INITIALIZATION
-// ============================================
-// document.addEventListener('DOMContentLoaded', function() {
-//     console.log('Results page loaded');
-//     console.log('Video URL:', '{{ video.output_video_url }}');
-//     console.log('Video ID:', videoId);
-//     console.log('Video Status:', '{{ video.status }}');
-
-//     // Fetch remaining regenerations for paid tiers
-//     {% if current_user.tier != 'free' %}
-//     fetchRemainingRegenerations();
-//     {% endif %}
-// });
 
 </script>
 {% endblock %}

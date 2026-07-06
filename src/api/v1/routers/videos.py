@@ -478,6 +478,97 @@ def update_video(video_id):
         logger.error(f"Update video failed: {str(e)}")
         raise
 
+#decided not to use "use main thumbanils"
+@router.route("/<video_id>/thumbnails/<thumbnail_id>/select", methods=["POST"])
+@jwt_required()
+def select_thumbnail(video_id, thumbnail_id):
+    """Select a thumbnail as the main thumbnail."""
+    user_id = get_jwt_identity()
+
+    try:
+        # Get video
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+
+        thumbnail_found = False
+        thumbnail_path = None
+
+        #  DEBUG: Log what we have
+        logger.info(f"Looking for thumbnail ID: {thumbnail_id}")
+        logger.info(f"AI Thumbnails: {video.ai_thumbnails}")
+        logger.info(f"Extracted Thumbnails: {video.extracted_thumbnails}")
+
+        #  Check extracted thumbnails first (since you're using extracted_7)
+        if hasattr(video, 'extracted_thumbnails') and video.extracted_thumbnails:
+            for thumb in video.extracted_thumbnails:
+                # If thumb is a dict with 'id' and 'path'
+                if isinstance(thumb, dict):
+                    thumb_id = thumb.get("id") or thumb.get("name") or thumb.get("path")
+                    if thumb_id and (thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id):
+                        thumbnail_found = True
+                        thumbnail_path = thumb.get("path") or thumb.get("url")
+                        break
+                # If thumb is a string (just the path)
+                elif isinstance(thumb, str):
+                    # Check if the thumbnail_id is in the path or matches
+                    if thumbnail_id in thumb or thumb.endswith(thumbnail_id):
+                        thumbnail_found = True
+                        thumbnail_path = thumb
+                        break
+
+        #  If not found, check AI thumbnails
+        if not thumbnail_found and hasattr(video, 'ai_thumbnails') and video.ai_thumbnails:
+            for thumb in video.ai_thumbnails:
+                if isinstance(thumb, dict):
+                    thumb_id = thumb.get("id") or thumb.get("name") or thumb.get("path")
+                    if thumb_id and (thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id):
+                        thumbnail_found = True
+                        thumbnail_path = thumb.get("path") or thumb.get("url")
+                        break
+                elif isinstance(thumb, str):
+                    if thumbnail_id in thumb or thumb.endswith(thumbnail_id):
+                        thumbnail_found = True
+                        thumbnail_path = thumb
+                        break
+
+        #  If still not found, treat the thumbnail_id as a path
+        if not thumbnail_found:
+            # Check if it looks like a file path
+            if any(ext in thumbnail_id for ext in ['.jpg', '.png', '.jpeg', '.webp']):
+                thumbnail_found = True
+                thumbnail_path = thumbnail_id
+                logger.info(f"Using thumbnail_id as path: {thumbnail_id}")
+
+        if not thumbnail_found:
+            logger.error(f"Thumbnail not found: {thumbnail_id}")
+            return jsonify({"error": f"Thumbnail not found: {thumbnail_id}"}), 404
+
+        # Update video with selected thumbnail
+        from providers.firebase_provider import FirebaseProvider
+        db = FirebaseProvider()
+        db.save(
+            "videos",
+            video_id,
+            {
+                "selected_thumbnail": thumbnail_path,
+                "selected_thumbnail_id": thumbnail_id,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+        )
+
+        logger.info(f"✅ Thumbnail selected: {thumbnail_id} -> {thumbnail_path}")
+
+        return jsonify({
+            "success": True,
+            "message": "Thumbnail selected successfully",
+            "thumbnail_id": thumbnail_id,
+            "thumbnail_path": thumbnail_path
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Failed to select thumbnail: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @router.route("/<video_id>", methods=["DELETE"])
 @jwt_required()

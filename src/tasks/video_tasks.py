@@ -485,6 +485,14 @@ def process_video_async(
             video.is_silent = silent_service.is_silent_video(video.original_path)
             logger.info(f"Video {video_id} silent detection: {video.is_silent}")
 
+        if video.is_silent:
+            options["process_silent_video"] = True
+            options["video_type"] = "silent"
+            logger.info(f"🔇 Silent video mode enabled for {video_id}")
+        else:
+            options["video_type"] = "speech"
+            options["process_silent_video"] = False
+
         # ========== STEP 1: EXTRACT AND SAVE USER SETTINGS ==========
         _send_ws_update(
             video_id,
