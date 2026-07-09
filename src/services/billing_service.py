@@ -1,5 +1,5 @@
 ﻿"""
-Billing and subscription service.
+Billing and subscription service - Production Ready
 """
 
 import stripe
@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from uuid import uuid4
 import os
+
 from core.domain.entities.user import User, Tier
 from core.domain.entities.subscription import (
     Subscription,
@@ -33,21 +34,288 @@ logger = logging.getLogger(__name__)
 
 
 class BillingService:
-    """Billing and subscription management service."""
+    """Billing and subscription management service - Production Ready"""
+
+    # Monthly credits per tier
+    MONTHLY_CREDITS = {
+        "free": 3,
+        "starter": 50,
+        "pro": 200,
+        "plus": 750,
+        "enterprise": 9999,
+    }
 
     def __init__(self):
         self.stripe = StripeProvider()
-        self.db = None  # Temporarily disabled for development
+        self.db = FirebaseProvider()  # ✅ Fixed: Initialize database
 
         # Check if Stripe is configured
         stripe_key = os.getenv("STRIPE_SECRET_KEY")
         self.stripe_enabled = bool(stripe_key and stripe_key.startswith("sk_"))
 
         if not self.stripe_enabled:
-            print("⚠️  Stripe not configured - using mock mode")
-            # Initialize mock data for development
-            self._mock_subscriptions = {}
-            self._mock_customers = {}
+            logger.warning("⚠️ Stripe not configured - using mock mode")
+
+    # ============================================================
+    # PRICING PLANS
+    # ============================================================
+
+    def get_pricing_plans(self) -> List[Dict[str, Any]]:
+        """Get all pricing plans with features."""
+        plans = [
+            {
+                "id": "free",
+                "name": "Free",
+                "price": 0,
+                "currency": "USD",
+                "interval": "monthly",
+                "credits_per_month": self.MONTHLY_CREDITS["free"],
+                "features": [
+                    "3 videos/month",
+                    "3 minutes max length",
+                    "720p output",
+                    "1 AI thumbnail",
+                    "3 video styles",
+                    "Free translation",
+                    "24-hour retention",
+                ],
+            },
+            {
+                "id": "starter",
+                "name": "Starter",
+                "price": 24,
+                "currency": "USD",
+                "interval": "monthly",
+                "yearly_price": 230.40,
+                "credits_per_month": self.MONTHLY_CREDITS["starter"],
+                "features": [
+                    "50 videos/month",
+                    "30 minutes max length",
+                    "1080p output",
+                    "3 AI thumbnails",
+                    "All 20+ video styles",
+                    "Priority processing",
+                    "7-day retention",
+                    "Silent video analysis",
+                ],
+            },
+            {
+                "id": "pro",
+                "name": "Pro",
+                "price": 79,
+                "currency": "USD",
+                "interval": "monthly",
+                "yearly_price": 758.40,
+                "credits_per_month": self.MONTHLY_CREDITS["pro"],
+                "features": [
+                    "200 videos/month",
+                    "60 minutes max length",
+                    "4K output",
+                    "5 AI thumbnails",
+                    "All premium styles",
+                    "Gemini Pro + GPT-4",
+                    "Express processing",
+                    "30-day retention",
+                    "60fps interpolation",
+                ],
+            },
+            {
+                "id": "plus",
+                "name": "Plus",
+                "price": 250,
+                "currency": "USD",
+                "interval": "monthly",
+                "yearly_price": 2400,
+                "credits_per_month": self.MONTHLY_CREDITS["plus"],
+                "features": [
+                    "750 videos/month",
+                    "120 minutes max length",
+                    "4K+HDR output",
+                    "10 AI thumbnails",
+                    "All premium + custom styles",
+                    "GPT-4 Turbo",
+                    "VIP processing",
+                    "90-day retention",
+                    "Priority support",
+                ],
+            },
+            {
+                "id": "enterprise",
+                "name": "Enterprise",
+                "price": "Custom",
+                "currency": "USD",
+                "interval": "monthly",
+                "credits_per_month": self.MONTHLY_CREDITS["enterprise"],
+                "features": [
+                    "Unlimited videos",
+                    "Highest quality",
+                    "White-label option",
+                    "On-premise deployment",
+                    "Dedicated account manager",
+                    "SLA guarantees",
+                ],
+            },
+        ]
+        return plans
+
+    def get_user_plans(self, user_id: str) -> Dict[str, Any]:
+        """Get user's current plan and available upgrades."""
+        user = self._get_user(user_id)
+        if not user:
+            return {"current": None, "upgrades": []}
+
+        current_tier = user.tier.value
+        all_tiers = ["free", "starter", "pro", "plus", "enterprise"]
+        tier_index = all_tiers.index(current_tier) if current_tier in all_tiers else 0
+
+        # Available upgrades are tiers above current
+        upgrades = (
+            all_tiers[tier_index + 1 :] if tier_index < len(all_tiers) - 1 else []
+        )
+
+        # Get plan details for each upgrade
+        upgrade_plans = []
+        all_plans = self.get_pricing_plans()
+        for tier in upgrades:
+            for plan in all_plans:
+                if plan["id"] == tier:
+                    upgrade_plans.append(plan)
+                    break
+
+        return {"current": current_tier, "upgrades": upgrade_plans}
+
+    # ============================================================
+    # USER MANAGEMENT
+    # ============================================================
+
+    def _get_user(self, user_id: str) -> Optional[User]:
+        """Get user by ID."""
+        try:
+            user_data = self.db.get("users", user_id)
+            if user_data:
+                return User(**user_data)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get user {user_id}: {e}")
+            return None
+
+    def _update_user(self, user_id: str, data: Dict[str, Any]) -> bool:
+        """Update user in database."""
+        try:
+            data["updated_at"] = datetime.utcnow().isoformat()
+            self.db.update("users", user_id, data)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update user {user_id}: {e}")
+            return False
+
+    # ============================================================
+    # CREDIT MANAGEMENT
+    # ============================================================
+
+    def get_user_credits(self, user_id: str) -> Dict[str, Any]:
+        """Get user's current credit balance and limits."""
+        user = self._get_user(user_id)
+        if not user:
+            return {"error": "User not found"}
+
+        monthly_limit = self.MONTHLY_CREDITS.get(user.tier.value, 3)
+
+        return {
+            "credits_remaining": user.credits_remaining or 0,
+            "monthly_limit": monthly_limit,
+            "tier": user.tier.value,
+        }
+
+    def add_credits(self, user_id: str, amount: int, reason: str) -> bool:
+        """Add credits to a user."""
+        user = self._get_user(user_id)
+        if not user:
+            return False
+
+        new_balance = (user.credits_remaining or 0) + amount
+
+        return self._update_user(user_id, {"credits_remaining": new_balance})
+
+    def deduct_credits(self, user_id: str, amount: int, reason: str) -> bool:
+        """Deduct credits from a user."""
+        user = self._get_user(user_id)
+        if not user:
+            return False
+
+        current = user.credits_remaining or 0
+        if current < amount:
+            return False
+
+        return self._update_user(user_id, {"credits_remaining": current - amount})
+
+    # ============================================================
+    # TIER UPGRADE (No Extra Credits)
+    # ============================================================
+
+    def process_tier_upgrade(self, user_id: str, new_tier: str) -> Dict[str, Any]:
+        """
+        Process tier upgrade - RESET credits to new tier's full limit.
+        Old credits disappear, user gets fresh credits for the new tier.
+        """
+        user = self._get_user(user_id)
+        if not user:
+            raise ValidationError("User not found")
+
+        old_tier = user.tier.value.lower()
+        old_credits = user.credits_remaining or 0
+        new_tier_lower = new_tier.lower()
+
+        # Validate tier
+        if new_tier_lower not in self.MONTHLY_CREDITS:
+            raise ValidationError(f"Invalid tier: {new_tier}")
+
+        # Check if already on this tier
+        if old_tier == new_tier_lower:
+            return {
+                "success": True,
+                "message": f"Already on {new_tier} tier",
+                "old_tier": old_tier,
+                "new_tier": new_tier_lower,
+                "credits_remaining": user.credits_remaining or 0,
+                "new_monthly_limit": self.MONTHLY_CREDITS[new_tier_lower],
+            }
+
+        #  RESET CREDITS - Full new tier credits (old credits disappear!)
+        new_monthly_limit = self.MONTHLY_CREDITS[new_tier_lower]
+        new_credits = new_monthly_limit  # Fresh start!
+
+        # Update user tier with new credits
+        success = self._update_user(
+            user_id,
+            {
+                "tier": new_tier_lower,
+                "credits_remaining": new_credits,  # ← Full new tier credits
+                "monthly_credit_limit": new_monthly_limit,
+            },
+        )
+
+        if not success:
+            raise SubscriptionError("Failed to update user tier")
+
+        logger.info(f"✅ User {user_id} upgraded from {old_tier} to {new_tier_lower}")
+        logger.info(f"   Old credits: {old_credits} (discarded)")
+        logger.info(f"   New credits: {new_credits} (fresh)")
+        logger.info(f"   New monthly limit: {new_monthly_limit}")
+
+        return {
+            "success": True,
+            "old_tier": old_tier,
+            "new_tier": new_tier_lower,
+            "old_credits": old_credits,
+            "new_credits": new_credits,
+            "new_monthly_limit": new_monthly_limit,
+            "message": f"Welcome to {new_tier}! You now have {new_credits} credits.",
+        }
+
+    # ============================================================
+    # SUBSCRIPTION MANAGEMENT
+    # ============================================================
 
     def create_customer(self, user: User, email: str) -> Dict[str, Any]:
         """Create a Stripe customer for a user."""
@@ -57,230 +325,96 @@ class BillingService:
         try:
             customer = self.stripe.create_customer(
                 email=email,
-                name=user.full_name,
+                name=getattr(user, "full_name", email),
                 metadata={"user_id": user.id, "tier": user.tier.value},
             )
 
             # Update user with Stripe customer ID
-            user.stripe_customer_id = customer["id"]
-            self.db.update(
-                "users",
-                user.id,
-                {
-                    "stripe_customer_id": customer["id"],
-                    "updated_at": datetime.utcnow().isoformat(),
-                },
-            )
+            self._update_user(user.id, {"stripe_customer_id": customer["id"]})
 
             return customer
         except Exception as e:
             raise ExternalServiceError("Stripe", str(e))
 
-    def create_subscription(
-        self,
-        user: User,
-        tier: Tier,
-        billing_cycle: BillingCycle = BillingCycle.MONTHLY,
-        trial_days: int = TRIAL_PERIOD,
-        coupon: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Create a subscription for a user."""
+    def create_checkout_session(
+        self, user_id: str, email: str, tier: str, price: int, interval: str
+    ) -> str:
+        """
+        Create a Stripe Checkout session.
+        """
         if not self.stripe_enabled:
-            raise ExternalServiceError("Stripe", "Stripe is not configured")
-
-        # Get price ID for the tier
-        price_id = self._get_price_id(tier, billing_cycle)
-
-        # Create subscription
-        try:
-            subscription_data = {
-                "customer": user.stripe_customer_id,
-                "items": [{"price": price_id}],
-                "payment_behavior": "default_incomplete",
-                "expand": ["latest_invoice.payment_intent"],
-                "metadata": {
-                    "user_id": user.id,
-                    "tier": tier.value,
-                    "billing_cycle": billing_cycle.value,
-                },
-            }
-
-            if trial_days > 0 and user.tier == Tier.FREE:
-                subscription_data["trial_period_days"] = trial_days
-
-            if coupon:
-                subscription_data["coupon"] = coupon
-
-            subscription = self.stripe.create_subscription(**subscription_data)
-
-            # Save subscription to database
-            subscription_id = str(uuid4())
-            subscription_entity = Subscription(
-                id=subscription_id,
-                user_id=user.id,
-                tier=tier.value,
-                stripe_subscription_id=subscription["id"],
-                stripe_customer_id=user.stripe_customer_id,
-                stripe_price_id=price_id,
-                current_period_start=datetime.fromtimestamp(
-                    subscription["current_period_start"]
-                ),
-                current_period_end=datetime.fromtimestamp(
-                    subscription["current_period_end"]
-                ),
-                billing_cycle=billing_cycle,
-                amount=self._calculate_amount(tier, billing_cycle),
-                features=self._get_tier_features(tier),
-                is_in_trial="trial_end" in subscription
-                and subscription["trial_end"] is not None,
+            # Mock mode - simulate upgrade
+            logger.info(
+                f"[MOCK] Creating checkout for {tier} ({interval}) - ${price/100}"
             )
-
-            self.db.save(
-                "subscriptions", subscription_id, subscription_entity.to_dict()
-            )
-
-            # Update user tier
-            user.tier = tier
-            user.stripe_subscription_id = subscription["id"]
-            user.subscription_end_date = subscription_entity.current_period_end
-
-            self.db.update(
-                "users",
-                user.id,
-                {
-                    "tier": tier.value,
-                    "stripe_subscription_id": subscription["id"],
-                    "subscription_end_date": subscription_entity.current_period_end.isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                },
-            )
-
-            return {
-                "subscription": subscription,
-                "client_secret": (
-                    subscription["latest_invoice"]["payment_intent"]["client_secret"]
-                    if subscription["latest_invoice"]
-                    and subscription["latest_invoice"]["payment_intent"]
-                    else None
-                ),
-            }
-        except Exception as e:
-            raise ExternalServiceError("Stripe", str(e))
-
-    def cancel_subscription(
-        self, user: User, cancel_at_period_end: bool = True
-    ) -> bool:
-        """Cancel a subscription."""
-        if not user.stripe_subscription_id:
-            raise ValidationError("User does not have an active subscription")
+            # Process mock upgrade
+            self.process_tier_upgrade(user_id, tier)
+            return f"/pricing?upgraded={tier}&success=true"
 
         try:
-            subscription = self.stripe.cancel_subscription(
-                user.stripe_subscription_id, cancel_at_period_end=cancel_at_period_end
-            )
+            # Create or get customer
+            customer = self.stripe.get_or_create_customer(email, user_id)
 
-            # Update subscription in database
-            subscription_data = self.db.query_one(
-                "subscriptions", {"stripe_subscription_id": user.stripe_subscription_id}
-            )
+            # Get price ID
+            price_id = self._get_price_id_by_tier(tier, interval)
 
-            if subscription_data:
-                subscription_entity = Subscription(**subscription_data)
-                subscription_entity.cancel_at_period_end = cancel_at_period_end
-                subscription_entity.updated_at = datetime.utcnow()
-
-                if not cancel_at_period_end:
-                    subscription_entity.status = SubscriptionStatus.CANCELLED
-                    subscription_entity.cancelled_at = datetime.utcnow()
-
-                    # Downgrade user to free tier
-                    user.tier = Tier.FREE
-                    user.subscription_end_date = None
-                    self.db.update(
-                        "users",
-                        user.id,
-                        {
-                            "tier": Tier.FREE.value,
-                            "subscription_end_date": None,
-                            "updated_at": datetime.utcnow().isoformat(),
-                        },
-                    )
-
-                self.db.update(
-                    "subscriptions",
-                    subscription_entity.id,
-                    subscription_entity.to_dict(),
-                )
-
-            return True
-        except Exception as e:
-            raise ExternalServiceError("Stripe", str(e))
-
-    def upgrade_subscription(self, user: User, new_tier: Tier) -> Dict[str, Any]:
-        """Upgrade a user's subscription tier."""
-        if not user.stripe_subscription_id:
-            raise ValidationError("User does not have an active subscription")
-
-        # Get current subscription
-        subscription_data = self.db.query_one(
-            "subscriptions", {"stripe_subscription_id": user.stripe_subscription_id}
-        )
-
-        if not subscription_data:
-            raise ValidationError("Subscription not found")
-
-        subscription_entity = Subscription(**subscription_data)
-
-        # Get price ID for new tier
-        price_id = self._get_price_id(new_tier, subscription_entity.billing_cycle)
-
-        try:
-            # Update subscription in Stripe
-            subscription = self.stripe.update_subscription(
-                user.stripe_subscription_id,
-                items=[{"id": subscription_entity.stripe_price_id, "price": price_id}],
-                proration_behavior="create_prorations",
-                metadata={
-                    "upgraded_from": subscription_entity.tier,
-                    "upgraded_to": new_tier.value,
-                    "user_id": user.id,
-                },
-            )
-
-            # Update subscription in database
-            subscription_entity.tier = new_tier.value
-            subscription_entity.stripe_price_id = price_id
-            subscription_entity.amount = self._calculate_amount(
-                new_tier, subscription_entity.billing_cycle
-            )
-            subscription_entity.features = self._get_tier_features(new_tier)
-            subscription_entity.updated_at = datetime.utcnow()
-
-            self.db.update(
-                "subscriptions", subscription_entity.id, subscription_entity.to_dict()
-            )
-
-            # Update user tier
-            user.tier = new_tier
-            self.db.update(
-                "users",
-                user.id,
-                {"tier": new_tier.value, "updated_at": datetime.utcnow().isoformat()},
-            )
-
-            return {
-                "subscription": subscription,
-                "proration_amount": subscription.get("pending_update", {}).get(
-                    "proration_amount", 0
+            # Create checkout session
+            checkout_session = stripe.checkout.Session.create(
+                customer=customer["id"],
+                payment_method_types=["card"],
+                line_items=[
+                    {
+                        "price": price_id,
+                        "quantity": 1,
+                    }
+                ],
+                mode="subscription",
+                success_url=os.getenv(
+                    "CHECKOUT_SUCCESS_URL",
+                    f"http://localhost:5000/pricing?upgraded={tier}&success=true",
                 ),
-            }
+                cancel_url=os.getenv(
+                    "CHECKOUT_CANCEL_URL", "http://localhost:5000/pricing?canceled=true"
+                ),
+                metadata={"user_id": user_id, "tier": tier, "interval": interval},
+            )
+
+            return checkout_session.url
+
         except Exception as e:
+            logger.error(f"Failed to create checkout session: {str(e)}")
             raise ExternalServiceError("Stripe", str(e))
+
+    def _get_price_id_by_tier(self, tier: str, interval: str) -> str:
+        """Get Stripe price ID for a tier and interval."""
+        # Map tier and interval to price IDs (from env variables)
+        price_map = {
+            ("starter", "monthly"): os.getenv("STRIPE_PRICE_STARTER_MONTHLY"),
+            ("starter", "yearly"): os.getenv("STRIPE_PRICE_STARTER_YEARLY"),
+            ("pro", "monthly"): os.getenv("STRIPE_PRICE_PRO_MONTHLY"),
+            ("pro", "yearly"): os.getenv("STRIPE_PRICE_PRO_YEARLY"),
+            ("plus", "monthly"): os.getenv("STRIPE_PRICE_PLUS_MONTHLY"),
+            ("plus", "yearly"): os.getenv("STRIPE_PRICE_PLUS_YEARLY"),
+        }
+
+        price_id = price_map.get((tier, interval))
+        if not price_id:
+            # For mock mode, return a placeholder
+            if not self.stripe_enabled:
+                return f"price_{tier}_{interval}"
+            raise ValidationError(f"Price not configured for {tier} ({interval})")
+
+        return price_id
+
+    # ============================================================
+    # WEBHOOK HANDLING
+    # ============================================================
 
     def handle_webhook(self, payload: bytes, signature: str) -> Dict[str, Any]:
         """Handle Stripe webhook events."""
         if not self.stripe_enabled:
-            raise ExternalServiceError("Stripe", "Stripe is not configured")
+            logger.warning("Webhook received but Stripe is not configured")
+            return {"status": "ignored", "reason": "stripe_not_configured"}
 
         try:
             event = self.stripe.construct_event(payload, signature)
@@ -289,6 +423,7 @@ class BillingService:
 
             logger.info(f"Processing Stripe webhook: {event_type}")
 
+            # Handle specific events
             if event_type == "customer.subscription.created":
                 self._handle_subscription_created(event_data)
             elif event_type == "customer.subscription.updated":
@@ -299,307 +434,136 @@ class BillingService:
                 self._handle_payment_succeeded(event_data)
             elif event_type == "invoice.payment_failed":
                 self._handle_payment_failed(event_data)
-            elif event_type == "customer.subscription.trial_will_end":
-                self._handle_trial_will_end(event_data)
 
             return {"status": "success", "event": event_type}
+
         except Exception as e:
             logger.error(f"Error processing Stripe webhook: {str(e)}")
             raise ExternalServiceError("Stripe", str(e))
 
-    def _handle_subscription_created(self, subscription_data: Dict[str, Any]):
+    def _handle_subscription_created(self, data: Dict[str, Any]):
         """Handle subscription created event."""
-        # Find user by Stripe customer ID
-        user_data = self.db.query_one(
-            "users", {"stripe_customer_id": subscription_data["customer"]}
-        )
-
+        user_data = self.db.query_one("users", {"stripe_customer_id": data["customer"]})
         if user_data:
-            user = User(**user_data)
-
-            # Update user subscription info
-            self.db.update(
-                "users",
-                user.id,
+            self._update_user(
+                user_data["id"],
                 {
-                    "stripe_subscription_id": subscription_data["id"],
+                    "stripe_subscription_id": data["id"],
                     "subscription_end_date": datetime.fromtimestamp(
-                        subscription_data["current_period_end"]
+                        data["current_period_end"]
                     ).isoformat(),
+                },
+            )
+
+    def _handle_subscription_updated(self, data: Dict[str, Any]):
+        """Handle subscription updated event."""
+        sub = self.db.query_one("subscriptions", {"stripe_subscription_id": data["id"]})
+        if sub:
+            self.db.update(
+                "subscriptions",
+                sub["id"],
+                {
+                    "status": data["status"],
+                    "current_period_end": datetime.fromtimestamp(
+                        data["current_period_end"]
+                    ).isoformat(),
+                    "cancel_at_period_end": data["cancel_at_period_end"],
                     "updated_at": datetime.utcnow().isoformat(),
                 },
             )
 
-    def _handle_subscription_updated(self, subscription_data: Dict[str, Any]):
-        """Handle subscription updated event."""
-        subscription = self.db.query_one(
-            "subscriptions", {"stripe_subscription_id": subscription_data["id"]}
-        )
-
-        if subscription:
-            subscription_entity = Subscription(**subscription)
-            subscription_entity.status = SubscriptionStatus(subscription_data["status"])
-            subscription_entity.current_period_end = datetime.fromtimestamp(
-                subscription_data["current_period_end"]
-            )
-            subscription_entity.cancel_at_period_end = subscription_data[
-                "cancel_at_period_end"
-            ]
-            subscription_entity.updated_at = datetime.utcnow()
-
-            self.db.update(
-                "subscriptions", subscription_entity.id, subscription_entity.to_dict()
-            )
-
-    def _handle_subscription_deleted(self, subscription_data: Dict[str, Any]):
+    def _handle_subscription_deleted(self, data: Dict[str, Any]):
         """Handle subscription deleted event."""
-        subscription = self.db.query_one(
-            "subscriptions", {"stripe_subscription_id": subscription_data["id"]}
-        )
-
-        if subscription:
-            subscription_entity = Subscription(**subscription)
-            subscription_entity.status = SubscriptionStatus.CANCELLED
-            subscription_entity.cancelled_at = datetime.utcnow()
-            subscription_entity.updated_at = datetime.utcnow()
-
+        sub = self.db.query_one("subscriptions", {"stripe_subscription_id": data["id"]})
+        if sub:
             self.db.update(
-                "subscriptions", subscription_entity.id, subscription_entity.to_dict()
+                "subscriptions",
+                sub["id"],
+                {
+                    "status": "cancelled",
+                    "cancelled_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                },
             )
 
-            # Downgrade user to free tier
-            user_data = self.db.get("users", subscription_entity.user_id)
-            if user_data:
-                user = User(**user_data)
-                user.tier = Tier.FREE
-                user.subscription_end_date = None
+            # Downgrade user to free
+            self._update_user(
+                sub["user_id"], {"tier": "free", "subscription_end_date": None}
+            )
 
-                self.db.update(
-                    "users",
-                    user.id,
-                    {
-                        "tier": Tier.FREE.value,
-                        "subscription_end_date": None,
-                        "updated_at": datetime.utcnow().isoformat(),
-                    },
-                )
-
-    def _handle_payment_succeeded(self, invoice_data: Dict[str, Any]):
+    def _handle_payment_succeeded(self, data: Dict[str, Any]):
         """Handle payment succeeded event."""
-        # Record successful payment
         payment_id = str(uuid4())
-        payment_data = {
-            "id": payment_id,
-            "invoice_id": invoice_data["id"],
-            "customer_id": invoice_data["customer"],
-            "amount_paid": invoice_data["amount_paid"] / 100,  # Convert from cents
-            "currency": invoice_data["currency"],
-            "status": "succeeded",
-            "created_at": datetime.utcnow().isoformat(),
-        }
-
-        self.db.save("payments", payment_id, payment_data)
-
-        # Update subscription next payment date
-        if invoice_data.get("subscription"):
-            subscription = self.db.query_one(
-                "subscriptions",
-                {"stripe_subscription_id": invoice_data["subscription"]},
-            )
-
-            if subscription:
-                subscription_entity = Subscription(**subscription)
-                subscription_entity.last_payment_date = datetime.utcnow()
-                subscription_entity.next_payment_date = (
-                    subscription_entity.current_period_end
-                )
-                subscription_entity.updated_at = datetime.utcnow()
-
-                self.db.update(
-                    "subscriptions",
-                    subscription_entity.id,
-                    subscription_entity.to_dict(),
-                )
-
-    def _handle_payment_failed(self, invoice_data: Dict[str, Any]):
-        """Handle payment failed event."""
-        # Record failed payment
-        payment_id = str(uuid4())
-        payment_data = {
-            "id": payment_id,
-            "invoice_id": invoice_data["id"],
-            "customer_id": invoice_data["customer"],
-            "amount_due": invoice_data["amount_due"] / 100,  # Convert from cents
-            "currency": invoice_data["currency"],
-            "status": "failed",
-            "failure_reason": invoice_data.get("last_payment_error", {}).get(
-                "message", "Unknown"
-            ),
-            "created_at": datetime.utcnow().isoformat(),
-        }
-
-        self.db.save("payments", payment_id, payment_data)
-
-        # Update subscription status to past due
-        if invoice_data.get("subscription"):
-            subscription = self.db.query_one(
-                "subscriptions",
-                {"stripe_subscription_id": invoice_data["subscription"]},
-            )
-
-            if subscription:
-                subscription_entity = Subscription(**subscription)
-                subscription_entity.status = SubscriptionStatus.PAST_DUE
-                subscription_entity.updated_at = datetime.utcnow()
-
-                self.db.update(
-                    "subscriptions",
-                    subscription_entity.id,
-                    subscription_entity.to_dict(),
-                )
-
-    def _handle_trial_will_end(self, subscription_data: Dict[str, Any]):
-        """Handle trial will end event."""
-        # Send notification to user about trial ending
-        user_data = self.db.query_one(
-            "users", {"stripe_customer_id": subscription_data["customer"]}
+        self.db.save(
+            "payments",
+            payment_id,
+            {
+                "id": payment_id,
+                "invoice_id": data["id"],
+                "customer_id": data["customer"],
+                "amount_paid": data["amount_paid"] / 100,
+                "currency": data["currency"],
+                "status": "succeeded",
+                "created_at": datetime.utcnow().isoformat(),
+            },
         )
 
-        if user_data:
-            user = User(**user_data)
+    def _handle_payment_failed(self, data: Dict[str, Any]):
+        """Handle payment failed event."""
+        payment_id = str(uuid4())
+        self.db.save(
+            "payments",
+            payment_id,
+            {
+                "id": payment_id,
+                "invoice_id": data["id"],
+                "customer_id": data["customer"],
+                "amount_due": data["amount_due"] / 100,
+                "currency": data["currency"],
+                "status": "failed",
+                "failure_reason": data.get("last_payment_error", {}).get(
+                    "message", "Unknown"
+                ),
+                "created_at": datetime.utcnow().isoformat(),
+            },
+        )
 
-            # Send email notification
-            from services.email_service import EmailService
+    # ============================================================
+    # INVOICE & PAYMENT METHODS
+    # ============================================================
 
-            email_service = EmailService()
+    def get_invoices(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get user's invoices."""
+        user = self._get_user(user_id)
+        if not user or not getattr(user, "stripe_customer_id", None):
+            return []
 
-            email_service.send_trial_ending_notification(
-                user.email,
-                user.full_name or user.email,
-                datetime.fromtimestamp(subscription_data["trial_end"]),
-            )
-
-    def _get_price_id(self, tier: Tier, billing_cycle: BillingCycle) -> str:
-        """Get Stripe price ID for a tier and billing cycle."""
-        # In a real implementation, these would be configured in Stripe
-        price_ids = {
-            (Tier.STARTER, BillingCycle.MONTHLY): "price_starter_monthly",
-            (Tier.STARTER, BillingCycle.YEARLY): "price_starter_yearly",
-            (Tier.PRO, BillingCycle.MONTHLY): "price_pro_monthly",
-            (Tier.PRO, BillingCycle.YEARLY): "price_pro_yearly",
-            (Tier.PLUS, BillingCycle.MONTHLY): "price_plus_monthly",
-            (Tier.PLUS, BillingCycle.YEARLY): "price_plus_yearly",
-        }
-
-        price_id = price_ids.get((tier, billing_cycle))
-        if not price_id:
-            raise ValidationError(
-                f"Price not configured for {tier.value} {billing_cycle.value}"
-            )
-
-        return price_id
-
-    def _calculate_amount(self, tier: Tier, billing_cycle: BillingCycle) -> float:
-        """Calculate subscription amount."""
-        monthly_price = PRICE_TIERS.get(tier.value, 0)
-
-        if billing_cycle == BillingCycle.YEARLY:
-            yearly_price = monthly_price * 12 * (1 - YEARLY_DISCOUNT / 100)
-            return round(yearly_price, 2)
-
-        return monthly_price
-
-    def _get_tier_features(self, tier: Tier) -> Dict[str, Any]:
-        """Get features for a tier."""
-        from services.tier_service import TierService
-
-        tier_service = TierService()
-        tier_spec = tier_service.get_tier_spec(tier)
-
-        return {
-            "videos_per_month": tier_spec.videos_per_month,
-            "max_video_length": tier_spec.max_video_length,
-            "max_quality": tier_spec.max_quality,
-            "ai_thumbnails_count": tier_spec.ai_thumbnails_count,
-            "video_styles_available": tier_spec.video_styles_available,
-            "retention_days": tier_spec.retention_days,
-            "priority": tier_spec.priority,
-        }
-
-    def get_invoice_history(self, user: User, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get invoice history for a user."""
-        if not user.stripe_customer_id:
+        if not self.stripe_enabled:
             return []
 
         try:
             invoices = self.stripe.get_invoices(
                 customer=user.stripe_customer_id, limit=limit
             )
-
-            return [
-                {
-                    "id": inv["id"],
-                    "number": inv["number"],
-                    "amount_due": inv["amount_due"] / 100,
-                    "amount_paid": inv["amount_paid"] / 100,
-                    "status": inv["status"],
-                    "created": datetime.fromtimestamp(inv["created"]).isoformat(),
-                    "period_start": datetime.fromtimestamp(
-                        inv["period_start"]
-                    ).isoformat(),
-                    "period_end": datetime.fromtimestamp(inv["period_end"]).isoformat(),
-                    "pdf_url": inv.get("invoice_pdf"),
-                }
-                for inv in invoices.get("data", [])
-            ]
+            return invoices.get("data", [])
         except Exception as e:
-            logger.error(f"Error getting invoice history: {str(e)}")
+            logger.error(f"Error getting invoices: {e}")
             return []
 
-    def create_payment_method(self, user: User, payment_method_id: str) -> bool:
-        """Attach a payment method to a customer."""
+    def get_payment_methods(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's payment methods."""
+        user = self._get_user(user_id)
+        if not user or not getattr(user, "stripe_customer_id", None):
+            return []
+
         if not self.stripe_enabled:
-            raise ExternalServiceError("Stripe", "Stripe is not configured")
-
-        try:
-            self.stripe.attach_payment_method(
-                payment_method_id, user.stripe_customer_id
-            )
-
-            # Set as default payment method
-            self.stripe.update_customer(
-                user.stripe_customer_id,
-                invoice_settings={"default_payment_method": payment_method_id},
-            )
-
-            return True
-        except Exception as e:
-            raise ExternalServiceError("Stripe", str(e))
-
-    def get_payment_methods(self, user: User) -> List[Dict[str, Any]]:
-        """Get payment methods for a customer."""
-        if not user.stripe_customer_id:
             return []
 
         try:
-            payment_methods = self.stripe.get_payment_methods(
+            methods = self.stripe.get_payment_methods(
                 customer=user.stripe_customer_id, type="card"
             )
-
-            return [
-                {
-                    "id": pm["id"],
-                    "type": pm["type"],
-                    "card": {
-                        "brand": pm["card"]["brand"],
-                        "last4": pm["card"]["last4"],
-                        "exp_month": pm["card"]["exp_month"],
-                        "exp_year": pm["card"]["exp_year"],
-                    },
-                    "is_default": pm.get("metadata", {}).get("is_default", False),
-                }
-                for pm in payment_methods.get("data", [])
-            ]
+            return methods.get("data", [])
         except Exception as e:
-            logger.error(f"Error getting payment methods: {str(e)}")
+            logger.error(f"Error getting payment methods: {e}")
             return []

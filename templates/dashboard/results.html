@@ -256,12 +256,16 @@
                     <h5 class="card-title mb-0">AI-Generated Content</h5>
                 </div>
                 <div class="card-body">
+                    
+                    <!-- TITLE & DESCRIPTION -->
                     <div class="mb-4">
                         <h6 class="border-bottom pb-2">Title & Description</h6>
+                        
+                        <!-- Title -->
                         <div class="mb-3">
-                            <label class="form-label">Title</label>
+                            <label class="form-label fw-semibold">Title</label>
                             <div class="ai-content-box">
-                                <h4 id="ai-title">{{ video.title }}</h4>
+                                <h4 id="ai-title">{{ video.title or 'Untitled' }}</h4>
                                 <div class="ai-actions mt-2">
                                     <button class="btn btn-sm btn-outline-primary" onclick="regenerateTitle()">
                                         <i class="fas fa-sync me-1"></i>Regenerate
@@ -276,11 +280,11 @@
                             </div>
                         </div>
                         
-                        {% if video.description %}
+                        <!-- Description -->
                         <div class="mb-3">
-                            <label class="form-label">Description</label>
+                            <label class="form-label fw-semibold">Description</label>
                             <div class="ai-content-box">
-                                <p id="ai-description">{{ video.description }}</p>
+                                <p id="ai-description">{{ video.description or 'No description generated.' }}</p>
                                 <div class="ai-actions mt-2">
                                     <button class="btn btn-sm btn-outline-primary" onclick="regenerateDescription()">
                                         <i class="fas fa-sync me-1"></i>Regenerate
@@ -294,20 +298,23 @@
                                 </div>
                             </div>
                         </div>
-                        {% endif %}
                         
+                        <!-- Tags -->
                         {% if video.tags %}
                         <div class="mb-3">
-                            <label class="form-label">Tags</label>
+                            <label class="form-label fw-semibold">Tags</label>
                             <div class="ai-content-box">
                                 <div class="tags-container" id="tags-container">
                                     {% for tag in video.tags %}
-                                    <span class="badge bg-light text-dark border me-1 mb-1">{{ tag }}</span>
+                                    <span class="badge bg-light text-dark border me-1 mb-1 px-3 py-2">{{ tag }}</span>
                                     {% endfor %}
                                 </div>
                                 <div class="ai-actions mt-2">
                                     <button class="btn btn-sm btn-outline-primary" onclick="regenerateTags()">
                                         <i class="fas fa-sync me-1"></i>Regenerate
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard('tags-container')">
+                                        <i class="fas fa-copy me-1"></i>Copy Tags
                                     </button>
                                     <button class="btn btn-sm btn-outline-secondary" onclick="editTags()">
                                         <i class="fas fa-edit me-1"></i>Edit
@@ -318,99 +325,67 @@
                         {% endif %}
                     </div>
 
-                    <!-- Transcription -->
+                    <!-- TRANSCRIPTION -->
                     {% if video.transcription %}
                     <div class="mb-4">
-                        <h6 class="border-bottom pb-2">Transcription</h6>
+                        <h6 class="border-bottom pb-2">
+                            <i class="fas fa-microphone me-2"></i>Transcription
+                            {% if video.transcription_language %}
+                            <span class="badge bg-info ms-2">{{ video.transcription_language|upper }}</span>
+                            {% endif %}
+                        </h6>
                         <div class="transcription-container">
-                            <div class="transcription-actions mb-3">
+                            <!-- Actions -->
+                            <div class="transcription-actions mb-3 d-flex flex-wrap gap-2">
                                 <div class="btn-group" role="group">
                                     <button type="button" class="btn btn-sm btn-outline-primary active" 
                                             onclick="showTranscriptionView('paragraph', this)">
-                                        Paragraph
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-primary" 
-                                            onclick="showTranscriptionView('timeline', this)">
-                                        Timeline
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-primary" 
-                                            onclick="showTranscriptionView('captions', this)">
-                                        Captions
+                                        <i class="fas fa-align-left me-1"></i>Paragraph
                                     </button>
                                 </div>
-                                <div class="btn-group ms-2" role="group">
-                                    <button class="btn btn-sm btn-outline-secondary" 
-                                            onclick="copyToClipboard('transcription-text')">
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard('transcription-text')">
                                         <i class="fas fa-copy me-1"></i>Copy
                                     </button>
                                     <button class="btn btn-sm btn-outline-secondary" onclick="editTranscription()">
                                         <i class="fas fa-edit me-1"></i>Edit
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary" onclick="translateTranscription()">
-                                        <i class="fas fa-language me-1"></i>Translate
-                                    </button>
                                 </div>
                             </div>
                             
+                            <!-- Transcription Content -->
                             <div id="transcription-paragraph" class="transcription-view">
-                                <div class="transcription-text" id="transcription-text">
+                                <div class="transcription-text p-3 bg-light rounded" id="transcription-text" style="max-height: 300px; overflow-y: auto;">
                                     {{ video.transcription }}
                                 </div>
                             </div>
-                            
-                            <div id="transcription-timeline" class="transcription-view d-none">
-                                <div class="text-center text-muted py-4">
-                                    <i class="fas fa-clock fa-2x mb-2"></i>
-                                    <p>Timeline view shows transcription with timestamps</p>
-                                </div>
-                            </div>
-                            
-                            <div id="transcription-captions" class="transcription-view d-none">
-                                <div class="text-center text-muted py-4">
-                                    <i class="fas fa-closed-captioning fa-2x mb-2"></i>
-                                    <p>Generate subtitle files from transcription</p>
-                                    <button class="btn btn-sm btn-primary" onclick="generateSubtitles()">
-                                        Generate SRT File
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            {% if video.transcription_language %}
-                            <div class="transcription-info mt-3">
-                                <small class="text-muted">
-                                    Language detected: 
-                                    <span class="badge bg-info">{{ video.transcription_language|upper }}</span>
-                                    • Confidence: High
-                                </small>
-                            </div>
-                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
 
-                    <!-- Translation -->
-                    {% if video.translated_transcription %}
+                    <!-- TRANSLATION (Only shown if translation exists) -->
+                    {% if video.translated_transcription and video.translation_language %}
                     <div class="mb-4">
                         <h6 class="border-bottom pb-2">
-                            Translation 
-                            <span class="badge bg-info">{{ video.translation_language|upper }}</span>
+                            <i class="fas fa-language me-2"></i>Translation
+                            <span class="badge bg-success ms-2">{{ video.translation_language|upper }}</span>
                         </h6>
                         <div class="translation-container">
-                            <div class="translation-text mb-3" id="translation-text">
-                                {{ video.translated_transcription }}
+                            <div class="translation-actions mb-3 d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard('translation-text')">
+                                    <i class="fas fa-copy me-1"></i>Copy
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="editTranslation()">
+                                    <i class="fas fa-edit me-1"></i>Edit
+                                </button>
                             </div>
-                            <div class="translation-actions">
-                                <button class="btn btn-sm btn-outline-secondary" 
-                                        onclick="copyToClipboard('translation-text')">
-                                    <i class="fas fa-copy me-1"></i>Copy Translation
-                                </button>
-                                <button class="btn btn-sm btn-outline-primary" onclick="translateToOtherLanguage()">
-                                    <i class="fas fa-language me-1"></i>Translate to Another Language
-                                </button>
+                            <div class="translation-text p-3 bg-light rounded" id="translation-text" style="max-height: 300px; overflow-y: auto;">
+                                {{ video.translated_transcription }}
                             </div>
                         </div>
                     </div>
                     {% endif %}
+
                 </div>
             </div>
             {% endif %}
@@ -666,12 +641,6 @@
                                         <option disabled>Loading styles...</option>
                                     {% endif %}
                                 </select>
-                                <!-- <div style="background: white; padding: 5px; margin-bottom: 10px;">
-                                    Styles available: {{ available_styles|length }}
-                                    {% for style in available_styles %}
-                                        <br>{{ style.name }} - available: {{ style.available }}
-                                    {% endfor %}
-                                </div> -->
                                 <button class="btn btn-outline-primary" id="apply-style-btn" onclick="applySelectedStyle()">
                                     <i class="fas fa-paint-brush me-1"></i>Apply
                                 </button>
@@ -683,7 +652,7 @@
                         </div>
 
                         <!-- Current Style Display -->
-                        <div class="border-top pt-2 mt-1">
+                          <div class="border-top pt-2 mt-1">
                             <span class="text-muted small">Current style:</span>
                             <span class="badge bg-secondary ms-1">
                                 {% if video.applied_styles and video.applied_styles|length > 0 %}
@@ -694,25 +663,35 @@
                             </span>
                         </div>
 
-                        <!-- Coming Soon Buttons -->
-                        {% if video.transcription %}
-                        <div class="btn-group mt-2">
-                            <button class="btn btn-outline-secondary btn-sm" 
-                                    onclick="showComingSoon('Blog post generation coming in Phase 2!')">
-                                <i class="fas fa-blog me-1"></i>Generate Blog Post
-                                <span class="badge bg-warning text-dark ms-1">Soon</span>
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" 
-                                    onclick="showComingSoon('Social media posts coming in Phase 2!')">
-                                <i class="fas fa-share-alt me-1"></i>Social Posts
-                                <span class="badge bg-warning text-dark ms-1">Soon</span>
-                            </button>
-                        </div>
-                        {% endif %}
+                        <!-- COMING SOON FEATURES - Always visible
+                        <div class="border-top pt-3 mt-2">
+                            <div class="row g-2">
+                                <div class="col-12">
+                                    <button class="btn btn-outline-secondary w-100" 
+                                            onclick="showComingSoon('📝 Blog post generation coming in Phase 2!')">
+                                        <i class="fas fa-blog me-2"></i>Generate Blog Post
+                                        <span class="badge bg-warning text-dark ms-2">Soon</span>
+                                    </button>
+                                </div>
+                                <div class="col-12">
+                                    <button class="btn btn-outline-secondary w-100" 
+                                            onclick="showComingSoon('📱 Social media posts coming in Phase 2!')">
+                                        <i class="fas fa-share-alt me-2"></i>Social Posts
+                                        <span class="badge bg-warning text-dark ms-2">Soon</span>
+                                    </button>
+                                </div>
+                                <div class="col-12">
+                                    <button class="btn btn-outline-secondary w-100" 
+                                            onclick="showComingSoon('✂️ Short clip creation coming in Phase 2!')">
+                                        <i class="fas fa-cut me-2"></i>Create Short Clip
+                                        <span class="badge bg-warning text-dark ms-2">Soon</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div> -->
                     </div>
                 </div>
             </div>
-
             <!-- Loading Overlay -->
             <div id="style-loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000;">
                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white;">
@@ -725,43 +704,6 @@
                 </div>
             </div>
 
-            <!-- Video Management -->
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Video Management</h5>
-                </div>
-                <div class="card-body">
-                    <div class="management-actions">
-                        <div class="mb-3">
-                            <label class="form-label">Retention Period</label>
-                            <select class="form-select" id="retention-period" onchange="updateRetention()">
-                                <option value="1" {% if video.retention_days == 1 %}selected{% endif %}>1 day</option>
-                                <option value="7" {% if video.retention_days == 7 %}selected{% endif %}>7 days</option>
-                                <option value="30" {% if video.retention_days == 30 %}selected{% endif %}>30 days</option>
-                                <option value="90" {% if video.retention_days == 90 %}selected{% endif %}>90 days</option>
-                                <option value="forever" {% if not video.scheduled_for_deletion %}selected{% endif %}>Keep forever</option>
-                            </select>
-                            <small class="text-muted">
-                                Videos are automatically deleted after retention period
-                            </small>
-                        </div>
-                        
-                        <div class="d-grid gap-2">
-                            <button class="btn btn-outline-warning" onclick="reprocessVideo()">
-                                <i class="fas fa-redo me-2"></i>Reprocess with AI
-                            </button>
-                            
-                            <button class="btn btn-outline-secondary" onclick="duplicateVideo()">
-                                <i class="fas fa-copy me-2"></i>Duplicate Video
-                            </button>
-                            
-                            <button class="btn btn-outline-danger" onclick="deleteVideo()">
-                                <i class="fas fa-trash me-2"></i>Delete Permanently
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 </div>
@@ -1026,7 +968,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================
 
 function downloadVideo() {
-    const videoId = '{{ video.id }}';
     const token = localStorage.getItem('access_token');
     
     if (!token) {
@@ -1034,7 +975,6 @@ function downloadVideo() {
         return;
     }
     
-    // Show loading state
     showAlert('⏳ Preparing video download...', 'info');
     
     fetch(`/api/v1/videos/${videoId}/download`, {
@@ -1044,15 +984,40 @@ function downloadVideo() {
         }
     })
     .then(response => {
+        //  Log the response for debugging
+        console.log('Download response:', response.status, response.statusText);
+        
         if (!response.ok) {
+            // Try to get error message from response
             return response.json().then(data => {
-                throw new Error(data.error || 'Download failed');
+                throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+            }).catch(() => {
+                // If response is not JSON, throw generic error
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             });
         }
         return response.blob();
     })
     .then(blob => {
-        // Create download link
+        if (blob.size === 0) {
+            throw new Error('Video file is empty');
+        }
+        
+        // Check content type
+        const contentType = blob.type;
+        console.log('Content type:', contentType);
+        
+        if (contentType.includes('json') || contentType.includes('html')) {
+            // Try to read as text to see error
+            const reader = new FileReader();
+            reader.onload = function() {
+                console.error('Server returned error:', reader.result);
+                showAlert('❌ Server error: ' + reader.result.substring(0, 200), 'danger');
+            };
+            reader.readAsText(blob.slice(0, 500));
+            throw new Error('Server returned error page instead of video');
+        }
+        
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -1065,7 +1030,7 @@ function downloadVideo() {
     })
     .catch(error => {
         console.error('Download error:', error);
-        showAlert('❌ Failed to download video: ' + error.message, 'danger');
+        showAlert('❌ ' + error.message, 'danger');
     });
 }
 
@@ -1147,25 +1112,52 @@ function showAlert(message, type) {
 // ============================================
 // DOWNLOAD FUNCTIONS
 // ============================================
+// ============================================
+// DOWNLOAD ALL ASSETS (ZIP)
+// ============================================
 function downloadAssets() {
+    const token = localStorage.getItem('access_token');
+    
+    if (!token) {
+        showAlert('Please login first', 'danger');
+        return;
+    }
+    
+    showAlert('⏳ Preparing assets...', 'info');
+    
     fetch(`/api/v1/videos/${videoId}/download/all`, {
         method: 'GET',
-        headers: { 'X-CSRF-Token': csrfToken }
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
     })
-    .then(response => response.blob())
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'Download failed');
+            });
+        }
+        return response.blob();
+    })
     .then(blob => {
+        // Check if it's a valid ZIP
+        if (blob.size === 0) {
+            throw new Error('ZIP file is empty');
+        }
+        
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `video-assets-${videoId}.zip`;
-        document.body.appendChild(a);
-        a.click();
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `video-assets-${videoId}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        showAlert('✅ Assets downloaded successfully!', 'success');
     })
     .catch(error => {
-        console.error('Error:', error);
-        showAlert('Error downloading assets.', 'danger');
+        console.error('Download error:', error);
+        showAlert('❌ Failed to download assets: ' + error.message, 'danger');
     });
 }
 
@@ -1194,126 +1186,461 @@ function downloadTranscription(format = 'txt') {
 // ============================================
 // TEXT CONTENT FUNCTIONS
 // ============================================
+
+// ===== COPY TO CLIPBOARD =====
 function copyToClipboard(elementId) {
     const element = document.getElementById(elementId);
-    if (!element) return;
-    const text = element.textContent || element.innerText;
+    if (!element) {
+        showAlert('Content not found', 'warning');
+        return;
+    }
+    
+    // Handle tags container specially
+    let text = element.textContent || element.innerText;
+    if (elementId === 'tags-container') {
+        // Get only the tag text, not the button text
+        const tags = element.querySelectorAll('.badge');
+        text = Array.from(tags).map(tag => tag.textContent.trim()).join(', ');
+    }
+    
     navigator.clipboard.writeText(text)
-        .then(() => showAlert('Copied to clipboard!', 'success'))
+        .then(() => showAlert('✅ Copied to clipboard!', 'success'))
         .catch(err => {
-            console.error('Failed to copy: ', err);
-            showAlert('Failed to copy to clipboard.', 'danger');
+            console.error('Failed to copy:', err);
+            // Fallback
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showAlert('✅ Copied to clipboard!', 'success');
         });
 }
 
+// ===== TITLE FUNCTIONS =====
 function editTitle() {
     const editor = document.getElementById('title-editor');
     if (editor) {
-        editor.value = document.getElementById('ai-title').textContent;
+        editor.value = document.getElementById('ai-title').textContent.trim();
         const modal = new bootstrap.Modal(document.getElementById('edit-title-modal'));
         modal.show();
     }
 }
 
 function saveTitle() {
-    const newTitle = document.getElementById('title-editor').value;
-    fetch(`/api/v1/videos/${videoId}/title`, {
+    const newTitle = document.getElementById('title-editor').value.trim();
+    if (!newTitle) {
+        showAlert('Title cannot be empty', 'warning');
+        return;
+    }
+    
+    const token = localStorage.getItem('access_token');
+    
+    // 🔥 Use the generic update endpoint
+    fetch(`/api/v1/videos/${videoId}`, {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
-            'Authorization': `Bearer ${accessToken}`
+            'Authorization': `Bearer ${token || accessToken}`
         },
         body: JSON.stringify({ title: newTitle })
     })
     .then(response => response.json())
     .then(data => {
-        if (data.success) {
+        if (data.success !== false) {
             document.getElementById('ai-title').textContent = newTitle;
-            showAlert('Title updated successfully.', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('edit-title-modal')).hide();
+            showAlert('✅ Title updated successfully!', 'success');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('edit-title-modal'));
+            if (modal) modal.hide();
         } else {
-            showAlert(`Failed to update title: ${data.message}`, 'danger');
+            showAlert('❌ Failed to update title: ' + (data.message || 'Unknown error'), 'danger');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlert('Error updating title.', 'danger');
+        showAlert('❌ Error updating title', 'danger');
     });
 }
 
 function regenerateTitle() {
-    if (confirm('Regenerate title using AI?')) {
-        fetch(`/api/v1/videos/${videoId}/title/regenerate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-                'Authorization': `Bearer ${accessToken}`
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('ai-title').textContent = data.title;
-                showAlert('Title regenerated successfully.', 'success');
-            } else {
-                showAlert(`Failed to regenerate title: ${data.message}`, 'danger');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showAlert('Error regenerating title.', 'danger');
-        });
+    if (!confirm('Regenerate title using AI? This may take a moment.')) return;
+    
+    const token = localStorage.getItem('access_token');
+    showAlert('⏳ Regenerating title...', 'info');
+    
+    fetch(`/api/v1/videos/${videoId}/title/regenerate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('ai-title').textContent = data.title;
+            showAlert('✅ Title regenerated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to regenerate title: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error regenerating title', 'danger');
+    });
+}
+
+// ===== DESCRIPTION FUNCTIONS =====
+// ============================================
+// DESCRIPTION FUNCTIONS (Using Generic Update)
+// ============================================
+
+function editDescription() {
+    const currentDesc = document.getElementById('ai-description').textContent.trim();
+    const newDesc = prompt('Edit description:', currentDesc);
+    if (newDesc !== null && newDesc !== currentDesc) {
+        saveDescription(newDesc);
     }
 }
 
+function saveDescription(description) {
+    if (!description || description.trim() === '') {
+        showAlert('Description cannot be empty', 'warning');
+        return;
+    }
+    
+    const token = localStorage.getItem('access_token');
+    
+    // 🔥 Use the generic update endpoint
+    fetch(`/api/v1/videos/${videoId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        },
+        body: JSON.stringify({ description: description.trim() })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success !== false) {
+            document.getElementById('ai-description').textContent = description.trim();
+            showAlert('✅ Description updated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to update description: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error updating description', 'danger');
+    });
+}
+
 function regenerateDescription() {
-    showAlert('Description regeneration feature coming soon!', 'info');
+    if (!confirm('Regenerate description using AI? This may take a moment.')) return;
+    
+    const token = localStorage.getItem('access_token');
+    showAlert('⏳ Regenerating description...', 'info');
+    
+    //  Correct URL spelling
+    fetch(`/api/v1/videos/${videoId}/description/regenerate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        }
+        //  No need to send body - backend handles it
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || data.message || 'Server error');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            //  Direct access to data.description
+            document.getElementById('ai-description').textContent = data.description;
+            showAlert('✅ Description regenerated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to regenerate description: ' + (data.error || data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error regenerating description: ' + error.message, 'danger');
+    });
+}
+
+// ============================================
+// TAGS FUNCTIONS (Using Generic Update)
+// ============================================
+
+function editTags() {
+    const currentTags = Array.from(document.querySelectorAll('#tags-container .badge'))
+        .map(el => el.textContent.trim());
+    const currentTagsStr = currentTags.join(', ');
+    const newTagsStr = prompt('Edit tags (comma separated):', currentTagsStr);
+    
+    if (newTagsStr !== null && newTagsStr !== currentTagsStr) {
+        const newTags = newTagsStr.split(',').map(t => t.trim()).filter(t => t);
+        saveTags(newTags);
+    }
+}
+
+function saveTags(tags) {
+    if (!tags || tags.length === 0) {
+        showAlert('Tags cannot be empty', 'warning');
+        return;
+    }
+    
+    const token = localStorage.getItem('access_token');
+    
+    // 🔥 Use the generic update endpoint
+    fetch(`/api/v1/videos/${videoId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        },
+        body: JSON.stringify({ tags: tags })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success !== false) {
+            // Update tags in UI
+            const container = document.getElementById('tags-container');
+            container.innerHTML = tags.map(tag => 
+                `<span class="badge bg-light text-dark border me-1 mb-1 px-3 py-2">${tag}</span>`
+            ).join('');
+            showAlert('✅ Tags updated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to update tags: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error updating tags', 'danger');
+    });
 }
 
 function regenerateTags() {
-    showAlert('Tags regeneration feature coming soon!', 'info');
+    if (!confirm('Regenerate tags using AI? This may take a moment.')) return;
+    
+    const token = localStorage.getItem('access_token');
+    showAlert('⏳ Regenerating tags...', 'info');
+    
+    fetch(`/api/v1/videos/${videoId}/tags/regenerate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        }
+        //  No need to send body - backend handles it
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || data.message || 'Server error');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            //  Direct access to data.tags
+            const container = document.getElementById('tags-container');
+            if (container) {
+                container.innerHTML = data.tags.map(tag => 
+                    `<span class="badge bg-light text-dark border me-1 mb-1 px-3 py-2">${tag}</span>`
+                ).join('');
+                showAlert('✅ Tags regenerated successfully!', 'success');
+            } else {
+                showAlert('⚠️ Tags regenerated but UI element not found', 'warning');
+            }
+        } else {
+            showAlert('❌ Failed to regenerate tags: ' + (data.error || data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error regenerating tags: ' + error.message, 'danger');
+    });
 }
 
-function editDescription() {
-    showAlert('Edit description feature coming soon!', 'info');
-}
-
-function editTags() {
-    showAlert('Edit tags feature coming soon!', 'info');
-}
-
+// ===== TRANSCRIPTION FUNCTIONS =====
 function editTranscription() {
-    showAlert('Edit transcription feature coming soon!', 'info');
+    const currentText = document.getElementById('transcription-text').textContent.trim();
+    const newText = prompt('Edit transcription:', currentText);
+    if (newText !== null && newText !== currentText) {
+        saveTranscription(newText);
+    }
+}
+
+function saveTranscription(transcription) {
+    if (!transcription || transcription.trim() === '') {
+        showAlert('Transcription cannot be empty', 'warning');
+        return;
+    }
+    
+    const token = localStorage.getItem('access_token');
+    fetch(`/api/v1/videos/${videoId}/transcription`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        },
+        body: JSON.stringify({ transcription: transcription })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('transcription-text').textContent = transcription;
+            showAlert('✅ Transcription updated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to update transcription: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error updating transcription', 'danger');
+    });
 }
 
 function translateTranscription() {
-    showAlert('Translate transcription feature coming soon!', 'info');
+    // Show language selection modal or dropdown
+    const languages = ['es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'zh', 'ar', 'hi'];
+    const langMap = {
+        'es': 'Spanish', 'fr': 'French', 'de': 'German', 'it': 'Italian',
+        'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese', 'zh': 'Chinese',
+        'ar': 'Arabic', 'hi': 'Hindi'
+    };
+    
+    let options = 'Select target language:\n\n';
+    languages.forEach(code => {
+        options += `${code}: ${langMap[code]}\n`;
+    });
+    options += '\nEnter language code:';
+    
+    const langCode = prompt(options);
+    if (!langCode) return;
+    
+    const token = localStorage.getItem('access_token');
+    showAlert(`⏳ Translating to ${langMap[langCode] || langCode}...`, 'info');
+    
+    fetch(`/api/v1/videos/${videoId}/transcription/translate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        },
+        body: JSON.stringify({ target_language: langCode })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show translation section
+            const translationSection = document.querySelector('.translation-container')?.closest('.mb-4');
+            if (translationSection) {
+                translationSection.style.display = 'block';
+                document.getElementById('translation-text').textContent = data.translation;
+                document.querySelector('.translation-section .badge').textContent = langMap[langCode] || langCode;
+            }
+            showAlert('✅ Translation completed!', 'success');
+        } else {
+            showAlert('❌ Failed to translate: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error translating', 'danger');
+    });
 }
 
-function generateSubtitles() {
-    showAlert('Subtitle generation feature coming soon!', 'info');
-}
+// function translateToOtherLanguage() {
+//     translateTranscription();
+// }
 
-function translateToOtherLanguage() {
-    showAlert('Translation to other languages coming soon!', 'info');
-}
+// function generateSubtitles() {
+//     showAlert('⏳ Generating SRT file...', 'info');
+//     downloadTranscription('srt');
+// }
+
+// ===== TRANSCRIPTION VIEW =====
 
 // ============================================
 // TRANSCRIPTION VIEW FUNCTIONS
 // ============================================
+// ============================================
+
+function editTranslation() {
+    const currentText = document.getElementById('translation-text').textContent.trim();
+    const newText = prompt('Edit translation:', currentText);
+    if (newText !== null && newText !== currentText) {
+        saveTranslation(newText);
+    }
+}
+
+function saveTranslation(translation) {
+    if (!translation || translation.trim() === '') {
+        showAlert('Translation cannot be empty', 'warning');
+        return;
+    }
+    
+    const token = localStorage.getItem('access_token');
+    fetch(`/api/v1/videos/${videoId}/translation`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'Authorization': `Bearer ${token || accessToken}`
+        },
+        body: JSON.stringify({ translation: translation })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('translation-text').textContent = translation;
+            showAlert('✅ Translation updated successfully!', 'success');
+        } else {
+            showAlert('❌ Failed to update translation: ' + (data.message || 'Unknown error'), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('❌ Error updating translation', 'danger');
+    });
+}
+
+// ============================================
+// TRANSCRIPTION VIEW
+// ============================================
+
 function showTranscriptionView(view, btn) {
+    // Remove active from all buttons in the same group
+    const parentGroup = btn.closest('.btn-group');
+    if (parentGroup) {
+        parentGroup.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+    }
+    btn.classList.add('active');
+    
+    // Show the corresponding view
     document.querySelectorAll('.transcription-view').forEach(el => {
         el.classList.add('d-none');
     });
     document.getElementById(`transcription-${view}`).classList.remove('d-none');
-    
-    document.querySelectorAll('.transcription-actions .btn-group .btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    btn.classList.add('active');
 }
+
 
 // ============================================
 // SHARE FUNCTIONS
@@ -1354,66 +1681,12 @@ function exportToWebflow() { showAlert('Webflow export feature coming soon!', 'i
 // CONTENT GENERATION FUNCTIONS
 // ============================================
 function createShortClip() { showAlert('Short clip creation coming soon!', 'info'); }
-// function applyNewStyle() { showAlert('Apply new style feature coming soon!', 'info'); }
 function generateBlogPost() { showAlert('Blog post generation coming soon!', 'info'); }
 function generateSocialPosts() { showAlert('Social media posts generation coming soon!', 'info'); }
-function duplicateProcessing() { showAlert('Duplicate processing feature coming soon!', 'info'); }
-function reprocessVideo() { showAlert('Reprocess video feature coming soon!', 'info'); }
 
 // ============================================
 // MANAGEMENT FUNCTIONS
 // ============================================
-function updateRetention() {
-    const retentionDays = document.getElementById('retention-period').value;
-    fetch(`/api/v1/videos/${videoId}/retention`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-            'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({ retention_days: retentionDays })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showAlert('Retention period updated successfully.', 'success');
-        } else {
-            showAlert(`Failed to update retention: ${data.message}`, 'danger');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlert('Error updating retention.', 'danger');
-    });
-}
-
-function deleteVideo() {
-    if (confirm('Are you sure you want to delete this video permanently? This action cannot be undone.')) {
-        fetch(`/api/v1/videos/${videoId}`, {
-            method: 'DELETE',
-            headers: {
-                'X-CSRF-Token': csrfToken,
-                'Authorization': `Bearer ${accessToken}`
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showAlert('Video deleted successfully.', 'success');
-                setTimeout(() => {
-                    window.location.href = '{{ url_for("history") }}';
-                }, 1000);
-            } else {
-                showAlert(`Failed to delete video: ${data.message}`, 'danger');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showAlert('Error deleting video.', 'danger');
-        });
-    }
-}
 
 // ============================================
 // RAW DATA FUNCTIONS

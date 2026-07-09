@@ -144,7 +144,9 @@ def create_app(config_class=Config):
         app.config["REDIS_CLIENT"] = redis_client
         logger.info("✅ Redis connected successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Redis connection failed: {e}. Some features will be limited.")
+        logger.warning(
+            f"⚠️ Redis connection failed: {e}. Some features will be limited."
+        )
 
     # ========== 5. INITIALIZE JWT ==========
     jwt = JWTManager(app)
@@ -163,12 +165,19 @@ def create_app(config_class=Config):
                 "origins": app.config.get("CORS_ORIGINS", ["*"]),
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
                 "allow_headers": [
-                    "Content-Type", "Authorization", "X-Requested-With",
-                    "Accept", "Origin", "X-CSRF-Token",
+                    "Content-Type",
+                    "Authorization",
+                    "X-Requested-With",
+                    "Accept",
+                    "Origin",
+                    "X-CSRF-Token",
                 ],
                 "expose_headers": [
-                    "Content-Range", "X-Content-Range",
-                    "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+                    "Content-Range",
+                    "X-Content-Range",
+                    "X-RateLimit-Limit",
+                    "X-RateLimit-Remaining",
+                    "X-RateLimit-Reset",
                 ],
                 "supports_credentials": True,
                 "max_age": 600,
@@ -205,7 +214,7 @@ def create_app(config_class=Config):
     # ========== 9. INITIALIZE SOCKETIO ==========
     from flask_socketio import SocketIO
 
-    redis_url = os.getenv('REDIS_URL')
+    redis_url = os.getenv("REDIS_URL")
 
     socketio = SocketIO(
         app,
@@ -224,6 +233,7 @@ def create_app(config_class=Config):
 
     # Register your handlers
     from api.websocket import register_websocket_handlers, set_socketio_instance
+
     set_socketio_instance(socketio)
     register_websocket_handlers(socketio)
 
@@ -235,26 +245,26 @@ def create_app(config_class=Config):
     def handle_video_update(data):
         """Forward video updates to WebSocket clients."""
         try:
-            video_id = data.get('video_id')
+            video_id = data.get("video_id")
             if not video_id:
                 return
-            
+
             room = f"video:{video_id}"
-            
+
             # Also forward to user room if user_id is present
-            user_id = data.get('user_id')
+            user_id = data.get("user_id")
             if user_id:
                 user_room = f"user:{user_id}"
-                socketio.emit('video_processing', data, room=user_room)
-            
+                socketio.emit("video_processing", data, room=user_room)
+
             # Forward to video room
-            socketio.emit('video_processing', data, room=room)
+            socketio.emit("video_processing", data, room=room)
             logger.debug(f"📤 Forwarded: {video_id} - {data.get('step', 'unknown')}")
-            
+
         except Exception as e:
             logger.error(f"Error forwarding video update: {e}")
 
-    subscribe('video_updates', handle_video_update)
+    subscribe("video_updates", handle_video_update)
     pubsub_manager.start()
     logger.info("✅ Redis Pub/Sub listener started for 'video_updates' channel")
 
@@ -292,6 +302,7 @@ def create_app(config_class=Config):
         if isinstance(value, str):
             try:
                 from datetime import datetime
+
                 value = datetime.fromisoformat(value.replace("Z", "+00:00"))
             except:
                 return value
@@ -345,6 +356,7 @@ def create_app(config_class=Config):
 
     # Register CLI commands
     from app.cli import register_cli_commands
+
     register_cli_commands(app)
 
     # ==========  REDIS NOTIFICATION PROCESSOR (Background Thread) ==========
@@ -388,7 +400,9 @@ def create_app(config_class=Config):
                             data = json.loads(notif)
                             if socketio:
                                 socketio.emit("notification", data, room=user_id)
-                                logger.debug(f"📤 Emitted notification to user {user_id}")
+                                logger.debug(
+                                    f"📤 Emitted notification to user {user_id}"
+                                )
                         except json.JSONDecodeError as e:
                             logger.debug(f"Invalid JSON in notification: {e}")
 
@@ -404,6 +418,7 @@ def create_app(config_class=Config):
     if not os.environ.get("CELERY_WORKER", "false").lower() == "true":
         # Check if already running to prevent duplicates
         import threading
+
         for thread in threading.enumerate():
             if thread.name == "RedisNotificationProcessor":
                 logger.info("ℹ️ Redis notification processor already running")
@@ -412,7 +427,7 @@ def create_app(config_class=Config):
             thread = threading.Thread(
                 target=process_redis_notifications,
                 daemon=True,
-                name="RedisNotificationProcessor"
+                name="RedisNotificationProcessor",
             )
             thread.start()
             logger.info("✅ Redis notification processor thread started")
@@ -423,6 +438,7 @@ def create_app(config_class=Config):
 
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
     from api.v1.routers.refresh import refresh_bp
+
     app.register_blueprint(refresh_bp, url_prefix="/api/v1/auth")
     logger.info("✅ Registered refresh blueprint")
 
@@ -472,6 +488,7 @@ def create_app(config_class=Config):
         # Check Celery worker status
         try:
             from tasks.celery_app import celery
+
             i = celery.control.inspect()
             active_workers = i.active() or {}
             health_status["checks"]["celery"] = {
@@ -506,6 +523,7 @@ def create_app(config_class=Config):
 
         # Add system metrics
         import psutil
+
         health_status["system"] = {
             "cpu_percent": psutil.cpu_percent(),
             "memory_percent": psutil.virtual_memory().percent,
@@ -513,7 +531,7 @@ def create_app(config_class=Config):
         }
 
         return jsonify(health_status)
-    
+
     # ========== 15. REGISTER PAGE ROUTES (HTML pages) ==========
     @app.route("/auth/login", methods=["GET", "POST"])
     def login_page():
@@ -683,11 +701,14 @@ def create_app(config_class=Config):
     def ws_status():
         """Check WebSocket server status."""
         from api.websocket import get_socketio
+
         socketio = get_socketio()
-        return jsonify({
-            "websocket_initialized": socketio is not None,
-            "status": "ready" if socketio else "not_initialized"
-        })
+        return jsonify(
+            {
+                "websocket_initialized": socketio is not None,
+                "status": "ready" if socketio else "not_initialized",
+            }
+        )
 
     @app.route("/api/v1/auth/session-check", methods=["GET"])
     def session_check():
@@ -1289,36 +1310,36 @@ def create_app(config_class=Config):
         from flask import session, redirect, url_for, render_template, request
         from services.user_service import UserService
         from services.video_service import VideoService
-        
+
         # Get video_id from query parameter
-        video_id = request.args.get('video_id')
-        
+        video_id = request.args.get("video_id")
+
         if not video_id:
             # Try to get from session
-            video_id = session.get('processing_video_id')
-        
+            video_id = session.get("processing_video_id")
+
         if not video_id:
-            return redirect(url_for('upload'))
-        
+            return redirect(url_for("upload"))
+
         # Verify user is logged in and owns this video
         user_id = session.get("user_id")
         if not user_id:
             return redirect(url_for("login_page"))
-        
+
         user_service = UserService()
         video_service = VideoService()
-        
+
         user = user_service.get_user_by_id(user_id)
         video = video_service.get_video_by_id(video_id)
-        
+
         if not video or video.user_id != user_id:
-            return redirect(url_for('upload'))
-        
+            return redirect(url_for("upload"))
+
         return render_template(
             "dashboard/processing.html",
             current_user=user,
             video=video,
-            video_id=video_id
+            video_id=video_id,
         )
 
     @app.route("/history")
@@ -1470,7 +1491,9 @@ def create_app(config_class=Config):
                     # Look for mp4 files (excluding original.mp4)
                     mp4_files = glob.glob(os.path.join(base_dir, "*.mp4"))
                     # Filter out original.mp4 if present
-                    processed_files = [f for f in mp4_files if "original" not in f.lower()]
+                    processed_files = [
+                        f for f in mp4_files if "original" not in f.lower()
+                    ]
 
                     if processed_files:
                         # Get the most recently modified file
@@ -1496,41 +1519,47 @@ def create_app(config_class=Config):
             conditional=True,
             download_name=f"processed_video_{video_id}.mp4",
         )
-        
+
         #  Disable caching completely
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        
+        response.headers["Cache-Control"] = (
+            "no-cache, no-store, must-revalidate, private"
+        )
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
         #  Add ETag based on file modification time for conditional requests
         if os.path.exists(file_path):
             mtime = os.path.getmtime(file_path)
-            response.headers['ETag'] = f'"{mtime}-{os.path.getsize(file_path)}"'
-        
+            response.headers["ETag"] = f'"{mtime}-{os.path.getsize(file_path)}"'
+
         #  Handle If-None-Match header (browser's conditional request)
-        if request.headers.get('If-None-Match'):
-            etag = request.headers.get('If-None-Match')
-            if etag == response.headers.get('ETag'):
-                return '', 304  # Not Modified - browser uses cache
-        
+        if request.headers.get("If-None-Match"):
+            etag = request.headers.get("If-None-Match")
+            if etag == response.headers.get("ETag"):
+                return "", 304  # Not Modified - browser uses cache
+
         return response
 
     @app.route("/admin/redis-health")
     def redis_health():
         """Check Redis Pub/Sub health status."""
         from api.websocket import get_redis_health
+
         return jsonify(get_redis_health())
 
     @app.route("/admin/redis-stats")
     def redis_stats():
         """Get Redis connection statistics."""
         from providers.redis_provider import RedisProvider
+
         redis = RedisProvider()
-        return jsonify({
-            'connected': redis.ping(),
-            'clients': len(redis._client.client_list()) if redis._client else 0,
-            'info': redis._client.info() if redis._client else None
-        })
+        return jsonify(
+            {
+                "connected": redis.ping(),
+                "clients": len(redis._client.client_list()) if redis._client else 0,
+                "info": redis._client.info() if redis._client else None,
+            }
+        )
 
     @app.route("/results")
     def results_page():
@@ -1548,10 +1577,10 @@ def create_app(config_class=Config):
         user_id = session.get("user_id")
         if not user_id:
             return redirect(url_for("login_page"))
-        
+
         # Get video_id from query parameter
         video_id = request.args.get("video_id")
-        
+
         if not video_id:
             return redirect(url_for("dashboard"))
 
@@ -1561,7 +1590,7 @@ def create_app(config_class=Config):
         video = video_service.get_video(video_id, user_id)
         if not video:
             return redirect(url_for("dashboard"))
-        
+
         # Log the actual settings from database
         logger.info(f"📊 RESULTS PAGE - Video settings from DB:")
         logger.info(f"   output_quality: {video.output_quality}")
@@ -1590,7 +1619,8 @@ def create_app(config_class=Config):
                         "id": str(uuid.uuid4()),
                         "url": f"/api/v1/videos/thumbnails/{normalized_path}",
                         "type": "ai",
-                        "selected": thumb_path == getattr(video, "selected_thumbnail", ""),
+                        "selected": thumb_path
+                        == getattr(video, "selected_thumbnail", ""),
                     }
                 )
 
@@ -1717,41 +1747,43 @@ def create_app(config_class=Config):
                 else "normal"
             ),
         )
-    
+
     @app.route("/debug/video-db/<video_id>")
     def debug_video_db(video_id):
         """Debug endpoint to check video values in database."""
         from flask import session, jsonify
         from services.video_service import VideoService
         from providers.firebase_provider import FirebaseProvider
-        
+
         user_id = session.get("user_id")
         if not user_id:
             return jsonify({"error": "Not logged in"}), 401
-        
+
         # Get from database directly
         db = FirebaseProvider()
         video_data = db.get("videos", video_id)
-        
+
         if not video_data:
             return jsonify({"error": "Video not found"}), 404
-        
+
         # Check if user owns this video
         if video_data.get("user_id") != user_id:
             return jsonify({"error": "Unauthorized"}), 403
-        
-        return jsonify({
-            "output_quality": video_data.get("output_quality"),
-            "fps": video_data.get("fps"),
-            "audio_quality": video_data.get("audio_quality"),
-            "aspect_ratio": video_data.get("aspect_ratio"),
-            "thumbnail_style": video_data.get("thumbnail_style"),
-            "applied_styles": video_data.get("applied_styles"),
-            "output_video_url": video_data.get("output_video_url"),
-            "processing_time": video_data.get("processing_time"),
-            "processing_started": video_data.get("processing_started"),
-            "processing_completed": video_data.get("processing_completed"),
-        })
+
+        return jsonify(
+            {
+                "output_quality": video_data.get("output_quality"),
+                "fps": video_data.get("fps"),
+                "audio_quality": video_data.get("audio_quality"),
+                "aspect_ratio": video_data.get("aspect_ratio"),
+                "thumbnail_style": video_data.get("thumbnail_style"),
+                "applied_styles": video_data.get("applied_styles"),
+                "output_video_url": video_data.get("output_video_url"),
+                "processing_time": video_data.get("processing_time"),
+                "processing_started": video_data.get("processing_started"),
+                "processing_completed": video_data.get("processing_completed"),
+            }
+        )
 
     # Pricing page
     @app.route("/pricing")
@@ -1856,18 +1888,18 @@ def create_app(config_class=Config):
 # Create app instances
 app, socketio = create_app()
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    logger.info("🎬 Starting Video AI Studio server...")
-    logger.info(f"🌐 Server URL: http://0.0.0.0:5000")
-    logger.info(f"📅 Start time: {datetime.utcnow().isoformat()}")
+#     logger.info("🎬 Starting Video AI Studio server...")
+#     logger.info(f"🌐 Server URL: http://0.0.0.0:5000")
+#     logger.info(f"📅 Start time: {datetime.utcnow().isoformat()}")
 
-    # Start the server
-    socketio.run(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        debug=app.config.get("DEBUG", False),
-        # allow_unsafe_werkzeug=True,
-        use_reloader=False
-    )
+#     # Start the server
+#     socketio.run(
+#         app,
+#         host="0.0.0.0",
+#         port=5000,
+#         debug=app.config.get("DEBUG", False),
+#         # allow_unsafe_werkzeug=True,
+#         use_reloader=False
+#     )

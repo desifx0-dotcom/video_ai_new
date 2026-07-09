@@ -478,7 +478,8 @@ def update_video(video_id):
         logger.error(f"Update video failed: {str(e)}")
         raise
 
-#decided not to use "use main thumbanils"
+
+# decided not to use "use main thumbanils"
 @router.route("/<video_id>/thumbnails/<thumbnail_id>/select", methods=["POST"])
 @jwt_required()
 def select_thumbnail(video_id, thumbnail_id):
@@ -500,12 +501,14 @@ def select_thumbnail(video_id, thumbnail_id):
         logger.info(f"Extracted Thumbnails: {video.extracted_thumbnails}")
 
         #  Check extracted thumbnails first (since you're using extracted_7)
-        if hasattr(video, 'extracted_thumbnails') and video.extracted_thumbnails:
+        if hasattr(video, "extracted_thumbnails") and video.extracted_thumbnails:
             for thumb in video.extracted_thumbnails:
                 # If thumb is a dict with 'id' and 'path'
                 if isinstance(thumb, dict):
                     thumb_id = thumb.get("id") or thumb.get("name") or thumb.get("path")
-                    if thumb_id and (thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id):
+                    if thumb_id and (
+                        thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id
+                    ):
                         thumbnail_found = True
                         thumbnail_path = thumb.get("path") or thumb.get("url")
                         break
@@ -518,11 +521,17 @@ def select_thumbnail(video_id, thumbnail_id):
                         break
 
         #  If not found, check AI thumbnails
-        if not thumbnail_found and hasattr(video, 'ai_thumbnails') and video.ai_thumbnails:
+        if (
+            not thumbnail_found
+            and hasattr(video, "ai_thumbnails")
+            and video.ai_thumbnails
+        ):
             for thumb in video.ai_thumbnails:
                 if isinstance(thumb, dict):
                     thumb_id = thumb.get("id") or thumb.get("name") or thumb.get("path")
-                    if thumb_id and (thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id):
+                    if thumb_id and (
+                        thumbnail_id in str(thumb_id) or str(thumb_id) == thumbnail_id
+                    ):
                         thumbnail_found = True
                         thumbnail_path = thumb.get("path") or thumb.get("url")
                         break
@@ -535,7 +544,7 @@ def select_thumbnail(video_id, thumbnail_id):
         #  If still not found, treat the thumbnail_id as a path
         if not thumbnail_found:
             # Check if it looks like a file path
-            if any(ext in thumbnail_id for ext in ['.jpg', '.png', '.jpeg', '.webp']):
+            if any(ext in thumbnail_id for ext in [".jpg", ".png", ".jpeg", ".webp"]):
                 thumbnail_found = True
                 thumbnail_path = thumbnail_id
                 logger.info(f"Using thumbnail_id as path: {thumbnail_id}")
@@ -546,6 +555,7 @@ def select_thumbnail(video_id, thumbnail_id):
 
         # Update video with selected thumbnail
         from providers.firebase_provider import FirebaseProvider
+
         db = FirebaseProvider()
         db.save(
             "videos",
@@ -559,16 +569,22 @@ def select_thumbnail(video_id, thumbnail_id):
 
         logger.info(f"✅ Thumbnail selected: {thumbnail_id} -> {thumbnail_path}")
 
-        return jsonify({
-            "success": True,
-            "message": "Thumbnail selected successfully",
-            "thumbnail_id": thumbnail_id,
-            "thumbnail_path": thumbnail_path
-        }), 200
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": "Thumbnail selected successfully",
+                    "thumbnail_id": thumbnail_id,
+                    "thumbnail_path": thumbnail_path,
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         logger.error(f"Failed to select thumbnail: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @router.route("/<video_id>", methods=["DELETE"])
 @jwt_required()
@@ -754,6 +770,144 @@ def regenerate_video_title(video_id):
 
     except Exception as e:
         logger.error(f"Failed to regenerate title: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@router.route("/<video_id>/description/regenerate", methods=["POST"])
+@jwt_required()
+def regenerate_description(video_id):
+    """Regenerate video description using AI."""
+    user_id = get_jwt_identity()
+
+    try:
+        from services.title_service import TitleService
+        from services.user_service import UserService
+
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+
+        user = user_service.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Check regeneration limits
+        max_regens = tier_service.get_text_regenerations(user.tier)
+        current_regens = getattr(video, "title_regenerations", 0)
+
+        if current_regens >= max_regens:
+            return (
+                jsonify(
+                    {
+                        "error": f"Regeneration limit reached. Max {max_regens} regenerations allowed."
+                    }
+                ),
+                403,
+            )
+
+        # Generate new description using title_service
+        title_service = TitleService()
+
+        # Use generate_metadata instead of regenerate_metadata
+        result = title_service.generate_metadata(
+            transcript=video.transcription or "",
+            video_id=video_id,
+            options={"tier": user.tier.value},
+        )
+
+        new_description = result.get(
+            "description", video.description or "No description generated."
+        )
+
+        # Update video
+        video.description = new_description
+        video.title_regenerations = current_regens + 1
+        video.updated_at = datetime.utcnow()
+        video_service.update_video(video)
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "description": new_description,
+                    "regenerations_used": current_regens + 1,
+                    "regenerations_remaining": max_regens - (current_regens + 1),
+                }
+            ),
+            200,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate description: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@router.route("/<video_id>/tags/regenerate", methods=["POST"])
+@jwt_required()
+def regenerate_tags(video_id):
+    """Regenerate video tags using AI."""
+    user_id = get_jwt_identity()
+
+    try:
+        from services.title_service import TitleService
+        from services.user_service import UserService
+
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+
+        user = user_service.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Check regeneration limits
+        max_regens = tier_service.get_text_regenerations(user.tier)
+        current_regens = getattr(video, "title_regenerations", 0)
+
+        if current_regens >= max_regens:
+            return (
+                jsonify(
+                    {
+                        "error": f"Regeneration limit reached. Max {max_regens} regenerations allowed."
+                    }
+                ),
+                403,
+            )
+
+        # Generate new tags using title_service
+        title_service = TitleService()
+
+        # Use generate_metadata instead of regenerate_metadata
+        result = title_service.generate_metadata(
+            transcript=video.transcription or "",
+            video_id=video_id,
+            options={"tier": user.tier.value},
+        )
+
+        new_tags = result.get("tags", video.tags or [])
+        if isinstance(new_tags, str):
+            new_tags = [t.strip() for t in new_tags.split(",") if t.strip()]
+
+        # Update video
+        video.tags = new_tags
+        video.title_regenerations = current_regens + 1
+        video.updated_at = datetime.utcnow()
+        video_service.update_video(video)
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "tags": new_tags,
+                    "regenerations_used": current_regens + 1,
+                    "regenerations_remaining": max_regens - (current_regens + 1),
+                }
+            ),
+            200,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate tags: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1284,38 +1438,164 @@ def download_video(video_id):
         video = video_service.get_video(video_id, user_id)
 
         if not video:
-            raise ValidationError("Video not found", field="video_id")
+            return jsonify({"error": "Video not found"}), 404
 
-        if video.status != "completed":
-            raise ValidationError("Video is not ready for download", field="video_id")
+        # Better status check - handle both string and enum
+        video_status = video.status
+        if hasattr(video_status, "value"):
+            video_status = video_status.value
 
-        if not video.output_video_url:
-            raise ValidationError("Video output not available", field="video_id")
+        logger.info(f"Video status: {video_status}")
 
-        # For local files, send file directly
-        if video.output_video_url.startswith("/"):
-            if os.path.exists(video.output_video_url):
-                return send_file(
-                    video.output_video_url,
-                    as_attachment=True,
-                    download_name=f"processed_{video.original_filename}",
-                )
+        if video_status != "completed":
+            return (
+                jsonify(
+                    {
+                        "error": f"Video is not ready for download. Current status: {video_status}",
+                        "status": video_status,
+                    }
+                ),
+                400,
+            )
 
-        # For remote URLs, redirect or proxy
-        return (
-            jsonify(
-                {
-                    "download_url": video.output_video_url,
-                    "filename": f"processed_{video.original_filename}",
-                    "size": video.output_video_size,
-                }
-            ),
-            200,
+        # Get the actual file path
+        video_path = video.output_video_url or video.output_path
+
+        # Try to find the file if path doesn't exist
+        if not video_path or not os.path.exists(video_path):
+            # Try to find in user's video directory
+            user_video_dir = video_service.get_user_video_base_dir(user_id)
+            video_dir = user_video_dir / video_id
+            if video_dir.exists():
+                # Look for any mp4 file (excluding original)
+                import glob
+
+                mp4_files = glob.glob(str(video_dir / "*.mp4"))
+                # Filter out original.mp4
+                processed_files = [f for f in mp4_files if "original" not in f.lower()]
+                if processed_files:
+                    video_path = max(processed_files, key=os.path.getmtime)
+                    logger.info(f"Found video file: {video_path}")
+
+        if not video_path or not os.path.exists(video_path):
+            return jsonify({"error": "Video file not found"}), 404
+
+        logger.info(f"Serving video file: {video_path}")
+        logger.info(f"File size: {os.path.getsize(video_path)} bytes")
+
+        return send_file(
+            video_path,
+            mimetype="video/mp4",
+            as_attachment=True,
+            download_name=f"processed_{video.original_filename or 'video'}.mp4",
         )
 
     except Exception as e:
         logger.error(f"Download video failed: {str(e)}")
-        raise
+        return jsonify({"error": str(e)}), 500
+
+
+@router.route("/<video_id>/download/all", methods=["GET"])
+@jwt_required()
+def download_all_assets(video_id):
+    """Download all assets (video + thumbnails + transcription + metadata) as ZIP."""
+    user_id = get_jwt_identity()
+
+    try:
+        import zipfile
+        import io
+        import os
+        import json
+
+        video = video_service.get_video(video_id, user_id)
+        if not video:
+            return jsonify({"error": "Video not found"}), 404
+
+        # Create in-memory ZIP
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            # 1. Add video
+            video_path = video.output_video_url or video.output_path
+            if video_path and os.path.exists(video_path):
+                zip_file.write(video_path, f"video_{video_id}.mp4")
+                logger.info(f"Added video to ZIP: {video_path}")
+            else:
+                logger.warning(f"Video file not found: {video_path}")
+
+            # 2. Add thumbnails
+            thumb_count = 0
+            thumbnails = []
+
+            if hasattr(video, "ai_thumbnails") and video.ai_thumbnails:
+                thumbnails.extend(video.ai_thumbnails)
+            if hasattr(video, "extracted_thumbnails") and video.extracted_thumbnails:
+                thumbnails.extend(video.extracted_thumbnails)
+
+            for thumb in thumbnails:
+                thumb_path = thumb if isinstance(thumb, str) else thumb.get("path", "")
+                if thumb_path and os.path.exists(thumb_path):
+                    zip_file.write(
+                        thumb_path, f"thumbnails/thumbnail_{thumb_count}.jpg"
+                    )
+                    thumb_count += 1
+
+            logger.info(f"Added {thumb_count} thumbnails to ZIP")
+
+            # 3. Add transcription if available
+            if hasattr(video, "transcription") and video.transcription:
+                zip_file.writestr("transcription.txt", video.transcription)
+                logger.info("Added transcription to ZIP")
+
+            # 4. Add metadata JSON with ALL fields
+            metadata = {
+                "video_id": video.id,
+                "title": video.title,
+                "description": video.description,
+                "duration": video.duration,
+                "quality": video.output_quality,
+                "applied_styles": video.applied_styles,
+                "tags": video.tags if hasattr(video, "tags") else [],
+                "fps": video.fps if hasattr(video, "fps") else None,
+                "speed": video.speed if hasattr(video, "speed") else 1.0,
+                "aspect_ratio": (
+                    video.aspect_ratio if hasattr(video, "aspect_ratio") else None
+                ),
+                "created_at": (
+                    video.created_at.isoformat() if video.created_at else None
+                ),
+                "processed_at": (
+                    video.processing_completed.isoformat()
+                    if video.processing_completed
+                    else None
+                ),
+            }
+            zip_file.writestr("metadata.json", json.dumps(metadata, indent=2))
+            logger.info("Added metadata to ZIP")
+
+        zip_buffer.seek(0)
+
+        # Verify ZIP is valid
+        try:
+            test_zip = zipfile.ZipFile(zip_buffer)
+            test_zip.testzip()
+            logger.info("ZIP validation passed")
+        except Exception as e:
+            logger.error(f"ZIP validation failed: {e}")
+            return jsonify({"error": "Failed to create valid ZIP file"}), 500
+
+        zip_buffer.seek(0)
+
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"video-assets-{video_id}.zip",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to download assets: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @router.route("/<video_id>/thumbnails", methods=["GET"])
