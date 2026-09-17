@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+print("hellO  ")
+
 
 def main():
     # Check if we're in the right directory
@@ -26,6 +28,8 @@ def main():
 
 
 if __name__ == "__main__":
+    print("hellO")
+
     # Create app ONCE
     app, socketio = create_app()
 
